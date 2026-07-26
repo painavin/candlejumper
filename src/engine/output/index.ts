@@ -2,6 +2,7 @@ export type {
   FrameState,
   ChartFrame,
   VisibleBar,
+  BarDirection,
   ChartBounds,
   RunPhase,
   HudState,

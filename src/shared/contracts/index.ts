@@ -2,6 +2,8 @@ export type { OhlcvBar } from './bar.js'
 export type { ParamSpec, ParamValues } from './params.js'
 export type { TouchHandlers } from './controls.js'
 export type { IndicatorPlugin, IndicatorInstance } from './indicator.js'
+export { instanceLabel } from './indicator.js'
+export type { LabelledIndicator } from './indicator.js'
 export type {
   StopPlugin,
   StopInstanceSpec,

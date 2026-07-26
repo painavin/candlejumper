@@ -111,3 +111,31 @@ export function rangeColour(direction: 'up' | 'down' | 'flat', palette: CandlePa
   const body = bodyColour(direction, palette)
   return dimTo(mixColour(body, palette.neutral, RANGE_MIX), luma(body) - MIN_LUMA_GAP)
 }
+
+/**
+ * Extra dimming for a histogram bar, on top of the range colour.
+ *
+ * The range colour is tuned to read against the **sky**, which is what a candle sits
+ * on. A histogram bar sits on a **pane plate** instead, and that plate is much closer
+ * in lightness: `jolly`'s works out around 0.46 luma against a muted green range of
+ * roughly 0.40, so the bars came out barely distinguishable from their own background.
+ *
+ * Dimming here rather than in `rangeColour` is the point — the wicks read correctly
+ * where they are, and darkening them to fix the histogram would break the thing that
+ * already worked.
+ */
+const HISTOGRAM_DIM = 0.34
+
+/**
+ * A histogram bar's fill: the same hue as the matching candle's range, darker.
+ *
+ * Still derived from `rangeColour` rather than mixed independently, so a volume bar and
+ * its candle stay recognisably the same colour — the whole point of colouring it by
+ * direction at all.
+ */
+export function histogramColour(
+  direction: 'up' | 'down' | 'flat',
+  palette: CandlePalette
+): number {
+  return mixColour(rangeColour(direction, palette), 0x000000, HISTOGRAM_DIM)
+}

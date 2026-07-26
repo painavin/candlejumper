@@ -14,6 +14,16 @@ import type { PositionEvent } from './events.js'
  * line — and `engine/stops/` stays swappable without touching `render/`.
  */
 
+/**
+ * Which way a bar closed. `flat` is a doji: it opened and closed at the same price.
+ *
+ * Derived from the raw prices, and carried on the frame so every consumer reads the
+ * *same* answer. The candle body, the candle's range, and the volume bar are all
+ * coloured from it, and two of them computing it independently is two of them that can
+ * disagree.
+ */
+export type BarDirection = 'up' | 'down' | 'flat'
+
 /** One pole on screen. Only played bars ever appear here. */
 export interface VisibleBar {
   bar: OhlcvBar
@@ -40,6 +50,15 @@ export interface VisibleBar {
   openUnit: number
   highUnit: number
   lowUnit: number
+  /**
+   * Up, down, or flat — from the **prices**, not the units.
+   *
+   * At the edge of the chart the unit conversion clamps, so a genuinely rising bar
+   * whose open and close both sit above the bounds would compare *equal* in unit space
+   * and be miscoloured as unchanged. Computing it here, once, from the raw values is
+   * what makes that impossible rather than merely handled.
+   */
+  direction: BarDirection
   /**
    * 0..1 through the bar's formation. Only the newest bar is ever below 1 — a
    * bar appearing complete directly under the character reads as a rendering
@@ -129,7 +148,17 @@ export interface StopLine {
  */
 export interface OverlayLine {
   instanceId: string
+  /**
+   * Human label for the legend, e.g. `SMA 20`.
+   *
+   * Carried on the line rather than looked up by the renderer, because `render/` may
+   * not import the plugin registry — and because several instances of one indicator
+   * can be active, so the *instance* is what needs naming, not the type.
+   */
+  label: string
   output: string
+  /** Player-chosen line colour, so the legend and the line cannot disagree. */
+  colour: number
   /** One per visible bar, oldest first. `null` where the indicator was warming up. */
   units: readonly (number | null)[]
 }
@@ -139,7 +168,25 @@ export interface SubPane {
   instanceId: string
   title: string
   /** Independently normalized from the price scale above it. */
-  series: readonly { output: string; units: readonly (number | null)[] }[]
+  series: readonly {
+    output: string
+    colour: number
+    units: readonly (number | null)[]
+    /**
+     * Per-point direction, aligned index-for-index with `units`.
+     *
+     * When present, the renderer colours each point from its direction instead of the
+     * series colour — the volume pane uses it so a day's volume bar matches that day's
+     * candle. Optional because most series have no direction to report: a moving
+     * average is just a level.
+     *
+     * The *direction* is here and the *colour* is not, deliberately. Colour depends on
+     * the P&L palette and the theme, neither of which the engine may read, and routing
+     * it through the renderer's own candle colouring is what guarantees a volume bar
+     * and its candle come out the same shade rather than two places agreeing by hand.
+     */
+    directions?: readonly BarDirection[]
+  }[]
   /** Value-space bounds, for the pane's own labels. */
   min: number
   max: number

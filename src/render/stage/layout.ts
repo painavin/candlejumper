@@ -3,11 +3,11 @@ import { LAYOUT } from '@config/index.js'
 /**
  * Screen geometry for one frame size.
  *
- * The load-bearing detail is that **playfield width is the pole region only** —
- * left edge to the character — not the full viewport. Unplayed poles are never
- * rendered, so the fog strip right of the character never contains poles;
- * measuring bar width against the full viewport would silently shrink the
- * visible history by 25% and make `visibleBarCount` a lie. See
+ * The load-bearing detail is that **playfield width is the bar region only** —
+ * left edge to the character — not the full viewport. Unplayed bars are never
+ * rendered, so the strip right of the character never contains bars; measuring bar
+ * width against the full viewport would silently shrink the visible history by 25%
+ * and make `visibleBarCount` a lie. See
  * docs/game-design.md#scroll-speed-timing-and-pole-geometry.
  */
 
@@ -25,7 +25,14 @@ export interface Layout {
   characterX: number
   /** Left edge to `characterX`. */
   playfieldWidth: number
-  /** `characterX` to the right edge — atmosphere and the Y axis, never poles. */
+  /**
+   * `characterX` to the right edge — the Y axis and open sky, never bars.
+   *
+   * Still named for the leading-edge fog that used to fill it. The fog is gone (it hid
+   * nothing, because unplayed bars aren't in the frame at all) but the region is still
+   * the thing that makes `playfieldWidth` smaller than the viewport, so it keeps its
+   * own name.
+   */
   fogWidth: number
   /** One bar's horizontal slot, including its gap. */
   barWidth: number

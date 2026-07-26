@@ -17,6 +17,7 @@ import {
   totalPnl,
   unrealizedPnl,
 } from '../position/position.js'
+import { DEFAULT_INDICATOR_COLOUR } from '@shared/palette/index.js'
 import { createInputBuffer } from '../pipeline/inputBuffer.js'
 import type { TradeAction } from '../pipeline/inputBuffer.js'
 import { tickBar } from '../pipeline/tick.js'
@@ -159,6 +160,10 @@ export function createRunController({
         const values = windowOf(series.history[output] ?? [], chart)
         lines.push({
           instanceId: series.instanceId,
+          colour: series.colour,
+          // `displayName` is already per-instance, built from the plugin's params by
+          // the feed — see `instanceLabel`.
+          label: series.outputs.length > 1 ? `${series.displayName} ${output}` : series.displayName,
           output,
           // Through the *same* normalizer the poles used, so the line sits on them.
           units: values.map((value) => (value === null ? null : playback.unitOf(value))),
@@ -197,6 +202,7 @@ export function createRunController({
       title: series.displayName,
       series: windows.map((entry) => ({
         output: entry.output,
+        colour: series.colour,
         units: entry.values.map((value) => (value === null ? null : (value - min) / span)),
       })),
       min,
@@ -216,7 +222,20 @@ export function createRunController({
     return {
       instanceId: 'volume',
       title: 'Volume',
-      series: [{ output: 'volume', units: chart.bars.map((visible) => visible.bar.v / span) }],
+      series: [
+        {
+          output: 'volume',
+          // Never actually used: `directions` is present, so the renderer colours every
+          // bar individually. Kept as the fallback for a bar with no direction.
+          colour: DEFAULT_INDICATOR_COLOUR,
+          units: chart.bars.map((visible) => visible.bar.v / span),
+          // Volume is the one pane whose points correspond one-for-one with price
+          // bars, so each can be coloured like the candle above it. That reads as
+          // "heavy selling" versus "heavy buying" at a glance, which a single-colour
+          // histogram cannot say at all.
+          directions: chart.bars.map((visible) => visible.direction),
+        },
+      ],
       min: 0,
       max: span,
       histogram: true,

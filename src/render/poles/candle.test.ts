@@ -37,6 +37,8 @@ function visible(units: {
     openUnit: units.open,
     highUnit: units.high,
     lowUnit: units.low,
+    // Mirrors what playback derives, so the fixture can't disagree with the engine.
+    direction: c > o ? 'up' : c < o ? 'down' : 'flat',
     growth: units.growth ?? 1,
   }
 }

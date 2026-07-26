@@ -30,10 +30,12 @@
     StopInstanceConfig,
   } from '@config/index.js'
   import type { ParamSpec, TickerMeta } from '@shared/contracts/index.js'
+  import { instanceLabel } from '@shared/contracts/index.js'
   import { mintSeed } from '@shared/math/index.js'
   import { audioThemes } from '@content/audioThemes/index.js'
   import { visualThemes } from '@content/visualThemes/index.js'
   import { characters } from '@content/characters/index.js'
+  import { INDICATOR_COLOURS, nextIndicatorColour } from '@shared/palette/index.js'
   import { untrack } from 'svelte'
   import { snapshot } from '../appState.svelte.js'
   import ParamControl from '../controls/ParamControl.svelte'
@@ -48,6 +50,8 @@
 
   interface IndicatorChoice extends Choice {
     paneKind: 'overlay' | 'oscillator'
+    /** Short form for the legend, e.g. `SMA`. Falls back to `displayName`. */
+    abbreviation?: string
   }
 
   let {
@@ -148,29 +152,123 @@
     }
   }
 
-  const indicatorFor = (id: string): IndicatorInstanceConfig | undefined =>
-    draft.indicators.active.find((active) => active.typeId === id)
+  const indicatorColours = INDICATOR_COLOURS
 
-  function toggleIndicator(choice: IndicatorChoice, enabled: boolean): void {
-    if (enabled) {
-      draft.indicators.active = [
-        ...draft.indicators.active,
-        {
-          typeId: choice.id,
-          params: defaults(choice.params),
-          // One instance per type from this screen. The engine supports several of
-          // the same indicator at different lengths; adding that UI needs an
-          // add/remove list rather than a checkbox, and can wait for a second
-          // indicator to exist.
-          instanceId: `${choice.id}-1`,
-        },
-      ]
-    } else {
-      draft.indicators.active = draft.indicators.active.filter(
-        (active) => active.typeId !== choice.id
-      )
+  /** `0xffd166` → `#ffd166`, for a style attribute. */
+  const cssColour = (value: number): string => `#${value.toString(16).padStart(6, '0')}`
+
+  const instancesOf = (id: string): IndicatorInstanceConfig[] =>
+    draft.indicators.active.filter((active) => active.typeId === id)
+
+  /**
+   * The smallest positive integer not already used by this type.
+   *
+   * Deterministic on purpose — `Math.random()` is banned repo-wide, and a timestamp
+   * would make instance ids differ between two identical configurations. Reusing a
+   * freed number also keeps ids stable across an add/remove/add cycle, so a config
+   * saved before and after that round trip is the same config.
+   */
+  function nextInstanceId(typeId: string): string {
+    const taken = new Set(instancesOf(typeId).map((active) => active.instanceId))
+    for (let n = 1; ; n++) {
+      const candidate = `${typeId}-${n}`
+      if (!taken.has(candidate)) return candidate
     }
   }
+
+  /** The type selected in the add picker. Never committed until Add is pressed. */
+  let addTypeId = $state('')
+
+  function addIndicator(typeId: string): void {
+    const choice = indicatorChoices.find((candidate) => candidate.id === typeId)
+    if (!choice) return
+    draft.indicators.active = [
+      ...draft.indicators.active,
+      {
+        typeId: choice.id,
+        params: defaults(choice.params),
+        instanceId: nextInstanceId(choice.id),
+        colour: nextIndicatorColour(draft.indicators.active.map((active) => active.colour)),
+      },
+    ]
+  }
+
+  /** The choice descriptor for a configured instance, or undefined if its plugin is gone. */
+  const choiceFor = (typeId: string): IndicatorChoice | undefined =>
+    indicatorChoices.find((choice) => choice.id === typeId)
+
+  function removeIndicator(instanceId: string): void {
+    draft.indicators.active = draft.indicators.active.filter(
+      (active) => active.instanceId !== instanceId
+    )
+  }
+
+  /**
+   * The label the chart legend will show for this instance.
+   *
+   * The *same* function the renderer's legend and the pane titles use, not a
+   * reimplementation — an `IndicatorChoice` structurally satisfies `LabelledIndicator`,
+   * so there's nothing to adapt. If these ever disagreed, a settings row and a chart
+   * line would name the same series two different ways.
+   */
+  const labelFor = (choice: IndicatorChoice, active: IndicatorInstanceConfig): string =>
+    instanceLabel(choice, active.params)
+
+  /**
+   * Where an instance will actually be drawn: its own override, or the plugin's hint.
+   *
+   * One resolver rather than the `??` inline at each use, because the summary line, the
+   * warning, and the pane count all have to agree about it.
+   */
+  const paneOf = (active: IndicatorInstanceConfig): 'overlay' | 'oscillator' =>
+    active.paneKind ?? choiceFor(active.typeId)?.paneKind ?? 'overlay'
+
+  /** `''` from the select means "no override", not a third kind. */
+  function setPaneKind(active: IndicatorInstanceConfig, value: string): void {
+    active.paneKind = value === 'overlay' || value === 'oscillator' ? value : undefined
+  }
+
+  /**
+   * How many panes are configured beyond what this viewport can show.
+   *
+   * Surfaced rather than left silent: `subPanesFor` slices the list to the cap, so
+   * extra panes simply don't appear. A control that accepts input and discards it
+   * without saying so is worse than one that refuses.
+   *
+   * Counts the *resolved* pane kind, so moving an oscillator onto the main chart
+   * clears the warning — which is now one of the ways to fix it.
+   */
+  const hiddenPanes = $derived.by(() => {
+    const panes = draft.indicators.active.filter((active) => paneOf(active) === 'oscillator').length
+    const requested = panes + (draft.volume.enabled ? 1 : 0)
+    // Matches LAYOUT's cap: three panes on a desktop, one in portrait.
+    return Math.max(0, requested - 3)
+  })
+
+  /**
+   * State lines for the collapsed summaries.
+   *
+   * These carry the section's own answer, so collapsing costs no information. It
+   * matters most for stops: they used to sit permanently visible, and a risk rule you
+   * can't see without clicking is worse than one you can.
+   */
+  const indicatorSummary = $derived(
+    draft.indicators.active.length === 0 ? ' — none' : ` — ${draft.indicators.active.length}`
+  )
+
+  const stopSummary = $derived.by(() => {
+    const active = draft.stops.active
+    if (active.length === 0) return ' — none, fully manual'
+    const names = active.map((stop) => {
+      const name = stopChoices.find((choice) => choice.id === stop.typeId)?.displayName ?? stop.typeId
+      return stop.advisory ? `${name} (advisory)` : name
+    })
+    return ` — ${names.join(', ')}`
+  })
+
+  /** Shared by both import blocks, so the sandbox promise is worded once. */
+  const SANDBOX_NOTE =
+    'Imported code is an ES module that default-exports the contract. It runs in a Web Worker with no DOM, no filesystem, and no access to this app — that sandbox is the only place it ever executes.'
 
   function defaults(params: ParamSpec[]): Record<string, number> {
     const out: Record<string, number> = {}
@@ -245,6 +343,32 @@
     </p>
   {/if}
 
+  <!--
+    One list per kind, filtered from the same `plugins` prop. A snippet rather than two
+    copies: the status text and the remove affordance have to stay identical, and this
+    is exactly the duplication that drifts.
+  -->
+  {#snippet pluginList(kind: 'stop' | 'indicator')}
+    {@const listed = plugins.filter((plugin) => plugin.kind === kind)}
+    {#if listed.length > 0}
+      <ul class="plugins">
+        {#each listed as plugin (plugin.name)}
+          <li>
+            <span class="pname">{plugin.name}</span>
+            <span class="pstatus">{plugin.status}</span>
+            <button type="button" class="remove" onclick={() => onRemovePlugin(plugin.name)}>
+              Remove
+            </button>
+          </li>
+        {/each}
+      </ul>
+      <p class="note">
+        Source text is kept, not a file path — a browser can't re-read a file you
+        picked last week. Edit the file on disk and import it again to update it.
+      </p>
+    {/if}
+  {/snippet}
+
   <div class="columns">
 
   <section>
@@ -311,55 +435,6 @@
   </section>
 
   <section>
-    <h2>Risk rules</h2>
-    <p class="note">
-      Committed before the run and not editable during it. An <strong>advisory</strong>
-      stop shows its level but never closes for you — that's the version that
-      measures your discipline rather than the engine's.
-    </p>
-
-    {#each stopChoices as choice (choice.id)}
-      {@const active = stopFor(choice.id)}
-      <div class="row">
-        <label class="check">
-          <input
-            type="checkbox"
-            checked={active !== undefined}
-            onchange={(event) => toggleStop(choice, event.currentTarget.checked)}
-          />
-          {choice.displayName}
-          {#if choice.sandboxed}<span class="badge">sandboxed</span>{/if}
-        </label>
-
-        {#if active}
-          <div class="row-body">
-            {#each choice.params as spec (spec.key)}
-              <ParamControl
-                {spec}
-                value={active.params[spec.key] ?? (spec.default as number)}
-                onChange={(next) => (active.params[spec.key] = next)}
-              />
-            {/each}
-            <label class="check">
-              <input type="checkbox" bind:checked={active.advisory} />
-              Advisory <span class="note inline">
-                {active.advisory ? 'you close it yourself' : 'the engine closes it for you'}
-              </span>
-            </label>
-          </div>
-        {/if}
-      </div>
-    {/each}
-
-    {#if draft.stops.active.length === 0}
-      <p class="warn">
-        No rule committed — fully manual exits. Valid, but the discipline meter
-        has nothing to measure and stays dormant.
-      </p>
-    {/if}
-  </section>
-
-  <section>
     <h2>Chart</h2>
     <label>
       Bar style
@@ -375,34 +450,6 @@
       draw a narrow wick through a wider body. Every mood ships as Bollinger bars, so
       "Match the mood" and "Bollinger bars" currently agree.
     </p>
-    {#each indicatorChoices as choice (choice.id)}
-      {@const active = indicatorFor(choice.id)}
-      <div class="row">
-        <label class="check">
-          <input
-            type="checkbox"
-            checked={active !== undefined}
-            onchange={(event) => toggleIndicator(choice, event.currentTarget.checked)}
-          />
-          {choice.displayName}
-          {#if choice.sandboxed}<span class="badge">sandboxed</span>{/if}
-          <span class="note inline">
-            {choice.paneKind === 'overlay' ? 'drawn on the chart' : 'its own pane below'}
-          </span>
-        </label>
-        {#if active}
-          <div class="row-body">
-            {#each choice.params as spec (spec.key)}
-              <ParamControl
-                {spec}
-                value={active.params[spec.key] ?? (spec.default as number)}
-                onChange={(next) => (active.params[spec.key] = next)}
-              />
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/each}
 
     <label class="check">
       <input type="checkbox" bind:checked={draft.volume.enabled} />
@@ -535,41 +582,200 @@
     </p>
   </section>
 
+  <!--
+    One collapsible section per plugin kind, each owning that kind end to end: the
+    configured instances, and the button to import more of them.
+
+    This replaces a single "Plugins" section that held the import buttons for both
+    kinds while the stop *rules* lived in a separate card and the indicators in a
+    third place. Splitting by kind rather than by "is it a plugin" means there is one
+    place to go per question — "what are my stops" and "what's on my chart" — instead
+    of two halves of each answer sitting in different sections.
+
+    Both are collapsed, matching Advanced, but each summary carries a state line so
+    the collapsed form still answers its own question without being opened. That
+    matters most for stops: they used to be permanently visible, and a risk rule you
+    can't see is worse than one you have to click for.
+  -->
   <details class="advanced">
-    <summary>Plugins</summary>
+    <summary>Stop rules{stopSummary}</summary>
     <div class="details-body">
       <p class="note">
-        Your own stop rules and indicators, as ES modules that default-export the
-        contract. They run in a <strong>Web Worker</strong> with no DOM, no
-        filesystem, and no access to this app — that sandbox is the only place
-        imported code ever executes.
+        Committed before the run and not editable during it. An <strong>advisory</strong>
+        stop shows its level but never closes for you — that's the version that
+        measures your discipline rather than the engine's.
       </p>
-      <div class="pair">
+
+      {#each stopChoices as choice (choice.id)}
+        {@const active = stopFor(choice.id)}
+        <div class="row">
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={active !== undefined}
+              onchange={(event) => toggleStop(choice, event.currentTarget.checked)}
+            />
+            {choice.displayName}
+            {#if choice.sandboxed}<span class="badge">sandboxed</span>{/if}
+          </label>
+
+          {#if active}
+            <div class="row-body">
+              {#each choice.params as spec (spec.key)}
+                <ParamControl
+                  {spec}
+                  value={active.params[spec.key] ?? (spec.default as number)}
+                  onChange={(next) => (active.params[spec.key] = next)}
+                />
+              {/each}
+              <label class="check">
+                <input type="checkbox" bind:checked={active.advisory} />
+                Advisory <span class="note inline">
+                  {active.advisory ? 'you close it yourself' : 'the engine closes it for you'}
+                </span>
+              </label>
+            </div>
+          {/if}
+        </div>
+      {/each}
+
+      {#if draft.stops.active.length === 0}
+        <p class="warn">
+          No rule committed — fully manual exits. Valid, but the discipline meter
+          has nothing to measure and stays dormant.
+        </p>
+      {/if}
+
+      <div class="import">
         <button type="button" class="secondary" onclick={() => onImportPlugins('stop')}>
           Import stop rule
         </button>
-        <button type="button" class="secondary" onclick={() => onImportPlugins('indicator')}>
-          Import indicator
+        <p class="note">{SANDBOX_NOTE}</p>
+        {@render pluginList('stop')}
+      </div>
+    </div>
+  </details>
+
+  <details class="advanced">
+    <summary>Indicators{indicatorSummary}</summary>
+    <div class="details-body">
+      <!--
+        Lists what you have *added*, not what exists to add. An earlier version gave
+        every available indicator a permanent block with its own Add button, so the
+        section grew with the size of the plugin registry even when nothing was
+        configured — a sixth indicator type cost screen space before anyone used it.
+      -->
+      {#if draft.indicators.active.length === 0}
+        <p class="note">
+          None yet. A moving average is usually drawn on the chart itself; an
+          oscillator usually gets its own pane below — but you can put either
+          anywhere.
+        </p>
+      {/if}
+
+      {#each draft.indicators.active as instance (instance.instanceId)}
+        {@const choice = choiceFor(instance.typeId)}
+        <details class="instance">
+          <summary>
+            <span class="swatch" style={`background: ${cssColour(instance.colour)}`}></span>
+            <strong>{choice ? labelFor(choice, instance) : instance.typeId}</strong>
+            <span class="note inline">
+              {paneOf(instance) === 'overlay' ? 'on chart' : 'own pane'}
+            </span>
+            {#if choice?.sandboxed}<span class="badge">sandboxed</span>{/if}
+            {#if !choice}<span class="note inline">plugin missing</span>{/if}
+          </summary>
+          <div class="instance-body">
+            {#if choice}
+              {#each choice.params as spec (spec.key)}
+                <ParamControl
+                  {spec}
+                  value={instance.params[spec.key] ?? (spec.default as number)}
+                  onChange={(next) => (instance.params[spec.key] = next)}
+                />
+              {/each}
+            {/if}
+
+            <label>
+              Draw it
+              <select
+                value={instance.paneKind ?? ''}
+                onchange={(event) => setPaneKind(instance, event.currentTarget.value)}
+              >
+                <option value="">
+                  Default{choice
+                    ? ` (${choice.paneKind === 'overlay' ? 'on chart' : 'own pane'})`
+                    : ''}
+                </option>
+                <option value="overlay">On the main chart</option>
+                <option value="oscillator">In its own pane</option>
+              </select>
+            </label>
+            {#if paneOf(instance) === 'overlay' && choice?.paneKind === 'oscillator'}
+              <p class="note warn">
+                On the main chart this is drawn on the <em>price</em> scale, so values
+                that aren't prices will sit squashed against the bottom.
+              </p>
+            {/if}
+
+            <fieldset class="palette">
+              <legend>Line colour</legend>
+              {#each indicatorColours as colour (colour.value)}
+                <button
+                  type="button"
+                  class="chip"
+                  class:selected={instance.colour === colour.value}
+                  style={`background: ${cssColour(colour.value)}`}
+                  title={colour.name}
+                  aria-label={colour.name}
+                  aria-pressed={instance.colour === colour.value}
+                  onclick={() => (instance.colour = colour.value)}
+                ></button>
+              {/each}
+            </fieldset>
+            <button
+              type="button"
+              class="remove"
+              onclick={() => removeIndicator(instance.instanceId)}
+            >
+              Remove
+            </button>
+          </div>
+        </details>
+      {/each}
+
+      <div class="add-row">
+        <select bind:value={addTypeId} aria-label="Indicator to add">
+          <option value="">Add an indicator…</option>
+          {#each indicatorChoices as choice (choice.id)}
+            <option value={choice.id}>{choice.displayName}</option>
+          {/each}
+        </select>
+        <button
+          type="button"
+          class="add"
+          disabled={addTypeId === ''}
+          onclick={() => addIndicator(addTypeId)}
+        >
+          + Add
         </button>
       </div>
 
-      {#if plugins.length > 0}
-        <ul class="plugins">
-          {#each plugins as plugin (plugin.name)}
-            <li>
-              <span class="pname">{plugin.name}</span>
-              <span class="pstatus">{plugin.status}</span>
-              <button type="button" class="remove" onclick={() => onRemovePlugin(plugin.name)}>
-                Remove
-              </button>
-            </li>
-          {/each}
-        </ul>
-        <p class="note">
-          Source text is kept, not a file path — a browser can't re-read a file you
-          picked last week. Edit the file on disk and import it again to update it.
+      {#if hiddenPanes > 0}
+        <p class="note warn">
+          {hiddenPanes} {hiddenPanes === 1 ? 'pane' : 'panes'} won't fit and won't be drawn —
+          three panes on a desktop, one in portrait, and the volume pane takes one of them.
+          Remove one, draw it on the main chart instead, or turn off volume.
         </p>
       {/if}
+
+      <div class="import">
+        <button type="button" class="secondary" onclick={() => onImportPlugins('indicator')}>
+          Import indicator
+        </button>
+        <p class="note">{SANDBOX_NOTE}</p>
+        {@render pluginList('indicator')}
+      </div>
     </div>
   </details>
 
@@ -820,6 +1026,114 @@
   .row-body {
     padding: 8px 0 4px 26px;
   }
+  /*
+    One collapsed row per configured indicator. Collapsed by default so the section
+    stays scannable with several added — the summary carries the colour and the label,
+    which is all you need to confirm a setup at a glance.
+  */
+  details.instance {
+    margin: 5px 0;
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    background: var(--field);
+  }
+  details.instance > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  details.instance > summary strong {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+  }
+  .instance-body {
+    padding: 4px 10px 10px;
+  }
+  /* The colour in the row header, so a collapsed list still maps to the chart. */
+  .swatch {
+    flex: none;
+    width: 16px;
+    height: 4px;
+    border-radius: 2px;
+  }
+  /* Separated from the configured list above it: importing is a different act. */
+  .import {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--edge);
+  }
+  .add-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+  }
+  .add-row select {
+    flex: 1;
+  }
+  fieldset.palette {
+    margin: 10px 0 8px;
+    padding: 0;
+    border: 0;
+  }
+  fieldset.palette legend {
+    padding: 0 0 5px;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  button.chip {
+    /* 26px rather than a hairline swatch: this is a touch target on a phone. */
+    width: 26px;
+    height: 26px;
+    margin: 0 6px 0 0;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  button.chip.selected {
+    /* Ring plus inset gap, so the selection survives being the same hue as the ring. */
+    border-color: var(--ink);
+    box-shadow: 0 0 0 2px var(--panel-solid) inset;
+  }
+  button.add {
+    padding: 5px 12px;
+    font-size: 12.5px;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.add:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button.add:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  button.remove {
+    padding: 4px 10px;
+    font-size: 12.5px;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dim);
+    cursor: pointer;
+  }
+  button.remove:hover {
+    border-color: var(--down);
+    color: var(--down);
+  }
+  .note.warn {
+    color: var(--down);
+  }
   details {
     margin-top: 14px;
   }
@@ -877,10 +1191,6 @@
     border-radius: 999px;
     color: var(--dim);
     font-size: 11px;
-  }
-  .pair {
-    display: flex;
-    gap: 8px;
   }
   .plugins {
     margin: 14px 0 0;

@@ -59,8 +59,8 @@ in/out while already Active doesn't change state, only size and cost basis.
   original "sell price minus buy price" arithmetic holds exactly.
   (Considered and rejected: filling at the *next* bar's close, which is
   more realistic — a real order can't fill at a price you've already
-  seen — but puts the fill price behind the leading-edge fog and delays
-  feedback.)
+  seen — but puts the fill price on a bar that hasn't been played yet and
+  delays feedback.)
 - **Position size is signed**: positive = long, negative = short, zero =
   flat. See [Shorting](#shorting) below — the engine handles both
   directions from day one even though the default game mode is long-only.
@@ -330,14 +330,15 @@ The rules the engine enforces regardless of which plugin is active:
 - One pole per day of price data, in chronological order.
 - **Unplayed poles are never rendered at all.** A pole is only spawned once
   it reaches the character's x-position (the traded "now"); the strip to the
-  right of the character contains background layers and fog, but no poles.
+  right of the character contains background layers, but no poles.
   This makes the no-lookahead constraint
   ([game-feel.md](./game-feel.md#new-composition--the-lookahead-problem))
-  *structural* rather than something enforced by fog opacity — there is
-  nothing to leak, so there's nothing to verify visually or to accidentally
-  regress by tweaking a gradient. It also avoids rendering ~15 poles per
-  frame that are meant to be invisible. The fog therefore becomes purely
-  atmospheric.
+  *structural* rather than something enforced by an opacity gradient — there
+  is nothing to leak, so there's nothing to verify visually or to accidentally
+  regress. It also avoids rendering ~15 poles per frame that are meant to be
+  invisible. A leading-edge fog was drawn over that strip originally; it has
+  been removed, because it was hiding nothing and hazed the scene behind it
+  for no gain.
 - **New bars "form" rather than pop in.** A bar appearing complete directly
   under the character would read as a rendering glitch, so instead the newest
   bar **opens as a flat mark at its open price and extends toward its close**
@@ -379,8 +380,8 @@ The rules the engine enforces regardless of which plugin is active:
 
   **Critical detail**: the window runs from the left edge to the
   character's position — the *traded* present — and must **exclude any
-  bars sitting behind the leading-edge fog**. Those bars are technically
-  on screen but haven't been played yet; letting them into the min/max
+  bars right of the character**. Those bars are technically within the
+  viewport but haven't been played yet; letting them into the min/max
   would leak a screen-width of future prices, which is the exact bug this
   default exists to avoid.
 
@@ -470,7 +471,7 @@ The rules the engine enforces regardless of which plugin is active:
 - **"Playfield width" means the pole region only** — from the left edge to
   the character's x-position (~70–80% of the viewport), *not* the full
   viewport. Bar width is `playfieldWidth / visibleBarCount`. This matters
-  because unplayed poles are never rendered (above), so the fog strip right
+  because unplayed poles are never rendered (above), so the strip right
   of the character never contains poles; measuring bar width against the
   full viewport would silently shrink the actual visible history by 20–30%
   and make `visibleBarCount` a lie.
@@ -503,8 +504,8 @@ $150 ┤▐▌▐▌▐▌▐▌              ← axis bottom: the year's low, a
      └────────────────────
 ```
 
-The player hasn't seen a single future bar — the leading-edge fog is doing
-its job — but the axis has told them the answer: this stock reaches $250
+The player hasn't seen a single future bar — unplayed bars aren't drawn at
+all — but the axis has told them the answer: this stock reaches $250
 (+56%) at some point, and never drops below $150. Optimal play becomes
 "buy and hold, treat every dip as free money." No pattern recognition
 required, so the training value is gone.

@@ -4,15 +4,15 @@ import { computeLayout, unitToY } from './layout.js'
 describe('computeLayout', () => {
   it('derives bar width from the playfield, not the viewport', () => {
     // Measuring against the full viewport would silently shrink visible history
-    // by 25% and make visibleBarCount a lie, because the fog strip never holds
-    // poles.
+    // by 25% and make visibleBarCount a lie, because the strip right of the
+    // character never holds poles.
     const layout = computeLayout(1200, 800, 60)
     expect(layout.playfieldWidth).toBe(900)
     expect(layout.barWidth).toBe(15)
     expect(layout.barWidth).not.toBe(1200 / 60)
   })
 
-  it('leaves the fog strip right of the character', () => {
+  it('leaves the strip right of the character out of the playfield', () => {
     const layout = computeLayout(1200, 800, 60)
     expect(layout.characterX).toBe(900)
     expect(layout.fogWidth).toBe(300)

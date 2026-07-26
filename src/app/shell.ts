@@ -172,6 +172,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       ...[...indicatorRegistry.values()].map((plugin) => ({
         id: plugin.id,
         displayName: plugin.displayName,
+        abbreviation: plugin.abbreviation,
         paneKind: plugin.paneKind,
         params: plugin.params,
       })),
@@ -180,6 +181,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         .map((descriptor) => ({
           id: descriptor.id,
           displayName: descriptor.displayName,
+          abbreviation: descriptor.abbreviation,
           paneKind: descriptor.paneKind ?? 'overlay',
           params: descriptor.params as ParamSpec[],
           sandboxed: true,
@@ -189,6 +191,12 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
 
   pluginFiles = await loadStoredPlugins(store)
   if (pluginFiles.length > 0) await registerPlugins(pluginFiles)
+  // Unconditionally, and *not* only from `registerPlugins`. That's where it used to
+  // live, which meant a player with no imported plugin files — the normal case — got
+  // empty choice lists: no indicators in the Chart section and no stops in Risk
+  // rules, even though the registries had been seeded with the built-ins all along.
+  // The built-ins were unreachable from the UI entirely.
+  publishChoices()
 
   const fingerprintOf = (config: RunConfig, visibleBarCount: number): string =>
     runFingerprint(config, { visibleBarCount })
@@ -484,6 +492,8 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
           instanceId: active.instanceId,
           typeId: active.typeId,
           params: active.params,
+          colour: active.colour,
+          paneKind: active.paneKind,
         })),
         descriptors: sandboxed,
         client: pluginWorker,
@@ -498,6 +508,8 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         instanceId: active.instanceId,
         typeId: active.typeId,
         params: active.params,
+        colour: active.colour,
+        paneKind: active.paneKind,
       })),
       registry: indicatorRegistry,
     })

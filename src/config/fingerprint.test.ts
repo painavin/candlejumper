@@ -23,7 +23,9 @@ describe('runFingerprint', () => {
     comfortable.audio.masterVolume = 0
     comfortable.character.selected = 'bull'
     comfortable.volume.enabled = false
-    comfortable.indicators.active = [{ typeId: 'sma', params: { length: 20 }, instanceId: 'i1' }]
+    comfortable.indicators.active = [
+      { typeId: 'sma', params: { length: 20 }, instanceId: 'i1', colour: 0x4da3ff },
+    ]
     comfortable.hud.showStopLevelOnChart = false
 
     expect(runFingerprint(comfortable, CONTEXT)).toBe(runFingerprint(base, CONTEXT))

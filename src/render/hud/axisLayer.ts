@@ -10,8 +10,8 @@ import { hudDimTextStyle, hudTextStyle } from './hudText.js'
 import { drawPanel } from './hudPanel.js'
 
 /**
- * The right-edge price axis, drawn as a HUD layer *above* the fog so it stays
- * legible even though the world behind it is obscured.
+ * The right-edge price axis, drawn as a HUD layer above the world so it stays
+ * legible over whatever is behind it.
  *
  * Placed right because that's where real charting tools put the newest data and
  * where the player's eye already is.
@@ -64,7 +64,7 @@ export function createAxisLayer(format: AxisFormat, theme: VisualTheme): AxisLay
       // The axis gets its own plate, for the same reason the readouts do: a price
       // label sitting directly on sky belongs to the picture, and one sitting on a
       // bordered strip belongs to the chart. It also gives the gutter a defined edge
-      // rather than letting the labels float in the fog.
+      // rather than letting the labels float over open sky.
       drawPanel(
         lines,
         {

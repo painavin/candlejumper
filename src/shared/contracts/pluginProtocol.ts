@@ -44,6 +44,8 @@ export interface PluginDescriptor {
   kind: 'stop' | 'indicator'
   id: string
   displayName: string
+  /** Short form for chart legends. Indicators only. */
+  abbreviation?: string
   params: unknown[]
   paneKind?: 'overlay' | 'oscillator'
   outputs?: string[]
@@ -60,6 +62,7 @@ export function describePlugin(
     kind,
     id: plugin.id,
     displayName: plugin.displayName,
+    abbreviation: kind === 'indicator' ? indicator.abbreviation : undefined,
     params: plugin.params,
     paneKind: kind === 'indicator' ? indicator.paneKind : undefined,
     outputs: kind === 'indicator' ? indicator.outputs : undefined,

@@ -48,7 +48,8 @@ separating data from code visually.
 src/
 ├── shared/         contracts at every seam; imports nothing at all
 │   ├── contracts/    OhlcvBar, ParamSpec, both plugin contracts, PriceSeriesSource
-│   └── math/         the one seeded PRNG, the one seed minter, easing, hashing
+│   ├── math/         the one seeded PRNG, the one seed minter, easing, hashing
+│   └── palette/      the indicator line colours — see the note below
 │
 ├── config/         the config tree: types, defaults, validation, run fingerprint
 │
@@ -84,7 +85,7 @@ src/
 │   ├── stage/        Application setup, resize/orientation, layer ordering
 │   ├── bake/         generation output → RenderTexture, once at load
 │   ├── layers/       the parallax stack, back to front
-│   ├── poles/        pole rendering, bar-forming growth, leading-edge fog
+│   ├── poles/        candle geometry and colour, bar-forming growth
 │   ├── character/    rig drawing, math-driven animation, ghost stack
 │   ├── hud/          Y axis, top HUD, streak meter, stop lines, sub-panes
 │   ├── juice/        floating text, particles, screen shake
@@ -144,6 +145,15 @@ Arrows are the only permitted direction. Anything not listed is forbidden.
 | `input/` | `shared/`, `engine/pipeline/` (to enqueue presses) |
 | `platform/` | `shared/` |
 | `ui/` | `shared/`, `config/`, `content/`, `platform/`, `engine/scoring/` |
+
+**`shared/palette/` is a deliberate exception worth explaining**, because it looks
+misfiled. The indicator line colours are presentation data and belong with the themes
+in `content/` on every reading except the one that matters: four zones need them —
+`ui/` for the picker, `render/` for drawing, `engine/` for the volume pane's default,
+and `plugins/host/` for an instance that arrives without one — and `engine/` and
+`plugins/` may not import `content/`. Widening that grant to place a colour table
+would trade a real boundary for a filing preference. `shared/` is the zone every other
+one may reach, so that's where cross-zone constant data goes.
 | `app/` | everything |
 
 Four prohibitions carry real weight, and all four are lint rules rather

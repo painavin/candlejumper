@@ -1,5 +1,5 @@
 import type { BarStyle } from '@config/index.js'
-import type { VisibleBar } from '@engine/output/index.js'
+import type { BarDirection, VisibleBar } from '@engine/output/index.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
 import { clamp, lerp } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
@@ -42,8 +42,12 @@ export interface Rect {
   height: number
 }
 
-/** Direction of the body, from the raw prices rather than from the units. */
-export type CandleDirection = 'up' | 'down' | 'flat'
+/**
+ * Which way the body points. Re-exported from the engine rather than redefined: the
+ * volume bar is coloured from the same value, and two definitions is two things to
+ * keep in step.
+ */
+export type CandleDirection = BarDirection
 
 export interface CandleShape {
   /** Body of the bar: open to close, coloured. */
@@ -176,11 +180,10 @@ export function candleShapeAt(
   // conflicting bar rather than as one.
   const rangeWidth = clamp(bodyWidth * wickWidthFraction, 1, bodyWidth)
 
-  // Direction comes from the **prices**, not the units. At the edge of the chart
-  // `unit()` clamps, so a genuinely rising bar whose open and close both sit above
-  // the bounds would compare equal in unit space and be miscoloured as flat.
-  const direction: CandleDirection =
-    bar.bar.c > bar.bar.o ? 'up' : bar.bar.c < bar.bar.o ? 'down' : 'flat'
+  // Taken from the frame rather than recomputed here. It's derived from the raw
+  // prices — see `BarDirection` — and the volume pane reads the same field, so a
+  // candle and its volume bar cannot end up disagreeing about which way the day went.
+  const direction = bar.direction
 
   const range = span(highUnit, lowUnit, centreX, rangeWidth, layout)
 

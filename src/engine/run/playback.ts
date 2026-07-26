@@ -13,9 +13,9 @@ import type { RunClock } from './runClock.js'
  *
  * The load-bearing rule is that **a pole only exists once it reaches the
  * character**. Unplayed bars are never in `ChartFrame.bars` at all, which makes
- * the no-lookahead constraint structural rather than dependent on fog opacity —
- * there is nothing to leak, so nothing to verify visually or to regress by
- * tweaking a gradient. See docs/game-design.md#pole-generation--scroll.
+ * the no-lookahead constraint structural rather than dependent on an opacity
+ * gradient — there is nothing to leak, so nothing to verify visually and nothing
+ * to regress. See docs/game-design.md#pole-generation--scroll.
  */
 
 export interface Playback {
@@ -75,6 +75,9 @@ export function createPlayback({ bars, config, visibleBarCount }: PlaybackOption
         openUnit: normalizer.unit(bar.o),
         highUnit: normalizer.unit(bar.h),
         lowUnit: normalizer.unit(bar.l),
+        // From the raw prices, so a bar clamped against the top of the chart is still
+        // reported as rising. See `BarDirection`.
+        direction: bar.c > bar.o ? 'up' : bar.c < bar.o ? 'down' : 'flat',
         // Only the newest bar is still forming.
         growth: age === 0 ? growth : 1,
       }

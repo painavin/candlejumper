@@ -46,6 +46,28 @@ export interface IndicatorInstanceConfig {
   typeId: string
   params: Record<string, number>
   instanceId: string
+  /**
+   * Line colour, from the fixed palette in `content/indicatorPalette.ts`.
+   *
+   * Per *instance*, not derived from the instance's position in the list — otherwise
+   * removing one indicator recolours every line below it, and a player who learned
+   * "the amber one is the 200" has to relearn it.
+   */
+  colour: number
+  /**
+   * Where this instance is drawn, overriding the plugin's own `paneKind`.
+   *
+   * `undefined` means "whatever the plugin suggests" — the same shape as
+   * `visuals.barStyle: 'theme'`, and for the same reason: the plugin author's choice
+   * is a sensible default, not a decision the player has to be locked out of.
+   *
+   * Legitimate because `paneKind` is documented as a *rendering hint*: the same
+   * indicator is consumed as bare numbers by stop plugins, so it never depended on
+   * having a pane. What the override cannot change is the scale — an overlay is drawn
+   * on the price axis, so an indicator whose values aren't prices will sit squashed
+   * against the bottom of the chart. The UI says so rather than refusing.
+   */
+  paneKind?: 'overlay' | 'oscillator'
 }
 
 /**

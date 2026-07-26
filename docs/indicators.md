@@ -71,6 +71,8 @@ Notes that matter for implementation:
 interface IndicatorPlugin {
   id: string
   displayName: string
+  /** Short form for chart legends, e.g. 'SMA'. Falls back to displayName. */
+  abbreviation?: string
   paneKind: 'overlay' | 'oscillator'
   outputs: string[]              // named output series, e.g. ['macd', 'signal', 'histogram']
   params: ParamSpec[]
@@ -98,6 +100,107 @@ The **warm-up convention matters**: without an explicit "no value yet"
 signal, a moving average's first bars either draw a line from zero or
 require every renderer to special-case startup. `NaN` gives one rule
 everywhere.
+
+## Several instances of one indicator
+
+`indicators.active` is a list of **instances**, not a set of enabled types, so
+SMA 20, SMA 50, and SMA 200 are three entries with the same `typeId` and
+different `params`. Each gets its own `createInstance` call and its own
+accumulator, which is what makes them warm up on their own schedules — a
+shared accumulator would warm all three at the shortest length and quietly
+emit a wrong long average for the first bars.
+
+Three things this needs beyond the list itself:
+
+- **Instance ids are the smallest unused integer per type** (`sma-1`, `sma-2`,
+  …). Deterministic because `Math.random()` is banned repo-wide, and reusing a
+  freed number keeps ids stable across an add/remove/add cycle so the same
+  configuration always produces the same ids.
+- **Every instance names itself from its own params**, via `instanceLabel` —
+  `SMA 20`, not `Simple Moving Average`. That's what `abbreviation` is for: a
+  legend reading "Simple Moving Average 20 / Simple Moving Average 50 / Simple
+  Moving Average 200" is unreadable at the size a legend has to be. Every
+  declared param is appended in declaration order, so MACD(12, 26, 9) labels
+  itself without knowing the function exists.
+- **Each instance carries its own line colour**, chosen by the player from the
+  fixed palette in `shared/palette/`. Per instance rather than derived from list
+  position: otherwise removing one indicator recolours every line below it, and a
+  player who learned "the amber one is the 200" has to relearn it. A new instance
+  is assigned the first unused palette colour — deterministic, wrapping when
+  there are more instances than colours, and reusing a freed colour rather than
+  marching on.
+
+  The palette is **fixed rather than a free colour picker**. An arbitrary hex
+  value lets a player choose something that vanishes into the sky, or a red that
+  reads as a losing bar — the two things a chart overlay must never do. Every
+  entry is named, because a swatch alone conveys nothing to a screen reader and
+  "the third orange square" isn't a choice a colourblind player can make.
+- **The chart draws a legend once more than one overlay is active.** Three
+  overlays in three colours are otherwise indistinguishable, and three unlabelled
+  lines is worse than one labelled line — which makes the legend part of the
+  feature rather than a polish item. A single overlay draws no legend: it names
+  itself well enough in settings, and a one-row legend is clutter.
+
+`instanceLabel` lives in `shared/contracts/` and is the *same* function the
+legend, the pane titles, and the settings rows all call. It takes a
+`LabelledIndicator` — names plus param specs — rather than a whole plugin,
+because `ui/` only ever holds a descriptor and may not reach `plugins/`. If
+these ever disagreed, a settings row and a chart line would name the same
+series two different ways.
+
+## Managing them in settings
+
+**The settings screen has one collapsible section per plugin kind**, each owning that
+kind end to end: Stop rules holds the configured stops *and* the button to import more,
+Indicators holds the configured instances *and* the button to import more.
+
+That replaced a single "Plugins" section that held the import buttons for both kinds
+while the stop rules lived in their own card and the indicators in a third place.
+Splitting by **kind** rather than by "is it a plugin" means there's one place to go per
+question — "what are my stops", "what's on my chart" — instead of two halves of each
+answer in different sections. It also means adding a third plugin kind adds one section
+rather than editing two.
+
+Both are collapsed, matching Advanced, but **each summary carries a state line** so the
+collapsed form still answers its own question: `Stop rules — Trailing percent
+(advisory)`, `Indicators — 3`. That's load-bearing for stops in particular, which used
+to be permanently visible — a risk rule you can't see without clicking is worse than
+one you can.
+
+Inside, the indicator section lists **what you have added**, not what exists to add: one
+collapsed row per configured instance, and a single picker to add another. An earlier
+version gave every available indicator a permanent block with its own Add button, which
+meant the section grew with the size of the plugin registry even when nothing was
+configured — a sixth indicator type cost screen space before anyone used it. A type now
+costs nothing until it's in play.
+
+Each row's summary carries the colour swatch, the instance label, and where it's drawn,
+which is enough to confirm a setup without expanding anything.
+
+### The player chooses the pane
+
+`paneKind` on the plugin is a **default, not a verdict**. Any instance can be moved
+onto the main chart or into its own pane, which is legitimate precisely because the
+contract already calls `paneKind` a rendering hint — the same indicator is consumed as
+bare numbers by stop plugins, so it never depended on having a pane at all. Unset means
+"whatever the plugin suggests", the same shape as `visuals.barStyle: 'theme'`.
+
+The override is **presentation only**: the arithmetic, the warm-up, and the label are
+identical either way. Otherwise "where do I draw this" would quietly become "what does
+this compute".
+
+One thing it can't change is the *scale*. An overlay is drawn on the price axis, so an
+indicator whose values aren't prices — an RSI's 0–100 against a $250 chart — sits
+squashed against the bottom. That's a real result rather than a bug, so the settings
+screen warns instead of refusing: ATR is in price units and overlays perfectly
+sensibly, and forbidding the case would cost that.
+
+**Panes are capped** at three on a desktop and one in portrait, and the volume pane
+takes one of them. Configuring more is allowed but the extras aren't drawn, so the
+settings screen says so — a control that accepts input and discards it silently is
+worse than one that refuses. The count uses the *resolved* pane kind, so moving an
+indicator onto the main chart clears the warning, which makes it one of the ways to
+fix it rather than a dead end.
 
 ## Two consumers: the chart, and stop plugins
 

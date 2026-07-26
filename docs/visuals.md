@@ -59,7 +59,7 @@ files, and no build step. Conceptually:
 ```
 VisualTheme {
   id, displayName
-  palette: { sky: [top, bottom], mountains: [...], trees, candleRange, ground, fog, accent }
+  palette: { sky: [top, bottom], mountains: [...], trees, candleRange, ground, accent }
   terrain: {
     mountains: { amplitude, frequency, octaves, ridgeSharpness },
     trees:     { amplitude, frequency, density },
@@ -108,7 +108,6 @@ describe the *parameter intent*; exact values are tuned in code:
 | Bars | Bollinger bars, rounded corners | Bollinger bars, square corners, outlined |
 | Ground | Candy-colored grass | Charcoal/steel |
 | Foreground occlusion | `grass` motif, moderate density | `railing` motif, sparse |
-| Leading-edge fog | Soft white | Cold grey |
 | HUD accent palette | Warm, saturated | Cool, professional (navy/graphite) |
 
 Note the "city skyline" idea for Serious falls out of the *same* mountain

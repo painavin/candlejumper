@@ -20,7 +20,6 @@ export const jollyTheme: VisualTheme = {
     ground: 0x3e8a58,
     groundLine: 0x2b6b42,
     clouds: 0xffffff,
-    fog: 0xdfefff,
     foreground: 0x276b41,
   },
   // `dim` is lighter than it looks like it should be, on purpose: with an outline
@@ -60,7 +59,6 @@ export const seriousTheme: VisualTheme = {
     ground: 0x222b36,
     groundLine: 0x39465a,
     clouds: 0x9aa8b8,
-    fog: 0x2a3340,
     foreground: 0x1a222c,
   },
   accent: {

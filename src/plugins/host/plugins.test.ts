@@ -5,6 +5,9 @@ import { atrIndicator, smaIndicator } from '../builtin/index.js'
 import { createIndicatorRegistry, createStopRegistry } from './registry.js'
 import { createStopHost } from './stopHost.js'
 import { validatePluginModule } from './validate.js'
+import { createIndicatorFeed } from './indicatorFeed.js'
+import { instanceLabel } from '@shared/contracts/index.js'
+import { DEFAULT_INDICATOR_COLOUR, INDICATOR_COLOURS } from '@shared/palette/index.js'
 import type { OhlcvBar, PositionState, StopPlugin } from '@shared/contracts/index.js'
 
 const bar = (close: number, high = close, low = close): OhlcvBar => ({
@@ -124,6 +127,165 @@ describe('simple moving average', () => {
     instance.onBar(bar(20), false)
     instance.reset()
     expect(instance.onBar(bar(50), false).sma).toBeNaN()
+  })
+})
+
+describe('several instances of one indicator', () => {
+  /**
+   * The case the settings screen now supports: SMA 20 / 50 / 200 at once. It was
+   * always possible in the engine — the UI hardcoded `instanceId: 'sma-1'`, which
+   * capped it at one — so these guard the parts that had never been exercised.
+   */
+  const feedOf = (...lengths: number[]) =>
+    createIndicatorFeed({
+      active: lengths.map((length, index) => ({
+        instanceId: `sma-${index + 1}`,
+        typeId: 'sma',
+        params: { length },
+        colour: INDICATOR_COLOURS[index]?.value,
+      })),
+      registry: createIndicatorRegistry(),
+    })
+
+  it('keeps a separate history per instance', () => {
+    const feed = feedOf(2, 4)
+    for (const close of [10, 20, 30, 40]) feed.observeBar(bar(close), false)
+
+    const [fast, slow] = feed.series
+    expect(fast?.history.sma?.at(-1)).toBe(35)
+    expect(slow?.history.sma?.at(-1)).toBe(25)
+  })
+
+  it('warms each instance up on its own schedule', () => {
+    // A shared accumulator would warm both at the shorter length and quietly emit a
+    // wrong long average for the first bars.
+    const feed = feedOf(2, 4)
+    feed.observeBar(bar(10), false)
+    feed.observeBar(bar(20), false)
+
+    const [fast, slow] = feed.series
+    expect(fast?.history.sma?.at(-1)).toBe(15)
+    expect(slow?.history.sma?.at(-1)).toBeNaN()
+  })
+
+  it('names each instance by its own parameters', () => {
+    // Three lines in three colours are only readable if each says which it is.
+    const labels = feedOf(20, 50, 200).series.map((series) => series.displayName)
+    expect(labels).toEqual(['SMA 20', 'SMA 50', 'SMA 200'])
+  })
+
+  it('carries each instance its own line colour', () => {
+    // Chosen per instance rather than derived from list position, so removing one
+    // indicator can't recolour the lines below it.
+    const colours = feedOf(20, 50, 200).series.map((series) => series.colour)
+    expect(colours).toEqual([
+      INDICATOR_COLOURS[0]?.value,
+      INDICATOR_COLOURS[1]?.value,
+      INDICATOR_COLOURS[2]?.value,
+    ])
+    expect(new Set(colours).size).toBe(3)
+  })
+
+  it('falls back to the palette default when a spec carries no colour', () => {
+    const feed = createIndicatorFeed({
+      active: [{ instanceId: 'sma-1', typeId: 'sma', params: { length: 20 } }],
+      registry: createIndicatorRegistry(),
+    })
+    expect(feed.series[0]?.colour).toBe(DEFAULT_INDICATOR_COLOUR)
+  })
+
+  it('resets every instance independently', () => {
+    const feed = feedOf(2, 4)
+    for (const close of [10, 20, 30, 40]) feed.observeBar(bar(close), false)
+    feed.reset()
+    expect(feed.series.every((series) => series.history.sma?.length === 0)).toBe(true)
+    feed.observeBar(bar(10), false)
+    expect(feed.series[0]?.history.sma?.at(-1)).toBeNaN()
+  })
+})
+
+describe('per-instance pane choice', () => {
+  const feedWith = (typeId: string, paneKind?: 'overlay' | 'oscillator') =>
+    createIndicatorFeed({
+      active: [{ instanceId: `${typeId}-1`, typeId, params: {}, paneKind }],
+      registry: createIndicatorRegistry(),
+    })
+
+  it('follows the plugin when the player expressed no preference', () => {
+    expect(feedWith('sma').series[0]?.paneKind).toBe('overlay')
+    expect(feedWith('atr').series[0]?.paneKind).toBe('oscillator')
+  })
+
+  it('lets the player move an overlay into its own pane', () => {
+    expect(feedWith('sma', 'oscillator').series[0]?.paneKind).toBe('oscillator')
+  })
+
+  it('lets the player move a pane indicator onto the main chart', () => {
+    // Legitimate because `paneKind` is documented as a *rendering hint* — the same
+    // indicator is consumed as bare numbers by stop plugins, so it never depended on
+    // having a pane of its own.
+    expect(feedWith('atr', 'overlay').series[0]?.paneKind).toBe('overlay')
+  })
+
+  it('changes nothing but the pane', () => {
+    // The override is presentation only: the arithmetic, the warm-up, and the label
+    // must be identical either way, or "where do I draw this" would quietly become
+    // "what does this compute".
+    const onChart = feedWith('atr', 'overlay')
+    const ownPane = feedWith('atr', 'oscillator')
+    for (const feed of [onChart, ownPane]) {
+      for (const close of [100, 101, 102, 103]) feed.observeBar(bar(close, close + 2, close - 2), false)
+    }
+    expect(onChart.series[0]?.history.atr).toEqual(ownPane.series[0]?.history.atr)
+    expect(onChart.series[0]?.displayName).toBe(ownPane.series[0]?.displayName)
+  })
+})
+
+describe('instanceLabel', () => {
+  it('prefers the abbreviation, so a legend stays legible', () => {
+    expect(instanceLabel(smaIndicator, { length: 20 })).toBe('SMA 20')
+  })
+
+  it('falls back to the display name when a plugin declares no abbreviation', () => {
+    // Optional on the contract, so an existing user plugin keeps working.
+    const anonymous = { displayName: 'Custom Thing', params: smaIndicator.params }
+    expect(instanceLabel(anonymous, { length: 9 })).toBe('Custom Thing 9')
+  })
+
+  it('uses the spec default when a param is missing', () => {
+    expect(instanceLabel(smaIndicator, {})).toBe('SMA 20')
+  })
+
+  it('appends every param in declaration order', () => {
+    // What makes this work for an indicator with more than one, e.g. MACD(12, 26, 9),
+    // without that plugin having to know about the labelling at all.
+    const multi = {
+      displayName: 'MACD',
+      abbreviation: 'MACD',
+      params: [
+        { key: 'fast', displayName: 'Fast', type: 'int' as const, default: 12 },
+        { key: 'slow', displayName: 'Slow', type: 'int' as const, default: 26 },
+        { key: 'signal', displayName: 'Signal', type: 'int' as const, default: 9 },
+      ],
+    }
+    expect(instanceLabel(multi, { fast: 12, slow: 26, signal: 9 })).toBe('MACD 12 26 9')
+  })
+
+  it('keeps decimals for a non-integer param instead of collapsing it', () => {
+    const fractional = {
+      displayName: 'Band',
+      abbreviation: 'BB',
+      params: [{ key: 'sigma', displayName: 'Sigma', type: 'float' as const, default: 2.5 }],
+    }
+    expect(instanceLabel(fractional, { sigma: 2.5 })).toBe('BB 2.50')
+  })
+
+  it('names a param-less indicator with no trailing space', () => {
+    expect(instanceLabel({ displayName: 'Thing', params: [] }, {})).toBe('Thing')
+  })
+
+  it('marks a non-finite value rather than printing NaN', () => {
+    expect(instanceLabel(smaIndicator, { length: Number.NaN })).toBe('SMA ?')
   })
 })
 

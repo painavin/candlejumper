@@ -89,12 +89,20 @@ Already procedural by definition — height comes from price data. Theme
 supplies fill color, outline treatment, and cap style. Draw as rectangles
 with optional rounded caps; no texture needed.
 
-### Leading-edge fog
+### Leading-edge fog — removed
 
-A gradient rectangle in the theme's fog color, drawn above the world layers
-and below the HUD. Since unplayed poles are never rendered at all (see
-[game-design.md](./game-design.md#pole-generation--scroll)), the fog is
-purely atmospheric and carries no information-hiding burden.
+There was a gradient rectangle in a theme fog colour, drawn above the world
+layers and below the HUD. It's gone, and the reasoning for removing it is the
+same reasoning that made it safe in the first place: unplayed poles are never
+rendered at all (see
+[game-design.md](./game-design.md#pole-generation--scroll)), so the fog was
+hiding nothing. Purely atmospheric turned out to mean purely costly — it washed
+out the right-hand quarter of the scene, the parallax terrain behind it, and the
+Y axis, in exchange for an effect that carried no information.
+
+The strip right of the character remains, because that's what makes
+`playfieldWidth` smaller than the viewport. It just shows the background layers
+now, unhazed.
 
 ## Character generation
 

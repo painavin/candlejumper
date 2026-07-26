@@ -25,6 +25,7 @@ const LENGTH: ParamSpec = {
 export const smaIndicator: IndicatorPlugin = {
   id: 'sma',
   displayName: 'Simple Moving Average',
+  abbreviation: 'SMA',
   paneKind: 'overlay',
   outputs: ['sma'],
   params: [LENGTH],
@@ -71,6 +72,7 @@ export const smaIndicator: IndicatorPlugin = {
 export const atrIndicator: IndicatorPlugin = {
   id: 'atr',
   displayName: 'Average True Range',
+  abbreviation: 'ATR',
   paneKind: 'oscillator',
   outputs: ['atr'],
   params: [{ ...LENGTH, default: 14 }],

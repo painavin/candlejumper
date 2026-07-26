@@ -12,11 +12,10 @@ read as broken.
 
 - **Placement**: right edge — matches the convention of real charting
   tools/terminals, where the newest data enters on the right and the
-  player's eye is already there. It renders as a HUD overlay *above* the
-  leading-edge fog strip
+  player's eye is already there. It renders as a HUD overlay in the strip
+  right of the character
   ([game-feel.md](./game-feel.md#new-composition--the-lookahead-problem)),
-  so the axis stays fully legible even though the world behind it is
-  obscured.
+  on its own plate so it stays legible over whatever is behind it.
 - **Recompute every tick**, not just on trade events: the visible min/max
   comes from whichever `normalizationMode` is currently
   active, over the currently visible window. The axis is literally the
@@ -100,6 +99,30 @@ scene, and are grouped into three:
 The axis gutter and each indicator sub-pane get the same treatment, so the
 whole HUD reads as one instrument cluster rather than the top band alone.
 
+**The volume histogram is coloured bar by bar**, each one taking the same muted
+colour as its own candle's high–low range. That's what turns the pane from a
+shape into information: "heavy selling" and "heavy buying" are the same *height*
+and a single-colour histogram can't tell them apart.
+
+The fill is a **darker** version of that range colour, not the same value. The
+range colour is tuned to read against the *sky*, which is what a candle sits on; a
+histogram bar sits on a pane plate, and that plate is far closer in lightness —
+`jolly`'s works out around 0.46 luma against a muted green range near 0.40, so the
+bars came out barely distinguishable from their own background. The extra dimming
+is applied for the histogram only: the wicks read correctly where they are, and
+darkening them to fix the pane would break what already worked.
+
+The mechanism keeps the split the rest of the chart uses — the engine reports a
+**direction** per point and the renderer decides the colour, deriving it from
+the *same* function that colours a candle's range. So a volume bar comes out the
+exact shade of the candle above it by construction; matching two hard-coded
+colours by hand would drift the first time either changed. `BarDirection` is
+computed once, in playback, from the raw prices, and the candle body, the candle
+range, and the volume bar all read that one field.
+
+Only price-derived series get per-point directions. A moving average is a level
+and has no direction to report, so it keeps its single player-chosen colour.
+
 **Every pane carries its own scale band**, aligned with the price axis above
 it and labelled in the pane's own units — three labels (top, middle, bottom),
 which is the minimum that conveys a *scale* rather than just a ceiling. The
@@ -160,7 +183,7 @@ artifact [roadmap.md](./roadmap.md) step 0a calls for.
 ├──────────────────────────────────────────────────────────┼───────┤
 │ ▁▃▂▅▃▁▂▄▆▃▂▁▃▅▂▁▄▃▂▅▃▁▂▄▃▂▁▃▄▂▁▃▅▄▂▁▂▃▅▃▂▁▃▄▂▁▃▂▄▃      │  ░░▒▓ │  volume 40%
 └──────────────────────────────────────────────────────────┴───────┘
-  ◄──────────── playfield (poles) ~75% ────────────────────►  fog 25%
+  ◄──────────── playfield (bars) ~75% ─────────────────────►  open 25%
                                                               + Y axis
 ```
 
@@ -207,9 +230,9 @@ Conflicts the wireframe surfaced, and their resolutions:
   [controls.md](./controls.md#mobile-layout-constraints) already required —
   the wireframe confirms that with 1 sub-pane and a thumb strip, the main
   chart is close to its floor.
-- **The Y axis overlays the fog strip** in both orientations, which is fine
-  since it's a HUD layer — but it means the fog strip can't be narrower than
-  the axis labels need.
+- **The Y axis sits in the strip right of the character** in both
+  orientations, which is fine since it's a HUD layer — but it means that strip
+  can't be narrower than the axis labels need.
 
 ## Volume & indicator sub-panes
 

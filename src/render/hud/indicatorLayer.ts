@@ -1,10 +1,13 @@
 import { Container, Graphics, Text } from 'pixi.js'
+import { pnlColours } from '@content/pnlColours.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
-import type { FrameState } from '@engine/output/index.js'
+import type { FrameState, OverlayLine } from '@engine/output/index.js'
 import type { Layout } from '../stage/layout.js'
 import { hudDimTextStyle, hudTextStyle } from './hudText.js'
 import { AXIS_WIDTH } from './axisLayer.js'
-import { drawPanel } from './hudPanel.js'
+import { PANEL_GAP, PANEL_MARGIN, PANEL_PADDING, drawPanel } from './hudPanel.js'
+import { histogramColour } from '../poles/candleColour.js'
+import type { CandlePalette } from '../poles/candleColour.js'
 
 /**
  * Overlay indicator lines, and the oscillator/volume sub-panes.
@@ -26,9 +29,6 @@ export interface IndicatorLayer {
   draw(frame: FrameState, layout: Layout): void
 }
 
-/** Distinct enough to tell two overlays apart without a legend. */
-const SERIES_COLOURS = [0xffd166, 0x4da3ff, 0xff9d4d, 0x9dd6a0, 0xd2a8ff] as const
-
 /**
  * Scale labels per pane: top, middle, bottom.
  *
@@ -42,8 +42,31 @@ const PANE_AXIS_LABELS = 3
 /** Keeps the top and bottom labels clear of the plate's own border. */
 const LABEL_INSET = 9
 
-export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
+/**
+ * Legend swatch geometry.
+ *
+ * A legend only matters once more than one overlay is active — but that's the case
+ * the game is built for now: three SMAs at different lengths get three colours from
+ * `SERIES_COLOURS` and are otherwise indistinguishable. Three unlabelled lines are
+ * worse than one labelled line, so this isn't decoration.
+ */
+const SWATCH = { width: 16, height: 3, gap: 6, rowHeight: 17 }
+
+export interface IndicatorLayerOptions {
+  theme: VisualTheme
+  /**
+   * The P&L palette, so a volume bar can be coloured exactly like the candle above it.
+   * Same setting the bars, the HUD, and the exit particles read.
+   */
+  palette: string
+}
+
+export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions): IndicatorLayer {
   const container = new Container()
+  const candlePalette: CandlePalette = {
+    pnl: pnlColours(palette),
+    neutral: theme.palette.candleRange,
+  }
   const overlays = new Graphics()
   const panes = new Graphics()
   container.addChild(overlays, panes)
@@ -51,6 +74,19 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
   const titles: Text[] = []
   /** Flat pool, indexed `paneIndex * PANE_AXIS_LABELS + row`. */
   const scaleLabels: Text[] = []
+  const legendPlate = new Graphics()
+  const legendLabels: Text[] = []
+  container.addChild(legendPlate)
+
+  const legendLabelFor = (index: number): Text => {
+    const existing = legendLabels[index]
+    if (existing) return existing
+    const label = new Text({ text: '', style: hudTextStyle({ theme, size: 12 }) })
+    label.anchor.set(0, 0.5)
+    legendLabels[index] = label
+    container.addChild(label)
+    return label
+  }
 
   const scaleLabelFor = (index: number): Text => {
     const existing = scaleLabels[index]
@@ -60,6 +96,55 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
     scaleLabels[index] = label
     container.addChild(label)
     return label
+  }
+
+  /**
+   * One labelled swatch per overlay, in the line's own colour.
+   *
+   * Positioned under the top HUD band rather than over it, and only drawn when there
+   * is something to disambiguate — a single overlay names itself well enough in
+   * Settings, and a one-row legend is pure clutter.
+   */
+  const drawLegend = (lines: readonly OverlayLine[], layout: Layout): void => {
+    const show = lines.length > 1
+    legendPlate.visible = show
+    if (!show) {
+      for (const label of legendLabels) label.visible = false
+      return
+    }
+
+    let widest = 0
+    lines.forEach((line, index) => {
+      const label = legendLabelFor(index)
+      label.text = line.label
+      widest = Math.max(widest, label.width)
+    })
+
+    const pad = layout.isPortrait ? PANEL_PADDING.portrait : PANEL_PADDING.landscape
+    const box = {
+      x: PANEL_MARGIN,
+      y: layout.chartTop + PANEL_GAP,
+      width: pad * 2 + SWATCH.width + SWATCH.gap + widest,
+      height: pad * 2 + lines.length * SWATCH.rowHeight - (SWATCH.rowHeight - 12),
+    }
+    legendPlate.clear()
+    drawPanel(legendPlate, box, theme)
+
+    lines.forEach((line, index) => {
+      const colour = line.colour
+      const rowY = box.y + pad + index * SWATCH.rowHeight
+      const label = legendLabelFor(index)
+      label.visible = true
+      label.position.set(box.x + pad + SWATCH.width + SWATCH.gap, rowY + 6)
+      legendPlate
+        .rect(box.x + pad, rowY + 6 - SWATCH.height / 2, SWATCH.width, SWATCH.height)
+        .fill({ color: colour, alpha: 0.95 })
+    })
+
+    for (let i = lines.length; i < legendLabels.length; i++) {
+      const label = legendLabels[i]
+      if (label) label.visible = false
+    }
   }
 
   return {
@@ -76,8 +161,10 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
         return layout.characterX - (age + frame.barPhase) * layout.barWidth
       }
 
-      frame.overlays.forEach((line, seriesIndex) => {
-        const colour = SERIES_COLOURS[seriesIndex % SERIES_COLOURS.length] as number
+      for (const line of frame.overlays) {
+        // The instance's own colour, chosen by the player. Not derived from its index
+        // here: removing one indicator would then recolour every line below it.
+        const colour = line.colour
         let drawing = false
         line.units.forEach((unit, offset) => {
           if (unit === null) {
@@ -91,7 +178,9 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
           drawing = true
         })
         overlays.stroke({ width: 1.6, color: colour, alpha: 0.95 })
-      })
+      }
+
+      drawLegend(frame.overlays, layout)
 
       const axisX = layout.width - AXIS_WIDTH
 
@@ -120,8 +209,20 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
           panes.rect(0, y, axisX, 1).fill({ color: theme.accent.axisLine, alpha: 0.18 })
         }
 
-        pane.series.forEach((series, seriesIndex) => {
-          const colour = SERIES_COLOURS[(paneIndex + seriesIndex) % SERIES_COLOURS.length] as number
+        for (const series of pane.series) {
+          const colour = series.colour
+          /**
+           * A point's own colour, when the series reports a direction for it.
+           *
+           * Derived from the *same* function that colours a candle's high–low range, so
+           * a volume bar stays recognisably the colour of the candle above it. Darker,
+           * because it sits on a pane plate rather than on sky — see
+           * `histogramColour`.
+           */
+          const colourAt = (offset: number): number => {
+            const direction = series.directions?.[offset]
+            return direction === undefined ? colour : histogramColour(direction, candlePalette)
+          }
 
           if (pane.histogram) {
             series.units.forEach((unit, offset) => {
@@ -129,9 +230,12 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
               const barHeight = Math.max(1, unit * height)
               panes
                 .rect(xOf(offset) - layout.poleWidth / 2, top + height - barHeight, layout.poleWidth, barHeight)
-                .fill({ color: colour, alpha: 0.55 })
+                // Fully opaque: the colour is information, and any transparency blends
+                // it back toward the plate, which is the contrast problem this is
+                // solving.
+                .fill({ color: colourAt(offset), alpha: 1 })
             })
-            return
+            continue
           }
 
           let drawing = false
@@ -147,7 +251,7 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
             drawing = true
           })
           panes.stroke({ width: 1.4, color: colour, alpha: 0.95 })
-        })
+        }
 
         let title = titles[paneIndex]
         if (!title) {

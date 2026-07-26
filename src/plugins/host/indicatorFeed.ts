@@ -1,4 +1,6 @@
 import type { IndicatorPlugin, OhlcvBar } from '@shared/contracts/index.js'
+import { instanceLabel } from '@shared/contracts/index.js'
+import { DEFAULT_INDICATOR_COLOUR } from '@shared/palette/index.js'
 import type { IndicatorFeed, IndicatorSeries } from '@engine/indicators/feed.js'
 
 /**
@@ -16,6 +18,10 @@ export interface DisplayedIndicatorSpec {
   instanceId: string
   typeId: string
   params: Record<string, number>
+  /** Player-chosen line colour. Optional so a caller without one still works. */
+  colour?: number
+  /** Player's pane override. Unset falls back to the plugin's own `paneKind`. */
+  paneKind?: 'overlay' | 'oscillator'
 }
 
 export interface IndicatorFeedOptions {
@@ -31,8 +37,12 @@ export function createIndicatorFeed({ active, registry }: IndicatorFeedOptions):
     }
     const series: IndicatorSeries = {
       instanceId: spec.instanceId,
-      displayName: plugin.displayName,
-      paneKind: plugin.paneKind,
+      // Per *instance*, not per plugin: with SMA 20, 50, and 200 active at once, a
+      // shared "Simple Moving Average" would leave the three lines unidentifiable.
+      displayName: instanceLabel(plugin, spec.params),
+      colour: spec.colour ?? DEFAULT_INDICATOR_COLOUR,
+      // The player's choice wins, falling back to the plugin's suggestion.
+      paneKind: spec.paneKind ?? plugin.paneKind,
       outputs: plugin.outputs,
       fixedRange: plugin.fixedRange,
       history: Object.fromEntries(plugin.outputs.map((output) => [output, [] as number[]])),

@@ -117,7 +117,7 @@ of it. Personal bests key off percent return as before, with best
 | Key | Description | Default |
 |---|---|---|
 | `scrollSpeed` | Speed in **bars per second** (trading days per second), not pixels — resolution-independent, and the auto-bounce cadence derives from it. Range 0.5–10 | 2 *(provisional)* |
-| `visibleBarCount` | How many bars fit on screen at once. Bar width is derived as `playfieldWidth / visibleBarCount`, where **playfield means the pole region only** (left edge to the character, ~70–80% of viewport — not the full width, since the fog strip never holds poles). Also sets the `visible-window-min-max` window and therefore how reactive the axis is. **Orientation-aware**: 60 landscape / ~28 portrait, since 60 poles at phone width are ~4px and unreadable — see the wireframes in [hud.md](./hud.md#screen-layout). **Resolved once at run start and frozen for the run** — see below | 60 landscape, 28 portrait *(provisional)* |
+| `visibleBarCount` | How many bars fit on screen at once. Bar width is derived as `playfieldWidth / visibleBarCount`, where **playfield means the pole region only** (left edge to the character, ~70–80% of viewport — not the full width, since the strip right of the character never holds poles). Also sets the `visible-window-min-max` window and therefore how reactive the axis is. **Orientation-aware**: 60 landscape / ~28 portrait, since 60 poles at phone width are ~4px and unreadable — see the wireframes in [hud.md](./hud.md#screen-layout). **Resolved once at run start and frozen for the run** — see below | 60 landscape, 28 portrait *(provisional)* |
 | `priceTransform` | Applied to price *before* normalization: `none` or `log10`. `log10` tames series with a huge range so outlier days don't flatten everything else | `none` |
 | `normalizationMode` | How transformed price maps to pole height — see table below | `visible-window-min-max` |
 | `normalizationReference` | Reference scale value for `starting-price-relative` | 100 |
@@ -155,7 +155,7 @@ a worked example.
 
 | Mode | Description | Live play? |
 |---|---|---|
-| `visible-window-min-max` | Min/max over only the bars currently on screen, **excluding anything behind the leading-edge fog** | ✅ default |
+| `visible-window-min-max` | Min/max over only the bars currently on screen, **excluding any bar right of the character** | ✅ default |
 | `fixed-price-per-pixel` | Constant scale factor, no data-dependent bounds | ✅ |
 | `starting-price-relative` | Divide every price by the first bar's close (reference always in the past) | ✅ |
 | `whole-series-min-max` | Min/max over all bars, including unplayed ones | ❌ leaks the run's high/low |
@@ -193,7 +193,7 @@ shown).
 
 | Key | Description | Default |
 |---|---|---|
-| `indicators.active` | List of active indicator instances (`{ typeId, params, instanceId }`), each an overlay or oscillator per its `paneKind`. See [indicators.md](./indicators.md) | empty; only `sma` (Simple Moving Average) available to add initially |
+| `indicators.active` | List of active indicator **instances** (`{ typeId, params, instanceId, colour, paneKind? }`). Several of one type at different params is the normal case — SMA 20 / 50 / 200 is three entries. `colour` comes from the fixed palette in `shared/palette/`; `paneKind` overrides the plugin's own hint, and unset means "whatever the plugin suggests". Excluded from the run fingerprint. See [indicators.md](./indicators.md) | empty; `sma` and `atr` available to add |
 | `indicators.plugins.loaded` | List of loaded custom plugin references (file path on desktop, imported blob on mobile) | empty |
 | `volume.enabled` | Show/hide the volume histogram sub-pane at the bottom of the screen | on |
 

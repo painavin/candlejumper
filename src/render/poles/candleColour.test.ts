@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { pnlColours } from '@content/pnlColours.js'
 import { visualThemes } from '@content/visualThemes/index.js'
-import { MIN_LUMA_GAP, RANGE_MIX, bodyColour, mixColour, rangeColour } from './candleColour.js'
+import {
+  MIN_LUMA_GAP,
+  RANGE_MIX,
+  bodyColour,
+  histogramColour,
+  mixColour,
+  rangeColour,
+} from './candleColour.js'
 import type { CandlePalette } from './candleColour.js'
 
 /**
@@ -148,6 +155,60 @@ describe('rangeColour', () => {
     const darker = luma(dark.neutral) < luma(light.neutral) ? dark : light
     const lighter = darker === dark ? light : dark
     expect(luma(rangeColour('up', darker))).toBeLessThan(luma(rangeColour('up', lighter)))
+  })
+})
+
+describe('histogramColour', () => {
+  it('is darker than the range colour it comes from', () => {
+    // The range colour is tuned to read against sky; a histogram bar sits on a pane
+    // plate, which is far closer in lightness. `jolly`'s plate lands around 0.46 luma
+    // against a muted green range near 0.40, so the bars were barely distinguishable
+    // from their own background.
+    for (let i = 0; i < visualThemes.length; i++) {
+      const palette = paletteFor(i)
+      const id = (visualThemes[i] as (typeof visualThemes)[number]).id
+      for (const direction of ['up', 'down', 'flat'] as const) {
+        expect(
+          luma(histogramColour(direction, palette)),
+          `${id} ${direction}`
+        ).toBeLessThan(luma(rangeColour(direction, palette)))
+      }
+    }
+  })
+
+  it('keeps the hue, so a volume bar still matches its candle', () => {
+    // Darker but recognisably the same colour — that recognition is the entire reason
+    // the bar is coloured by direction at all.
+    for (let i = 0; i < visualThemes.length; i++) {
+      const palette = paletteFor(i)
+      for (const direction of ['up', 'down'] as const) {
+        expect(dominant(histogramColour(direction, palette))).toBe(
+          dominant(rangeColour(direction, palette))
+        )
+      }
+    }
+  })
+
+  it('still tells up from down', () => {
+    for (let i = 0; i < visualThemes.length; i++) {
+      for (const pnl of ['red-green', 'blue-orange']) {
+        const palette = paletteFor(i, pnl)
+        expect(histogramColour('up', palette)).not.toBe(histogramColour('down', palette))
+      }
+    }
+  })
+
+  it('does not dim all the way to black', () => {
+    // Dimmed enough to separate from the plate, not so far that the hue is gone and
+    // every bar reads as the same dark smudge.
+    for (let i = 0; i < visualThemes.length; i++) {
+      const palette = paletteFor(i)
+      for (const direction of ['up', 'down'] as const) {
+        const colour = histogramColour(direction, palette)
+        expect(luma(colour)).toBeGreaterThan(0.12)
+        expect(chroma(colour)).toBeGreaterThan(0.04)
+      }
+    }
   })
 })
 

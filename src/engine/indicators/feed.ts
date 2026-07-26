@@ -21,6 +21,14 @@ import type { OhlcvBar } from '@shared/contracts/index.js'
 export interface IndicatorSeries {
   instanceId: string
   displayName: string
+  /**
+   * Line colour for every output of this instance.
+   *
+   * Carried through the engine rather than chosen by the renderer, because it's a
+   * player setting: `render/` may not read config, and deriving it from list position
+   * there would recolour every line whenever one is removed.
+   */
+  colour: number
   /** A rendering hint. A stop consuming the same indicator ignores it entirely. */
   paneKind: 'overlay' | 'oscillator'
   /** Named output series, in declaration order. */

@@ -1,6 +1,9 @@
-import type { OhlcvBar, PluginDescriptor } from '@shared/contracts/index.js'
+import type { OhlcvBar, ParamSpec, PluginDescriptor } from '@shared/contracts/index.js'
+import { instanceLabel } from '@shared/contracts/index.js'
+import { DEFAULT_INDICATOR_COLOUR } from '@shared/palette/index.js'
 import type { IndicatorFeed, IndicatorSeries } from '@engine/indicators/feed.js'
 import type { PluginWorkerClient } from './workerClient.js'
+import type { DisplayedIndicatorSpec } from './indicatorFeed.js'
 
 /**
  * Displayed indicators from sandboxed plugins.
@@ -23,7 +26,7 @@ import type { PluginWorkerClient } from './workerClient.js'
  */
 
 export interface WorkerIndicatorFeedOptions {
-  active: readonly { instanceId: string; typeId: string; params: Record<string, number> }[]
+  active: readonly DisplayedIndicatorSpec[]
   descriptors: ReadonlyMap<string, PluginDescriptor>
   client: PluginWorkerClient
 }
@@ -60,8 +63,18 @@ export async function createWorkerIndicatorFeed({
       outputs,
       series: {
         instanceId: spec.instanceId,
-        displayName: descriptor.displayName,
-        paneKind: descriptor.paneKind ?? 'overlay',
+        // Per instance, from the plugin's own params — the same label the built-in
+        // feed produces, so a sandboxed indicator names itself identically.
+        displayName: instanceLabel(
+          {
+            displayName: descriptor.displayName,
+            abbreviation: descriptor.abbreviation,
+            params: descriptor.params as ParamSpec[],
+          },
+          spec.params
+        ),
+        colour: spec.colour ?? DEFAULT_INDICATOR_COLOUR,
+        paneKind: spec.paneKind ?? descriptor.paneKind ?? 'overlay',
         outputs,
         fixedRange: descriptor.fixedRange,
         history: Object.fromEntries(outputs.map((output) => [output, [] as number[]])),

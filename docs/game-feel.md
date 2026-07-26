@@ -307,20 +307,26 @@ trivially correct.
 
 So the "empty" right side of the screen isn't a composition problem to
 fill with more visible world; it's a hard requirement. **Decided: the
-hybrid** — character pinned ~70–80% to the right, with a short fogged
-strip beyond it, so there's visual breathing room and a sense of forward
+hybrid** — character pinned ~70–80% to the right, with a strip of open
+world beyond it, so there's visual breathing room and a sense of forward
 motion without revealing a readable price level. Rationale: a pure
 right-edge pin can feel claustrophobic and gives the parallax nothing to
-scroll *into*, while a wide fog bank with a centered character risks the
-silhouette of an upcoming pole being readable through it.
+scroll *into*.
 
 **And the constraint is enforced structurally, not visually**: unplayed
 poles are never rendered at all (see
 [game-design.md](./game-design.md#pole-generation--scroll)) — a pole
-spawns only when it reaches the character. So the fogged strip shows
-background layers and nothing else. There is no pole silhouette to leak,
-which means no fog-opacity tuning to get right and no way to regress the
-constraint by making a gradient prettier. The fog is purely atmospheric.
+spawns only when it reaches the character. So the strip shows background
+layers and nothing else. There is no pole silhouette to leak, which means
+nothing to tune and no way to regress the constraint by adjusting a
+gradient.
+
+**That strip was originally fogged, and the fog has been removed.** Its only
+job was atmosphere — it was never hiding anything, since there was nothing
+there to hide — and what it did in practice was haze over the parallax
+terrain, the right-hand quarter of the scene, and the Y axis. Structural
+enforcement is what made the fog optional; removing it is that argument
+followed to its end.
 
 Rejected alternatives, for the record:
 
@@ -328,9 +334,8 @@ Rejected alternatives, for the record:
   right edge, matching how real charts and [hud.md](./hud.md)'s
   right-edge axis work, so there's simply nothing to the right to hide.
   Cleanest conceptually, but claustrophobic.
-- **Wide fog bank, character centered** — most classic side-scroller
-  framing, but a wider hidden region and more reliance on the fog reading
-  as opaque.
+- **Wide hidden bank, character centered** — most classic side-scroller
+  framing, but a wider empty region for no gain.
 
 ## New: depth & motion refinements
 

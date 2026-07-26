@@ -90,7 +90,7 @@ export const LAYOUT = {
    * Where the character sits, as a fraction of viewport width. The docs gave a
    * 70–80% range; 75% is the midpoint. Load-bearing because bar width is
    * `playfieldWidth / visibleBarCount`, and the playfield is everything left of
-   * this line — the fog strip right of it never holds poles.
+   * this line — the strip right of it never holds poles.
    */
   characterXFraction: 0.75,
   /** Gap between poles, as a fraction of bar width. */

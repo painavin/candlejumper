@@ -33,7 +33,6 @@ export interface ThemePalette {
   ground: number
   groundLine: number
   clouds: number
-  fog: number
   foreground: number
 }
 

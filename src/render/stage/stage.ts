@@ -1,4 +1,4 @@
-import { Application, Container, Graphics } from 'pixi.js'
+import { Application, Container } from 'pixi.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { Layout } from './layout.js'
 import { computeLayout } from './layout.js'
@@ -7,9 +7,14 @@ import { computeLayout } from './layout.js'
  * PixiJS setup and the layer order. This is the only place the `Application`
  * exists; everything else takes a `Container` and a `Layout`.
  *
- * Layer order matters for two reasons beyond aesthetics: the fog strip must sit
- * above the world so the leading edge reads as atmosphere, and the HUD must sit
- * above the fog so the Y axis stays legible over it (docs/hud.md).
+ * Layer order matters beyond aesthetics: the HUD sits above everything so the Y axis
+ * and the readouts stay legible over the world (docs/hud.md).
+ *
+ * There was a leading-edge fog layer here, gradient-filling the strip right of the
+ * character. It's gone. It never had a job: the no-lookahead constraint is structural —
+ * unplayed bars aren't in the frame at all — so the fog was hiding nothing, and what it
+ * actually did was wash out the right-hand two thirds of the scene, the parallax
+ * terrain, and the axis behind a haze.
  */
 
 export interface Stage {
@@ -22,13 +27,11 @@ export interface Stage {
   /** The character and its ghost stack. */
   actors: Container
   /**
-   * Parallax that passes *in front of* the character at >1×. Above `actors` and
-   * below `fog`, which is the whole reason it's a separate layer.
+   * Parallax that passes *in front of* the character at >1×. Above `actors`, which
+   * is the whole reason it's a separate layer.
    */
   overlay: Container
-  /** Leading-edge fog: atmosphere only, since unplayed poles are never drawn. */
-  fog: Container
-  /** Y axis, top HUD, stop lines. Above the fog. */
+  /** Y axis, top HUD, stop lines. Above everything else. */
   hud: Container
   /** Called after a resize; re-reads `layout`. */
   onResize(listener: (layout: Layout) => void): void
@@ -65,44 +68,19 @@ export async function createStage({
   const world = new Container()
   const actors = new Container()
   const overlay = new Container()
-  const fog = new Container()
   const hud = new Container()
-  // Order matters beyond aesthetics: the fog must sit above the world so the
-  // leading edge reads as atmosphere, and the HUD above the fog so the Y axis stays
-  // legible over it.
-  app.stage.addChild(background, world, actors, overlay, fog, hud)
-
-  const fogGraphics = new Graphics()
-  fog.addChild(fogGraphics)
+  // Order matters beyond aesthetics: the HUD sits above the world so the Y axis and
+  // the readouts stay legible over it.
+  app.stage.addChild(background, world, actors, overlay, hud)
 
   let layout = computeLayout(app.screen.width, app.screen.height, visibleBarCount, subPaneCount)
   const listeners: ((layout: Layout) => void)[] = []
 
-  const drawFog = (): void => {
-    // A plain gradient in the fog colour. It carries no information-hiding
-    // burden — unplayed poles don't exist — so there is no opacity to tune.
-    fogGraphics.clear()
-    const steps = 12
-    for (let i = 0; i < steps; i++) {
-      const t = i / steps
-      fogGraphics
-        .rect(
-          layout.characterX + layout.fogWidth * t,
-          0,
-          layout.fogWidth / steps + 1,
-          layout.height
-        )
-        .fill({ color: theme.palette.fog, alpha: 0.14 + t * 0.62 })
-    }
-  }
-
   const relayout = (): void => {
     layout = computeLayout(app.screen.width, app.screen.height, visibleBarCount, subPaneCount)
-    drawFog()
     for (const listener of listeners) listener(layout)
   }
 
-  drawFog()
   app.renderer.on('resize', relayout)
 
   return {
@@ -114,7 +92,6 @@ export async function createStage({
     world,
     actors,
     overlay,
-    fog,
     hud,
     onResize(listener) {
       listeners.push(listener)

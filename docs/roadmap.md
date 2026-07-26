@@ -25,7 +25,8 @@ resolved defaults and each system doc for its rationale.
      conflicts: `visibleBarCount` must be orientation-aware (60 poles is
      ~4px wide on a phone), the portrait top HUD only fits two lines so
      buying power and full session info move to the pause screen, and the
-     fog strip can't be narrower than the Y-axis labels need.
+     strip right of the character can't be narrower than the Y-axis labels
+     need.
 1. **Scrolling poles from static price data, plus the auto-scaling Y-axis.**
    No trading input yet. Wire up `scrollSpeed` in bars/second,
    `visibleBarCount`-derived bar geometry — **resolved once at run start from
@@ -42,7 +43,7 @@ resolved defaults and each system doc for its rationale.
    **Spawn poles only when they reach the character** — never render
    unplayed bars ([game-design.md](./game-design.md#pole-generation--scroll)).
    That makes the no-lookahead constraint structural rather than dependent
-   on fog opacity, and it's the cheapest possible moment to get right.
+   on an opacity gradient, and it's the cheapest possible moment to get right.
    Include the **bar-forming growth animation** and the **fixed-height hop**
    from the same doc — both are direct consequences of not rendering the
    future, not polish, so building them later would mean reworking the

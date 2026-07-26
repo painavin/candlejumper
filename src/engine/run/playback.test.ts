@@ -21,7 +21,7 @@ describe('createPlayback', () => {
 
   it('never includes a bar the cursor has not reached', () => {
     // The no-lookahead constraint, structurally: an unplayed pole is not in the
-    // frame at all, so there is no silhouette to leak and no fog opacity to tune.
+    // frame at all, so there is no silhouette to leak and nothing to tune.
     const play = playback([100, 200, 300, 400, 500])
     play.advance(BAR)
     const frame = play.frame

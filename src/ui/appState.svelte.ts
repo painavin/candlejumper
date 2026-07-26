@@ -44,6 +44,8 @@ export interface StopChoice {
 export interface IndicatorChoice {
   id: string
   displayName: string
+  /** Short form for chart legends, e.g. `SMA`. Falls back to `displayName`. */
+  abbreviation?: string
   paneKind: 'overlay' | 'oscillator'
   params: ParamSpec[]
   sandboxed?: boolean
