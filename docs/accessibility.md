@@ -18,11 +18,17 @@ Every profit/loss indication carries at least two channels:
   ([hud.md](./hud.md)), and the results screen.
 - **Position**, where available: gains above the reference line, losses
   below.
-- **Color** as reinforcement, from a colorblind-safe pair — **blue/orange**
-  rather than red/green as the default palette, which stays distinguishable
-  under all common forms of colorblindness. A `redGreen` palette option
-  remains available for players who prefer the familiar trading
-  convention.
+- **Color** as reinforcement only, never as the carrier. The default palette is
+  **red/green**, because that is the language traders already read and this is a
+  trading trainer; **blue/orange** is available as one setting away, and stays
+  distinguishable under all common forms of colorblindness.
+
+  The default is a deliberate choice, and it is only defensible *because* of the
+  two channels above. Red/green as the sole encoding would make the game's
+  central signal unreadable for ~8% of men; red/green on top of an explicit
+  `+`/`−`, an up/down arrow, and position relative to the reference line is a
+  redundant third channel. If any P&L indication ever ships relying on hue
+  alone, this default has to be revisited rather than the encoding rule bent.
 
 The theme accent palettes in [visuals.md](./visuals.md) must not override
 this — mood themes skin the world, not the P&L semantics.

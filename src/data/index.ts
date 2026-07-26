@@ -1,0 +1,6 @@
+export { createSourceRegistry } from './sources/registry.js'
+export { createBundledSource } from './sources/bundled.js'
+export { createSyntheticSource } from './sources/synthetic.js'
+export { parseBars, validateBars, sliceByTime } from './validate.js'
+export type { DatasetProblem, ValidateOptions } from './validate.js'
+export { bundledSymbols } from './datasets.js'

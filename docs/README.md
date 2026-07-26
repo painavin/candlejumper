@@ -27,13 +27,21 @@ survival.
 | [tech-stack.md](./tech-stack.md) | Platform, library, persistence, and testing choices |
 | [code-structure.md](./code-structure.md) | Folder layout, import rules, where each roadmap step's code lands |
 | [roadmap.md](./roadmap.md) | Build order / milestones |
+| [packaging.md](./packaging.md) | Tauri and Capacitor: what's configured, what isn't, and the CSP that matters |
+| [implementation-details.md](./implementation-details.md) | Decisions made while building that the design docs don't cover |
 
 ## Status
 
-Design phase complete; an external review pass has been evaluated and
-incorporated. No code written yet. Start at
-[roadmap.md](./roadmap.md) step 0 (scaffolding); each step links to the doc
-carrying its decisions and rationale.
+**All eleven roadmap steps are implemented**, with one exception: the native
+shells are configured but never built, because Tauri needs a Rust toolchain and
+Capacitor needs the Android SDK. See [packaging.md](./packaging.md) for what's
+still missing. The [root README](../README.md) covers running, building, and the
+controls.
+
+Decisions taken while building — including several the docs left open, and
+three places the import-zone lint rules caught a real architecture violation —
+are logged in [implementation-details.md](./implementation-details.md).
+Where that log and a design doc disagree, the doc wins.
 
 Things deliberately deferred are listed at the bottom of
 [roadmap.md](./roadmap.md) so they read as choices rather than gaps.

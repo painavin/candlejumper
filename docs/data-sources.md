@@ -48,7 +48,7 @@ representation end to end and no remapping layer. Pole height and fills use
 
 ## Bundled dataset
 
-Three tickers ship in [`data/`](../data), each ~2 years of daily bars
+Three tickers ship in [`src/data/datasets/`](../src/data/datasets), each ~2 years of daily bars
 (2024-08 → 2026-07). They were chosen — and verified — to cover **three
 genuinely different market regimes**, so the starter set teaches distinct
 pattern-recognition lessons rather than three variations of one shape:
@@ -61,6 +61,11 @@ pattern-recognition lessons rather than three variations of one shape:
 
 Verified properties of all three: timestamps strictly monotonic, no null or
 zero prices, `h >= l` on every bar, and no single-bar move beyond ~15.5%.
+
+**Where they live**: under `src/data/datasets/`, not at the repo root. Keeping
+them outside `src/` would leave one file permanently exempt from the
+import-zone rules — see
+[code-structure.md](./code-structure.md#top-level).
 
 **On adjustment**: that last check is the practical split test. An
 unadjusted 4:1 split would appear as a ~75% single-bar crash, and the game
@@ -95,9 +100,14 @@ implied. Day gaps of 1–4 days are just weekends and market holidays.
 - **Live/fetched API** (e.g. Yahoo Finance, Alpha Vantage) — real data for
   any ticker, but needs API keys, rate limit handling, and network error
   handling. Slots into the same interface.
-- **Synthetic random-walk data** — infinite variety, no licensing
-  concerns, useful for testing the engine against extreme price paths, but
-  loses the "real stock" hook for actual play.
+- **Synthetic random-walk data** — *built*, as `data.source: synthetic`. Three
+  seeded series (steady uptrend, high-volatility chop, sustained decline) from a
+  log-normal random walk with normal shocks, so they have realistic tails rather
+  than a hard cap on daily moves. Useful for testing the engine against extreme
+  price paths the three curated real datasets deliberately don't contain. Seeded
+  per symbol, because a source that generated something different every load
+  would break personal-best comparison. Not the default: it loses the "real
+  stock" hook for actual play.
 
 ## Sequencing note
 

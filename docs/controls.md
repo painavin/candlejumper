@@ -71,6 +71,15 @@ mobile screen space next to the existing thumb buttons.
   in layout before allocating sub-pane height, not after.
 - Generous hit targets. Scaling in means repeated rapid presses, so these
   are held-and-tapped controls, not precision ones.
+- **Shown on a coarse pointer only**, not below a width threshold: a small
+  desktop window still has a mouse, and a tablet with a keyboard still has a
+  touchscreen. On a desktop these would be clutter over the chart.
+- **Press fires on `pointerdown`, not `click`.** A click fires on release, which
+  would make every entry feel late — and the exit button needs the press/release
+  pair regardless, to tell a tap from a flatten-hold.
+- **A thumb sliding off the button cancels the hold** rather than completing it.
+  The release then happens outside the element, so `pointerup` never arrives and
+  the timer would otherwise flatten a position the player had let go of.
 
 ## Run lifecycle
 

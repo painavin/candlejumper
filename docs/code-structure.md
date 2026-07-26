@@ -23,22 +23,24 @@ Each of those is a directory boundary below, backed by an ESLint rule.
 
 ```
 candlerunner/
-├── data/            bundled OHLCV JSON — already present
 ├── docs/            these planning docs
 ├── public/          the web font; the only binary asset in the build
-├── src/             all application code (see below)
+├── src/             everything the app is made of, data included (see below)
 ├── src-tauri/       Tauri desktop shell (step 11)
 ├── android/         Capacitor Android project (step 11)
 └── tests/fixtures/  golden data shared across suites; unit tests are colocated
 ```
 
-Plus the root configs: `eslint.config.js` carries the import-zone rules and
-the `Math.random()` ban, and `vite.config.ts` declares the app build and the
-separate plugin-worker entry.
+Plus the root configs: `eslint.config.js` carries the import-zone rules and the
+`Math.random()` ban, `eslint.zones.js` holds the dependency table both the lint
+config and `src/app/architecture.test.ts` read, and `vite.config.ts` declares
+the app build and the separate plugin-worker entry.
 
-The bundled price data stays at the repo root rather than moving under
-`src/` — [data-sources.md](./data-sources.md) already links it as `../data`,
-it isn't source, and Vite can import JSON from anywhere.
+**The bundled price data lives under `src/data/datasets/`, not at the repo
+root.** Keeping it outside `src/` would mean one file was permanently exempt
+from the escaping-relative-import rule, and a rule with an exemption is a rule
+people learn to route around. One fewer special case is worth more than
+separating data from code visually.
 
 ## `src/`
 
@@ -53,21 +55,24 @@ src/
 ├── content/        parameter sets as plain data — no logic, no branching on id
 │   ├── visualThemes/ palette + shape/noise params per mood
 │   ├── audioThemes/  progression + synth recipes per mood
-│   └── characters/   primitive rig definitions and motion constants
+│   ├── characters/   primitive rig definitions and motion constants
+│   └── progression/  unlocks, gated on discipline rather than profit
 │
 ├── engine/         the trading engine. No PixiJS, no Tone.js, no DOM. Ever.
 │   ├── position/     signed size, cost basis, order intent, buying power
 │   ├── pipeline/     the ordered per-bar tick, and input buffering
 │   ├── stops/        the port stops answer through, level resolution, trigger timing
+│   ├── indicators/   the port displayed indicators answer through
 │   ├── normalization/ price transform and the causal normalization modes
 │   ├── scoring/      campaigns, close events, streaks, stop compliance
-│   ├── run/          playback cursor over the series, bar timing, run lifecycle
+│   ├── run/          playback cursor, bar clock and its stall rules, run controller
 │   └── output/       the semantic event vocabulary and the per-frame state snapshot
 │
 ├── generation/     procedural art as numbers: noise, heightfields, placements.
 │                   No PixiJS — this is what makes it snapshot-testable.
 │
 ├── data/           dataset validation, and:
+│   ├── datasets/     the bundled OHLCV JSON
 │   └── sources/      PriceSeriesSource implementations + the source registry
 │
 ├── plugins/
@@ -82,8 +87,8 @@ src/
 │   ├── poles/        pole rendering, bar-forming growth, leading-edge fog
 │   ├── character/    rig drawing, math-driven animation, ghost stack
 │   ├── hud/          Y axis, top HUD, streak meter, stop lines, sub-panes
-│   ├── juice/        floating text, particles, screen shake, camera easing
-│   └── landmarks/    date banners, event flags, reward marks
+│   ├── juice/        floating text, particles, screen shake
+│   └── landmarks/    date banners at month/quarter/year boundaries
 │
 ├── audio/          Tone.js lives here and only here — setup, mixer, and the
 │   └── channels/     engine-event → stinger map. Channels: ambient bed,
@@ -94,26 +99,34 @@ src/
 │
 ├── platform/       the ONLY place Tauri/Capacitor APIs may be imported
 │   ├── persistence/   one store interface, one implementation per platform
-│   └── pluginLoading/ desktop folder read vs. mobile file import
+│   ├── pluginLoading/ obtains plugin *source*; never evaluates it
+│   └── haptics/       navigator.vibrate now, Capacitor Haptics when packaged
 │
 ├── ui/             Svelte. Menus and screens only, never the game world.
-│   ├── screens/      title, settings, pause, results, onboarding
+│   ├── screens/      title, settings, how-to, record, pause, results
 │   ├── controls/     reusable inputs, incl. the generic ParamSpec renderer
 │   └── mobile/       thumb buttons
 │
 └── app/            composition root: bootstrap, screen routing, run session,
-                    the time-based loop, attract mode
+                    the time-based loop, the camera, attract mode
 ```
 
 `src/main.ts` is the entry point and does nothing but boot `app/`.
 
-Two folder names are doing real work rather than describing contents.
-`engine/output/` is the engine's entire outward-facing surface — the
-semantic events and the frame-state snapshot — which is why the dependency
-rules below can grant `render/` and `audio/` access to it and nothing else in
-`engine/`. And `engine/stops/` holds the *port* stops are asked through, not
-the host that answers it; that split is what lets step 4 ship working stops
-before step 8's sandbox exists.
+**Vertical camera easing lives in `app/runSession.ts`, not `render/juice/`.** It
+moves whole stage containers, and `app/` is the only place that holds the stage —
+`render/` layers each receive one `Container` by design. It also has to move the
+*axis* along with the world, since an axis that doesn't follow the camera labels
+prices at the wrong heights, and only the composition root can see both.
+
+Three folder names are doing real work rather than describing contents.
+`engine/output/` is the engine's entire outward-facing surface — the semantic
+events and the frame-state snapshot — which is why the dependency rules below
+can grant `render/` and `audio/` access to it and nothing else in `engine/`.
+And `engine/stops/` and `engine/indicators/` hold the *ports* plugins are asked
+through, not the hosts that answer them; that split is what lets step 4 ship
+working stops before step 8's sandbox exists, and what keeps the engine from
+ever learning that a stop can consume an indicator.
 
 ## Dependency rules
 
@@ -125,7 +138,7 @@ Arrows are the only permitted direction. Anything not listed is forbidden.
 | `config/`, `content/`, `generation/`, `data/` | `shared/` |
 | `engine/` | `shared/`, `config/` |
 | `plugins/worker/` | `shared/` — **nothing else, ever** |
-| `plugins/host/`, `plugins/builtin/` | `shared/`, `engine/stops/`, `platform/pluginLoading/` |
+| `plugins/host/`, `plugins/builtin/` | `shared/`, `engine/stops/`, `engine/indicators/`, `platform/pluginLoading/` |
 | `render/` | `shared/`, `config/`, `content/`, `generation/`, `engine/output/` |
 | `audio/` | `shared/`, `content/`, `engine/output/` |
 | `input/` | `shared/`, `engine/pipeline/` (to enqueue presses) |
@@ -144,6 +157,9 @@ than conventions:
   a plugin author writes.
 - **Only `platform/` may import `@tauri-apps/*` or `@capacitor/*`.** Native
   capability has exactly one door.
+- **Nothing may import from outside `src/`.** Relative imports may not climb two
+  or more levels, which is exactly the set that would escape a zone. This is why
+  the datasets moved inside `src/`: the rule now has no exemptions at all.
 - **`Math.random()` is banned everywhere, with no exemptions.**
   `shared/math/` holds the only randomness source, per
   [procedural-assets.md](./procedural-assets.md#determinism--seeded-prng-never-mathrandom).
@@ -243,6 +259,7 @@ which is the point.
 | 2 State machine | `engine/position/`, `engine/pipeline/`, `engine/output/`, `input/`, `render/character/` |
 | 3 Sizing + HUD | `engine/position/`, `engine/scoring/`, `render/hud/` |
 | 4 Stops + discipline streak | `engine/stops/`, `engine/scoring/`, `plugins/host/`, `plugins/builtin/`, `render/hud/` |
+| 8 Plugin host | adds `engine/indicators/`, `plugins/worker/` |
 | 5 Settings + lifecycle | `ui/screens/`, `platform/persistence/`, `app/` |
 | 6 Backgrounds | `generation/`, `render/bake/`, `render/layers/`, `content/visualThemes/` |
 | 6a Characters | `content/characters/`, `render/character/` |

@@ -1,0 +1,692 @@
+import { mount, unmount } from 'svelte'
+import type { RunConfig } from '@config/index.js'
+import { defaultConfig, describeProblems, runFingerprint, validateConfig, FINGERPRINT_VERSION } from '@config/index.js'
+import { createSourceRegistry } from '@data/index.js'
+import {
+  createStopHost,
+  createStopRegistry,
+  createIndicatorRegistry,
+  createPluginWorkerClient,
+  createWorkerStopHost,
+  createWorkerIndicatorFeed,
+  validateDescriptor,
+} from '@plugins/host/index.js'
+import { createIndicatorFeed } from '@plugins/host/indicatorFeed.js'
+import { createCompositeStopEngine } from '@engine/stops/composite.js'
+import {
+  importPluginFiles,
+  loadStoredPlugins,
+  mergePlugins,
+  storePlugins,
+} from '@platform/pluginLoading/index.js'
+import type { PluginFile } from '@platform/pluginLoading/index.js'
+import type { ParamSpec, PluginDescriptor } from '@shared/contracts/index.js'
+import { earnedUnlocks } from '@content/progression/index.js'
+import { createHaptics } from '@platform/haptics/index.js'
+import {
+  createLocalStorageStore,
+  loadSave,
+  recordRun,
+  writeSave,
+} from '@platform/persistence/index.js'
+import type { SaveData } from '@platform/persistence/index.js'
+import { mintSeed, createPrng } from '@shared/math/index.js'
+import type { OhlcvBar } from '@shared/contracts/index.js'
+import { AppState, snapshot } from '@ui/appState.svelte.js'
+import type { AppActions } from '@ui/appState.svelte.js'
+import App from '@ui/screens/App.svelte'
+import { startRunSession } from './runSession.js'
+import type { RunSession } from './runSession.js'
+
+/**
+ * The composition root: screen routing and the run lifecycle.
+ *
+ *   Title ──► Settings ──start──► Playing ──data exhausted──► Results ──► Settings
+ *     ▲                            │  ▲                          ▲
+ *     │                       Esc/P│  │resume                    │
+ *     ├── How to play              ▼  │                          │
+ *     └── Record                  Paused ──end run───────────────┘
+ *                                  │  │
+ *                                  │  └──restart──► Playing (same config, fresh run)
+ *                                  └──abandon──► Title  (nothing recorded)
+ *
+ * The two quit paths are deliberately separate: **end run** records and is
+ * eligible for a personal best (marked `endedEarly`), **abandon** records nothing.
+ * Collapsing them forces a bad trade-off either way — see
+ * docs/controls.md#pause-menu-options-and-their-effects.
+ *
+ * **The canvas is never empty.** Whenever no run is in progress, an attract-mode
+ * session plays behind the menus. That's what makes the title screen a game screen
+ * rather than a web page, and it's why every menu transition also has to decide
+ * what the backdrop is doing.
+ */
+
+export interface Shell {
+  destroy(): void
+}
+
+export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement): Promise<Shell> {
+  const store = createLocalStorageStore()
+  const sources = createSourceRegistry()
+  const stopRegistry = createStopRegistry()
+  const indicatorRegistry = createIndicatorRegistry()
+  const haptics = createHaptics()
+
+  /**
+   * The plugin sandbox, created once for the app's lifetime rather than per run.
+   *
+   * One worker means one place untrusted code can be running, and it survives
+   * between runs so a plugin's blob `import()` — by far its slowest moment — is paid
+   * once instead of on every Start press.
+   */
+  const pluginWorker = createPluginWorkerClient()
+  /** Descriptors of plugins living in the worker, keyed by their own declared id. */
+  const sandboxed = new Map<string, PluginDescriptor>()
+  let pluginFiles: PluginFile[] = []
+
+  let save: SaveData = await loadSave(store, FINGERPRINT_VERSION)
+  const state = new AppState()
+  state.config = defaultConfig()
+  state.config.visuals.reducedMotion = prefersReducedMotion()
+  state.isTouch = isCoarsePointer()
+  state.lifetime = save.lifetime
+  state.unlocked = earnedUnlocks({ lifetime: save.lifetime })
+
+  let session: RunSession | undefined
+  /** The config the current run was started with — never the editable draft. */
+  let running: RunConfig | undefined
+  let runVisibleBarCount = 0
+  let endedEarly = false
+
+  const source = sources.get(state.config.data.source)
+  if (source) state.tickers = await source.listTickers()
+
+  /**
+   * Load plugin sources into the worker and publish whatever validates.
+   *
+   * Validation runs against the **descriptor**, not the module: the module never
+   * leaves the sandbox. A plugin that fails is listed with its problems rather than
+   * dropped in silence — a plugin the player imported and cannot find is worse than
+   * one that says why it was rejected.
+   */
+  async function registerPlugins(files: readonly PluginFile[]): Promise<void> {
+    const listed: { name: string; kind: 'stop' | 'indicator'; status: string }[] = []
+
+    for (const file of files) {
+      const response = await pluginWorker.send({
+        type: 'load',
+        kind: file.kind,
+        source: file.source,
+      })
+      if (response.type !== 'loaded') {
+        listed.push({
+          name: file.name,
+          kind: file.kind,
+          status: response.type === 'failed' ? response.message : 'did not load',
+        })
+        continue
+      }
+      const validation = validateDescriptor(response.descriptor)
+      if (!validation.ok) {
+        listed.push({ name: file.name, kind: file.kind, status: validation.problems.join('; ') })
+        continue
+      }
+      sandboxed.set(response.descriptor.id, response.descriptor)
+      listed.push({ name: file.name, kind: file.kind, status: `loaded as ${response.descriptor.id}` })
+    }
+
+    state.plugins = listed
+    publishChoices()
+  }
+
+  /** Built-ins and sandboxed plugins in one list; nothing downstream tells them apart. */
+  function publishChoices(): void {
+    state.stopChoices = [
+      ...[...stopRegistry.values()].map((plugin) => ({
+        id: plugin.id,
+        displayName: plugin.displayName,
+        params: plugin.params,
+      })),
+      ...[...sandboxed.values()]
+        .filter((descriptor) => descriptor.kind === 'stop')
+        .map((descriptor) => ({
+          id: descriptor.id,
+          displayName: descriptor.displayName,
+          params: descriptor.params as ParamSpec[],
+          sandboxed: true,
+        })),
+    ]
+    state.indicatorChoices = [
+      ...[...indicatorRegistry.values()].map((plugin) => ({
+        id: plugin.id,
+        displayName: plugin.displayName,
+        paneKind: plugin.paneKind,
+        params: plugin.params,
+      })),
+      ...[...sandboxed.values()]
+        .filter((descriptor) => descriptor.kind === 'indicator')
+        .map((descriptor) => ({
+          id: descriptor.id,
+          displayName: descriptor.displayName,
+          paneKind: descriptor.paneKind ?? 'overlay',
+          params: descriptor.params as ParamSpec[],
+          sandboxed: true,
+        })),
+    ]
+  }
+
+  pluginFiles = await loadStoredPlugins(store)
+  if (pluginFiles.length > 0) await registerPlugins(pluginFiles)
+
+  const fingerprintOf = (config: RunConfig, visibleBarCount: number): string =>
+    runFingerprint(config, { visibleBarCount })
+
+  const refreshPersonalBest = (): void => {
+    if (!state.config) return
+    const key = fingerprintOf(state.config, resolveVisibleBarCount(state.config.visibleBarCount))
+    state.personalBest = save.personalBests[key]
+  }
+  refreshPersonalBest()
+
+  // ── Attract mode ─────────────────────────────────────────────────────────────
+
+  /** The backdrop session, and the settings it was built from. */
+  let attract: RunSession | undefined
+  let attractKey = ''
+  /** Guards against two overlapping starts while a series is loading. */
+  let attractStarting = false
+  /**
+   * A config that arrived while a start was already in flight.
+   *
+   * Without this, clicking through themes faster than a series loads drops every
+   * change but the first — the settings effect won't fire again, because the draft
+   * hasn't changed since.
+   */
+  let pendingAttract: RunConfig | undefined
+
+  /**
+   * Only the settings the backdrop can visibly show. Rebuilding the Pixi scene on
+   * every capital-slider drag would be pointless and expensive, so the key is what
+   * decides whether a restart is warranted at all.
+   */
+  const backdropKey = (config: RunConfig): string =>
+    [
+      config.visuals.theme,
+      config.visuals.worldSeed,
+      config.character.selected,
+      config.data.source,
+      config.data.ticker,
+      config.visibleBarCount.landscape,
+      config.visibleBarCount.portrait,
+      config.scrollSpeed,
+      config.normalizationMode,
+      config.priceTransform,
+      String(config.volume.enabled),
+    ].join('|')
+
+  function stopAttract(): void {
+    attract?.stop()
+    attract = undefined
+    attractKey = ''
+    // Dropped rather than kept: a run is starting, and the queued backdrop would
+    // otherwise take the canvas back the moment the load finished.
+    pendingAttract = undefined
+  }
+
+  /**
+   * Start (or restart) the backdrop from a config.
+   *
+   * A fresh world seed each time it loops, so a player sitting on the title screen
+   * sees variety rather than the same hillside forever — but the seed the *player*
+   * chose is respected when it came from the settings screen, since previewing a
+   * seed you can't see is useless.
+   */
+  async function startAttract(config: RunConfig, reseed = false): Promise<void> {
+    if (session) return
+    if (attractStarting) {
+      pendingAttract = config
+      return
+    }
+    const wanted = reseed
+      ? { ...snapshot(config), visuals: { ...config.visuals, worldSeed: mintSeed() } }
+      : snapshot(config)
+    const key = backdropKey(wanted)
+    if (attract && key === attractKey && !reseed) return
+
+    attractStarting = true
+    try {
+      const activeSource = sources.get(wanted.data.source)
+      if (!activeSource) return
+      const bars = await activeSource.loadSeries(wanted.data.ticker, wanted.data.dateRange)
+      // A run may have started while the series was loading.
+      if (session) return
+
+      stopAttract()
+      attractKey = key
+      attract = await startRunSession({
+        host: canvasHost,
+        config: wanted,
+        bars: attractSlice(bars, wanted.visuals.worldSeed),
+        visibleBarCount: resolveVisibleBarCount(wanted.visibleBarCount),
+        mode: 'attract',
+        // Loop with a new world rather than freezing on the last bar.
+        onFinished: () => void startAttract(wanted, true),
+      })
+    } catch {
+      // A backdrop that fails to load must never block the menus. The screens are
+      // legible without it — they just sit on the page background instead.
+      stopAttract()
+    } finally {
+      attractStarting = false
+      const queued = pendingAttract
+      pendingAttract = undefined
+      if (queued && !session) void startAttract(queued)
+    }
+  }
+
+  /**
+   * A window into the series rather than the whole thing.
+   *
+   * Two reasons: a full series at the default speed takes minutes to loop, and
+   * starting at a seeded offset means the title screen shows a different stretch of
+   * market each time you come back to it. This is *not* the same as session
+   * variety for real runs — nothing here is recorded, so there's no fingerprint to
+   * worry about.
+   */
+  function attractSlice(bars: readonly OhlcvBar[], seed: number): readonly OhlcvBar[] {
+    const window = 240
+    if (bars.length <= window) return bars
+    const start = createPrng(seed).int(0, bars.length - window - 1)
+    return bars.slice(start, start + window)
+  }
+
+  // ── Runs ─────────────────────────────────────────────────────────────────────
+
+  async function begin(config: RunConfig): Promise<void> {
+    state.error = undefined
+    state.notice = undefined
+    endedEarly = false
+
+    /**
+     * Resolve each configured stop's indicator dependencies before the run starts.
+     * A stop asking for an indicator the registry can't supply must **refuse to
+     * start**, naming both — deliberately not the mid-run auto-disable path,
+     * because this is knowable before the first bar.
+     */
+    const stopRequirements = new Map<number, { key: string; indicatorId: string }[]>()
+    config.stops.active.forEach((active, index) => {
+      const required = stopRegistry.get(active.typeId)?.requires?.(active.params)
+      if (required && required.length > 0) stopRequirements.set(index, required)
+    })
+
+    const problems = validateConfig(config, {
+      // Sandboxed ids count as resolvable: a loaded plugin is as real as a built-in
+      // from the config's point of view, which is the whole premise of one host.
+      stopIds: new Set([...stopRegistry.keys(), ...sandboxedIds('stop')]),
+      indicatorIds: new Set([...indicatorRegistry.keys(), ...sandboxedIds('indicator')]),
+      sourceIds: new Set(sources.keys()),
+      stopRequirements,
+    })
+    if (problems.length > 0) {
+      state.error = `This configuration can't start a run:\n\n${describeProblems(problems)}`
+      return
+    }
+
+    const activeSource = sources.get(config.data.source)
+    if (!activeSource) {
+      state.error = `Unknown data source: ${config.data.source}`
+      return
+    }
+    const bars = await activeSource.loadSeries(config.data.ticker, config.data.dateRange)
+
+    session?.stop()
+    // The backdrop and the run must never share the canvas — or the ticker.
+    stopAttract()
+    running = config
+    runVisibleBarCount = resolveVisibleBarCount(config.visibleBarCount)
+    state.screen = 'playing'
+
+    session = await startRunSession({
+      host: canvasHost,
+      config,
+      bars,
+      visibleBarCount: runVisibleBarCount,
+      stops: await buildStopEngine(config),
+      indicators: await buildIndicatorFeed(config),
+      onAction: () => haptics.fire('action'),
+      onPauseRequested: () => showPause(),
+      onFinished: () => void finish(false),
+    })
+    state.touch = session.touch
+
+    // The Start button is the user gesture browsers require before audio can begin.
+    void session.startAudio()
+  }
+
+  const sandboxedIds = (kind: 'stop' | 'indicator'): string[] =>
+    [...sandboxed.values()].filter((entry) => entry.kind === kind).map((entry) => entry.id)
+
+  /**
+   * Built-in stops in-process, player-supplied stops in the worker, both behind one
+   * port.
+   *
+   * Built-ins deliberately do *not* go through the sandbox. docs/indicators.md asks
+   * for no separate code path for official plugins, and this honours the spirit of
+   * that — one contract, one registry, one port — while declining the letter, because
+   * paying a `postMessage` round trip to protect the app from code it ships itself
+   * buys nothing and costs a bar of latency on the risk path.
+   */
+  async function buildStopEngine(config: RunConfig) {
+    const onDisabled = (stopId: string, reason: string): void => {
+      // A stop that dies mid-run stops protecting an open position, so this is a
+      // player-facing event rather than a console warning.
+      state.notice = `Your ${stopId} stop stopped working and is no longer protecting this position (${reason}). Exits are fully manual from here.`
+    }
+
+    const builtin = config.stops.active.filter((active) => stopRegistry.has(active.typeId))
+    const external = config.stops.active.filter((active) => sandboxed.has(active.typeId))
+
+    const engines = []
+    if (builtin.length > 0) {
+      engines.push(
+        createStopHost({
+          active: builtin,
+          registry: stopRegistry,
+          indicators: indicatorRegistry,
+          onDisabled,
+        })
+      )
+    }
+    if (external.length > 0) {
+      engines.push(
+        await createWorkerStopHost({
+          active: external,
+          client: pluginWorker,
+          files: pluginFiles,
+          onDisabled,
+        })
+      )
+    }
+    return createCompositeStopEngine(engines)
+  }
+
+  /**
+   * The displayed-indicator equivalent. Two feeds can't be composed as cheaply as
+   * two stop engines — the engine reads `series` as one list — so the sandboxed feed
+   * is only used when there is nothing built-in to show, which is the common case for
+   * a player who imported an indicator specifically to look at it.
+   */
+  async function buildIndicatorFeed(config: RunConfig) {
+    const builtin = config.indicators.active.filter((active) =>
+      indicatorRegistry.has(active.typeId)
+    )
+    const external = config.indicators.active.filter((active) => sandboxed.has(active.typeId))
+
+    if (external.length > 0 && builtin.length === 0) {
+      return createWorkerIndicatorFeed({
+        active: external.map((active) => ({
+          instanceId: active.instanceId,
+          typeId: active.typeId,
+          params: active.params,
+        })),
+        descriptors: sandboxed,
+        client: pluginWorker,
+      })
+    }
+    if (external.length > 0) {
+      state.notice =
+        'Imported indicators are shown only when no built-in indicator is active. Turn the built-in ones off to see them.'
+    }
+    return createIndicatorFeed({
+      active: builtin.map((active) => ({
+        instanceId: active.instanceId,
+        typeId: active.typeId,
+        params: active.params,
+      })),
+      registry: indicatorRegistry,
+    })
+  }
+
+  /**
+   * Session variety: a random ticker and a random window inside it.
+   *
+   * docs/game-feel.md's reason for this is that a fixed series becomes memorised —
+   * and a memorised series stops training anything, because the player is recalling
+   * rather than reading. Both keys are part of the run fingerprint, so each surprise
+   * run competes only against other runs of the same slice, which is correct: an easy
+   * uptrend and a brutal drawdown are not the same challenge.
+   *
+   * Seeded from fresh entropy rather than the world seed. This is the one thing that
+   * *should* differ every time you press the button.
+   */
+  function surpriseConfig(): RunConfig | undefined {
+    if (!state.config || state.tickers.length === 0) return undefined
+    const prng = createPrng(mintSeed())
+    const ticker = prng.pick(state.tickers)
+
+    const span = ticker.lastBarTime - ticker.firstBarTime
+    const config = snapshot(state.config)
+    config.data.ticker = ticker.symbol
+    config.visuals.worldSeed = mintSeed()
+
+    // Roughly a year of trading days as a fraction of the series' own span, so a
+    // short series isn't asked for a window it doesn't have.
+    const windowFraction = Math.min(1, 250 / Math.max(1, ticker.barCount))
+    if (windowFraction >= 1) {
+      config.data.dateRange = undefined
+      return config
+    }
+    const windowSpan = span * windowFraction
+    const from = Math.floor(prng.range(ticker.firstBarTime, ticker.lastBarTime - windowSpan))
+    config.data.dateRange = { from, to: Math.floor(from + windowSpan) }
+    return config
+  }
+
+  function showPause(): void {
+    if (!session || !running) return
+    const frame = session.controller.frame
+    state.pauseInfo = {
+      buyingPower: frame.hud.buyingPower,
+      startingCapital: running.startingCapital,
+      ticker: running.data.ticker,
+      date: frame.currentBar ? isoDate(frame.currentBar.t) : '—',
+      progress:
+        frame.totalBars > 0 ? Math.round(((frame.currentIndex + 1) / frame.totalBars) * 100) : 0,
+    }
+    state.screen = 'paused'
+  }
+
+  /** Record the run and show results. `early` marks it as ended from the menu. */
+  async function finish(early: boolean): Promise<void> {
+    if (!session || !running) return
+    const controller = session.controller
+    const frame = controller.frame
+    const summary = controller.summary
+    const streak = controller.state.streak
+    const longestStreak = Math.max(streak.longest, streak.streak)
+
+    const key = fingerprintOf(running, runVisibleBarCount)
+    const previous = save.personalBests[key]
+    const result = {
+      percentReturn: frame.hud.percentReturn,
+      arcadeScore: streak.arcadeScore,
+      endedEarly: early,
+      at: nowMs(),
+    }
+    const before = state.unlocked
+    const recorded = recordRun(save, key, result, {
+      campaigns: summary.campaigns,
+      wins: summary.wins,
+      realized: summary.realized,
+      streakResets: streak.resets,
+      longestStreak,
+    })
+    save = recorded.save
+    await writeSave(store, save)
+
+    state.lifetime = save.lifetime
+    const after = earnedUnlocks({ lifetime: save.lifetime })
+    state.unlocked = after
+
+    state.outcome = {
+      summary,
+      percentReturn: result.percentReturn,
+      arcadeScore: result.arcadeScore,
+      longestStreak,
+      streakResets: streak.resets,
+      meter: streak.meter,
+      endedEarly: early,
+      isPersonalBest: recorded.isPersonalBest,
+      personalBest: previous?.percentReturn,
+      unlocked: after.filter((id) => !before.includes(id)),
+    }
+    state.screen = 'results'
+    session.stop()
+    session = undefined
+    state.touch = undefined
+    refreshPersonalBest()
+    if (state.config) void startAttract(state.config, true)
+  }
+
+  function discard(): void {
+    // Restart and abandon both record nothing — treated as if the run never
+    // happened, so a misclicked run can't pollute a player's history.
+    session?.stop()
+    session = undefined
+    state.touch = undefined
+  }
+
+  const actions: AppActions = {
+    // `snapshot`, not `structuredClone`: the incoming config may still be a
+    // reactive proxy, and structuredClone throws DataCloneError on one.
+    start: (config) => {
+      // The started config becomes the remembered one, so Quick run and the
+      // backdrop both reflect what was last played.
+      state.config = snapshot(config)
+      void begin(snapshot(config))
+    },
+    resume: () => {
+      session?.resume()
+      state.screen = 'playing'
+    },
+    restart: () => {
+      const config = running
+      discard()
+      if (config) void begin(config)
+    },
+    endRun: () => {
+      endedEarly = true
+      session?.endRun()
+      void finish(true)
+    },
+    abandon: () => {
+      discard()
+      state.screen = 'title'
+      refreshPersonalBest()
+      if (state.config) void startAttract(state.config, true)
+    },
+    runAgain: () => {
+      const config = running
+      if (config) void begin(config)
+    },
+    toSettings: () => {
+      state.error = undefined
+      state.screen = 'settings'
+      refreshPersonalBest()
+    },
+    toTitle: () => {
+      state.error = undefined
+      state.screen = 'title'
+      refreshPersonalBest()
+    },
+    toHowTo: () => {
+      state.screen = 'howto'
+    },
+    toStats: () => {
+      state.screen = 'stats'
+    },
+    preview: (config) => {
+      // The settings draft, not a commitment: it drives the backdrop and the menu
+      // colours, and is discarded if the player backs out without starting.
+      state.config = snapshot(config)
+      void startAttract(state.config)
+      refreshPersonalBest()
+    },
+    dismissNotice: () => {
+      state.notice = undefined
+    },
+    surprise: () => {
+      const config = surpriseConfig()
+      if (!config) return
+      state.config = config
+      void begin(snapshot(config))
+    },
+    importPlugins: (kind) => {
+      void importPluginFiles(kind).then(async (added) => {
+        if (added.length === 0) return
+        pluginFiles = mergePlugins(pluginFiles, added)
+        await storePlugins(store, pluginFiles)
+        await registerPlugins(pluginFiles)
+      })
+    },
+    removePlugin: (name) => {
+      void (async () => {
+        pluginFiles = pluginFiles.filter((file) => file.name !== name)
+        await storePlugins(store, pluginFiles)
+        // The worker keeps the old module loaded until it's replaced: there is no
+        // unload in the protocol, and adding one would mean tracking blob lifetimes
+        // for no benefit. A reload starts from the stored list, which no longer has
+        // it, so the removal is durable even though it isn't immediate.
+        sandboxed.clear()
+        await registerPlugins(pluginFiles)
+      })()
+    },
+  }
+
+  const app = mount(App, { target: uiHost, props: { state, actions } })
+  void startAttract(state.config)
+
+  return {
+    destroy() {
+      void endedEarly
+      session?.stop()
+      stopAttract()
+      pluginWorker.dispose()
+      void unmount(app)
+    },
+  }
+}
+
+/**
+ * Resolved once, at run start, from the orientation at that moment — then frozen.
+ * Re-resolving on rotation would rescale the chart mid-run and move the run into a
+ * different personal-best bucket. See docs/config.md#scroll--poles.
+ */
+export function resolveVisibleBarCount(counts: {
+  landscape: number
+  portrait: number
+}): number {
+  return window.innerHeight > window.innerWidth ? counts.portrait : counts.landscape
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+/**
+ * Whether to show thumb buttons. Pointer coarseness rather than screen width or a
+ * user-agent string: a small window on a desktop still has a mouse, and a tablet
+ * with a keyboard still has a touchscreen.
+ */
+function isCoarsePointer(): boolean {
+  return window.matchMedia?.('(pointer: coarse)').matches ?? false
+}
+
+function nowMs(): number {
+  return new Date().getTime()
+}
+
+function isoDate(epochSeconds: number): string {
+  // Bars carry epoch SECONDS; this multiplication is load-bearing.
+  return new Date(epochSeconds * 1000).toISOString().slice(0, 10)
+}

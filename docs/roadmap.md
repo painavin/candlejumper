@@ -177,7 +177,11 @@ resolved defaults and each system doc for its rationale.
     used since step 0 ([data-sources.md](./data-sources.md)) — live API
     and/or synthetic, both behind the existing interface.
 11. **Packaging**: desktop via Tauri first (Windows/macOS/Linux share one
-    build), then Android via Capacitor.
+    build), then Android via Capacitor. Config and scripts are in place;
+    **neither shell has been built** — see [packaging.md](./packaging.md), which
+    also records the one non-obvious requirement: the CSP must allow `blob:` in
+    both `script-src` and `worker-src`, or every imported plugin silently fails
+    to load.
 
 ## Deferred by design (not open questions)
 

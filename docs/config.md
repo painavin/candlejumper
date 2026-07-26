@@ -214,7 +214,7 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 | `visuals.worldSeed` | Seeds the PRNG that generates background layers. Same theme + seed always yields an identical world; surfaced so a good-looking world can be recovered | freshly minted per run via `shared/math/` `mintSeed()` |
 | `visuals.reducedMotion` | Damps parallax, particles, and transitions. Initialized from the OS `prefers-reduced-motion` setting | OS-derived |
 | `visuals.screenShake` | Screen shake on stop-out and large wins | on |
-| `visuals.pnlPalette` | `blue-orange` (colorblind-safe default) or `red-green` (familiar trading convention). P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `blue-orange` |
+| `visuals.pnlPalette` | `red-green` (the familiar trading convention) or `blue-orange` (colorblind-safe). P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `red-green` |
 
 ## Character
 

@@ -63,9 +63,10 @@ Thumbs.db
 # Deliberately NOT ignored — each of these is load-bearing, and ignoring it
 # would quietly break something the plan depends on.
 #
-# data/                  The bundled OHLCV datasets. Offline, reproducible runs
+# src/data/datasets/     The bundled OHLCV datasets. Offline, reproducible runs
 #                        are a design requirement, not a convenience:
-#                        docs/data-sources.md.
+#                        docs/data-sources.md. They live under src/ so that
+#                        nothing in the project imports from outside it.
 #
 # **/__snapshots__/      Vitest snapshots ARE the determinism guard for
 #                        procedural generation — theme + seed must always

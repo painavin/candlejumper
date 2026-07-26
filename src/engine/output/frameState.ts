@@ -1,0 +1,139 @@
+import type { OhlcvBar } from '@shared/contracts/index.js'
+import type { PositionEvent } from './events.js'
+
+/**
+ * The engine's entire outward-facing surface.
+ *
+ * `render/` and `audio/` may import this folder and nothing else in `engine/`,
+ * which is what keeps the trading logic free of any knowledge of how it's drawn.
+ * Everything here is a plain value: a render pass is a pure function of one
+ * snapshot plus theme and elapsed time.
+ *
+ * Note that stop levels arrive already converted to unit heights. The renderer
+ * never sees a `StopEngine`, so it can't reach into risk management to draw a
+ * line — and `engine/stops/` stays swappable without touching `render/`.
+ */
+
+/** One pole on screen. Only played bars ever appear here. */
+export interface VisibleBar {
+  bar: OhlcvBar
+  /** Index into the full series. */
+  index: number
+  /** 0 for the newest (under the character), increasing to the left. */
+  age: number
+  /** Close mapped to 0..1 of chart height, via the active normalizer. */
+  unit: number
+  /**
+   * 0..1 of the way to its close height. Only the newest bar is ever below 1 —
+   * a bar spawning at full height directly under the character reads as a
+   * rendering glitch, so it grows the way a real bar forms during a day.
+   */
+  growth: number
+}
+
+/** Value-space bounds of the chart, already eased. The axis is their inverse. */
+export interface ChartBounds {
+  min: number
+  max: number
+}
+
+export type RunPhase = 'waiting-for-data' | 'playing' | 'paused' | 'finished'
+
+/** The chart half of a frame: what the price data is doing. */
+export interface ChartFrame {
+  phase: RunPhase
+  /** Played bars currently on screen, oldest first. */
+  bars: readonly VisibleBar[]
+  bounds: ChartBounds
+  /** 0..1 through the current bar; drives sub-bar scroll offset. */
+  barPhase: number
+  /** The bar being traded — the rightmost, still-growing one. */
+  currentBar: OhlcvBar | undefined
+  currentIndex: number
+  totalBars: number
+  /** Unit height of the previous bar's close, for the hop's takeoff point. */
+  previousUnit: number | undefined
+  /** Bars the stall clamp discarded. Surfaced rather than hidden. */
+  droppedBars: number
+}
+
+export type PositionDirection = 'long' | 'short' | 'flat'
+
+/** Meter states from docs/game-feel.md, mirrored so `render/` needn't import scoring. */
+export type StreakMeter = 'live' | 'automated' | 'dormant'
+
+export interface StreakView {
+  meter: StreakMeter
+  streak: number
+  multiplier: number
+  /** Realized P&L weighted by the multiplier. Shown *beside* raw P&L, never instead. */
+  arcadeScore: number
+  /** Cap, so the meter knows how many pips to draw. */
+  maxMultiplier: number
+}
+
+/** Everything the top HUD reads. */
+export interface HudState {
+  direction: PositionDirection
+  /** Signed, fractional. */
+  shares: number
+  avgCost: number
+  /** Exactly how many exit presses remain to reach flat. */
+  unitCount: number
+  realizedPnl: number
+  unrealizedPnl: number
+  totalPnl: number
+  /** Percent return on starting capital. */
+  percentReturn: number
+  buyingPower: number
+  streak: StreakView
+  /** Whether the run was stopped out this bar, for the distinct feedback path. */
+  stoppedOutThisBar: boolean
+}
+
+/** A stop level as a chart line: solid when enforcing, dashed when advisory. */
+export interface StopLine {
+  stopId: string
+  level: number
+  /** 0..1 chart height, already converted. */
+  unit: number
+  advisory: boolean
+  /** The player is currently past this advisory level. */
+  breached: boolean
+}
+
+/**
+ * An overlay indicator, already mapped onto the price scale.
+ *
+ * Overlays must go through the *exact same* transform and normalization pipeline as
+ * the poles, or the line drifts out of alignment with the bars it's supposed to sit
+ * on. Doing that conversion in the engine is what guarantees it.
+ */
+export interface OverlayLine {
+  instanceId: string
+  output: string
+  /** One per visible bar, oldest first. `null` where the indicator was warming up. */
+  units: readonly (number | null)[]
+}
+
+/** One oscillator or volume sub-pane. Values are normalized within the pane. */
+export interface SubPane {
+  instanceId: string
+  title: string
+  /** Independently normalized from the price scale above it. */
+  series: readonly { output: string; units: readonly (number | null)[] }[]
+  /** Value-space bounds, for the pane's own labels. */
+  min: number
+  max: number
+  /** True for a histogram (volume) rather than a line. */
+  histogram: boolean
+}
+
+export interface FrameState extends ChartFrame {
+  hud: HudState
+  stopLines: readonly StopLine[]
+  /** Events produced by the bar that just closed, if any. Drives audio and juice. */
+  events: readonly PositionEvent[]
+  overlays: readonly OverlayLine[]
+  subPanes: readonly SubPane[]
+}

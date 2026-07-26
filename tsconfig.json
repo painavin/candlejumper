@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["vite/client", "node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+
+    // No `baseUrl`: it's deprecated in TS 6 and removed in 7. Path mappings are
+    // resolved relative to this file instead.
+    "paths": {
+      "@shared/*": ["./src/shared/*"],
+      "@config/*": ["./src/config/*"],
+      "@content/*": ["./src/content/*"],
+      "@engine/*": ["./src/engine/*"],
+      "@generation/*": ["./src/generation/*"],
+      "@data/*": ["./src/data/*"],
+      "@plugins/*": ["./src/plugins/*"],
+      "@render/*": ["./src/render/*"],
+      "@audio/*": ["./src/audio/*"],
+      "@input/*": ["./src/input/*"],
+      "@platform/*": ["./src/platform/*"],
+      "@ui/*": ["./src/ui/*"],
+      "@app/*": ["./src/app/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.svelte",
+    "vite.config.ts",
+    "eslint.zones.d.ts"
+  ]
+}
