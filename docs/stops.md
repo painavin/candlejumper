@@ -240,6 +240,16 @@ actual habit being trained.
   wide disaster stop as a backstop.
 - A natural progression for a player: start advisory to learn where the
   rule fires, then switch the same plugin to enforcing once they trust it.
+- **Advisory mode is the only configuration the discipline streak can
+  measure.** An enforcing level can't be ignored — the engine closes the
+  position — so the streak is unlosable under enforcing stops and dormant
+  with none active. That makes advisory mode the arcade layer's home rather
+  than a training-wheels setting, and it's why the shipped default is one
+  advisory stop
+  ([game-feel.md](./game-feel.md#where-the-streak-has-tension--and-where-it-doesnt)).
+  A breach reset lands **at the breach**, not at the eventual exit, so the
+  compliance event this section already records drives both the stat and the
+  meter.
 
 **Not added: a "manual stop" plugin.** An empty `stops.active` list already
 *is* manual mode — the player fully in charge, no levels computed. A
@@ -270,12 +280,19 @@ Two ship initially, covering what the old config keys did:
 
 | Plugin | Params | Behaviour |
 |---|---|---|
-| `fixed-percent` | `percent` | A level a fixed percent from average entry, recomputed as avg cost changes when scaling in. Direction-aware: below entry when long, above when short. |
-| `trailing-percent` | `percent` | A level a fixed percent from `bestPrice`, ratcheting in the position's favour and never rewinding. Direction-aware. |
+| `fixed-percent` | `percent` (default 5%) | A level a fixed percent from average entry, recomputed as avg cost changes when scaling in. Direction-aware: below entry when long, above when short. |
+| `trailing-percent` | `percent` (default 8%) | A level a fixed percent from `bestPrice`, ratcheting in the position's favour and never rewinding. Direction-aware. Looser default than the fixed stop, since it ratchets. |
 
-Both are **off by default** — a run with no stop plugin active means the
-player is fully in charge of exits, which was already the intended default
-in [game-design.md](./game-design.md#risk-management).
+**`trailing-percent` ships active, in advisory mode**, and is the only entry
+in the default `stops.active` ([config.md](./config.md#stops)). Advisory
+rather than enforcing so the player learns where their rule fires before it
+starts closing positions for them, and because advisory is the only mode the
+discipline streak can measure
+([game-feel.md](./game-feel.md#where-the-streak-has-tension--and-where-it-doesnt)).
+Clearing the list remains fully supported — the player is then in charge of
+every exit, which was the previous default and is still the "full manual
+discipline" risk profile in
+[game-design.md](./game-design.md#risk-management).
 
 Neither built-in declares a `requires()`, so both work before the indicator
 registry exists — which is why they can land at

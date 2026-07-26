@@ -8,9 +8,10 @@ All design decisions are settled; see [config.md](./config.md) for the
 resolved defaults and each system doc for its rationale.
 
 0. **Scaffolding.** Vite + TypeScript + Svelte project; PixiJS and Tone.js
-   dependencies; seeded PRNG helper
+   dependencies; seeded PRNG helper and the `mintSeed()` entropy helper
    ([procedural-assets.md](./procedural-assets.md#determinism--seeded-prng-never-mathrandom))
-   plus the lint rule banning `Math.random()`; Vitest harness
+   plus the lint rule banning `Math.random()` repo-wide with no exemptions;
+   Vitest harness
    ([tech-stack.md](./tech-stack.md#testing)); the folder layout and
    import-zone lint rules from
    [code-structure.md](./code-structure.md#dependency-rules), which are what
@@ -43,6 +44,13 @@ resolved defaults and each system doc for its rationale.
    from the same doc — both are direct consequences of not rendering the
    future, not polish, so building them later would mean reworking the
    motion code.
+   Build the loop's **stall rules here too** — one bar tick per frame, the
+   accumulator clamped to a single bar's duration, and auto-pause on
+   `visibilitychange`
+   ([game-design.md](./game-design.md#scroll-speed-timing-and-pole-geometry)).
+   They're three lines in the loop now; discovering them later means
+   discovering them as wrong P&L, since banked bars apply buffered presses to
+   bars they were never aimed at.
 2. **Buy/sell state machine + auto-bounce + tick pipeline.** Signed
    position size from the start
    ([game-design.md](./game-design.md#shorting)) even though
@@ -57,19 +65,19 @@ resolved defaults and each system doc for its rationale.
    against the placeholder.
 3. **Sizing, cost basis, capital, and core HUD.** `startingCapital`,
    buying-power clamps, and the short account model; `entrySize` and
-   unit-counted exits (N entries → exactly N exits); flatten-on-hold
+   unit-counted exits (N entries → exactly N exits, including the clamped
+   runt unit and the dust-entry guard); flatten-on-hold
    ([controls.md](./controls.md#flatten-close-everything)); fractional
    shares and the flat threshold; weighted-average cost basis; the
    edge-case rules — all in
    [game-design.md](./game-design.md#order-intent-matrix). Top HUD
    ([hud.md](./hud.md#top-hud)): P&L in currency and percent, signed
    position with explicit LONG/SHORT, avg cost, unrealized P&L, buying
-   power, session info, **and reserved space for the streak meter**. Fold in
-   the streak/multiplier scoring layer
-   ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-streaks--multipliers))
-   — it touches the scoring path rather than being pure presentation — plus
-   the campaign vs. close-event stat units
-   ([game-design.md](./game-design.md#what-counts-as-one-trade)).
+   power, session info, **and reserved space for the streak meter**. Build
+   the campaign vs. close-event stat units here
+   ([game-design.md](./game-design.md#what-counts-as-one-trade)) — the
+   discipline streak in step 4 ticks on close events, so the unit has to
+   exist first.
    Unit-test the engine hard here, long *and* short side
    ([tech-stack.md](./tech-stack.md#testing)).
 4. **Stop plugin system.** [stops.md](./stops.md) — the `StopPlugin`
@@ -88,6 +96,16 @@ resolved defaults and each system doc for its rationale.
    shouldn't change twice. This lands before the general plugin host in step
    8 because the built-ins are needed for gameplay; the sandbox for
    *user-supplied* stop plugins arrives with step 8's shared host.
+   **The discipline streak lands here, not in step 3.** It ticks on rule
+   compliance rather than profit
+   ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)),
+   so it can't exist before there's a committed rule to comply with — build
+   the streak, the ×5 multiplier, `arcadeScore`, and the meter's live /
+   automated / dormant states alongside the advisory-breach compliance event
+   that drives the reset. One signal, two consumers. This is also where the
+   shipped default of one advisory `trailing-percent`
+   ([config.md](./config.md#stops)) starts applying, so step 4 is the first
+   step whose default configuration has a risk rule in it.
 5. **Settings panel UI + persistence + run lifecycle.** Surface every config
    from [config.md](./config.md) that exists so far. A **pre-run screen**,
    not a mid-run overlay — config is fixed for a run's duration, so the flow
@@ -175,8 +193,9 @@ engine supports it).
 
 - **The numeric defaults marked _provisional_ in
   [config.md](./config.md) are starting points, not considered values.**
-  `scrollSpeed`, `visibleBarCount`, `entrySize`, and `flattenHoldMs` were
-  chosen for internal consistency and will move once the game is playable.
+  `scrollSpeed`, `visibleBarCount`, `entrySize`, `flattenHoldMs`, the two
+  built-in stop percents, and `scoring.maxMultiplier` were chosen for
+  internal consistency and will move once the game is playable.
 - **Step 3 is not a go/no-go gate.** The design goal is training, not
   arcade fun, so a thin platforming layer is intended rather than a risk to
   validate away. What step 3 *is* worth pausing on is whether the trading
@@ -184,6 +203,10 @@ engine supports it).
   their position and why — since everything from step 6 onward is polish on
   top of that legibility.
 - One thing to watch in playtesting rather than decide upfront: whether the
-  streak multiplier ever rewards trading behavior a real trader shouldn't
-  have (e.g. panic-scalping tiny wins to protect a streak). Raw P&L stays
-  visible alongside it so the distortion would be visible if it appears.
+  discipline streak reads as *worth protecting*. Basing it on rule compliance
+  rather than profit removes the obvious exploit (panic-scalping tiny wins to
+  hold a chain earns nothing, since only profitable closes collect the
+  multiplier), but it introduces the opposite risk — a meter that's too easy
+  to keep is a meter nobody watches. Raw P&L stays visible alongside
+  `arcadeScore` either way, so a distorted incentive would be visible if one
+  appears.

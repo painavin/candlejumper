@@ -61,10 +61,26 @@ in/out while already Active doesn't change state, only size and cost basis.
     exits make N entries take exactly N exits.
   - It also makes the ghost stack in
     [character.md](./character.md#position-size-visualization) literal —
-    one ghost per open unit, added and removed one per press — and
-    `unitCount` is naturally capped at
-    `startingCapital / entrySize` (5 at the default), matching the
-    ghost cap.
+    one ghost per open unit, added and removed one per press.
+  - **Units need not be equal in size**, and the invariant doesn't require
+    it. An entry clamped by remaining buying power (see the edge-case table)
+    deploys less cash but still counts as one unit, so N presses still take N
+    presses to unwind — exits divide *shares*, not cash. That matters when
+    `entrySize` doesn't divide `startingCapital` evenly: at 30%, three full
+    entries leave 10%, and a fourth clamped entry is a legitimate runt unit
+    rather than a denial that strands capital. `unitCount` is therefore
+    bounded by buying power, not by a fixed `startingCapital / entrySize`
+    ceiling — that formula happens to give 5 at the 20% default, but it isn't
+    a rule.
+  - **Guard against dust units**: if remaining buying power is below 1% of
+    `entrySize`, deny the press with the `actionDenied` cue rather than
+    opening a unit worth pennies. Without it, a player at full deployment can
+    inflate `unitCount` with meaningless presses and dilute every subsequent
+    exit.
+  - The ghost stack caps its *rendered* ghosts at ~5 and switches to a
+    numeric badge beyond that
+    ([character.md](./character.md#position-size-visualization)), so it stays
+    readable however many units are open.
 - Fractional shares avoid a whole class of rounding problems — with whole
   shares, a fixed cash amount buys a different quantity at every price
   level.
@@ -112,6 +128,10 @@ Neither action ever flips through zero in one press — see
   starting capital. Percent is what makes personal bests comparable
   across tickers trading at wildly different price levels — a $5 stock
   and a $500 stock produce incomparable dollar P&L for the same skill.
+  `arcadeScore` ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak))
+  sits beside these as a third number, never replacing them: it's realized
+  P&L weighted by the discipline multiplier, and percent return remains the
+  personal-best key.
 - **Cost basis**: default is **weighted-average cost**. Each entry blends
   into a single average price weighted by size; each exit realizes P&L
   against that average, then reduces size toward zero.
@@ -222,8 +242,8 @@ Explicit rules the engine needs from day one:
 | `sell` while flat, shorting on | Opens a short position. |
 | Exit press while flat | No-op with denied cue. |
 | Flatten while flat | No-op, no cue — holding the exit key with nothing open is harmless, and a denial here would punish a reasonable "make sure I'm out" reflex. |
-| Entry with insufficient remaining capital | Clamp to whatever buying power is left; if that's zero, no-op with the denied cue. |
-| Entry at max units | Same as above — `unitCount` is capped by `startingCapital / entrySize`. |
+| Entry with insufficient remaining capital | Clamp to whatever buying power is left; the clamped entry still counts as one unit. If remaining buying power is below 1% of `entrySize`, no-op with the denied cue instead of opening a dust unit. |
+| Entry at full deployment | Same as above — there is no separate max-unit rule; buying power is the only ceiling. |
 | `buy` and `sell` on the same bar | Both apply, in press order. They partially or fully cancel, and each is recorded separately for stats — the player did two things and the stats should say so. |
 | Stop triggers on the same bar as a manual exit | Inputs are applied before stops are evaluated (see [Tick pipeline](#tick-pipeline)), so a manual exit that reached flat wins and the stop finds nothing to close. **Manual action always overrides an enforcing stop**, including flatten. |
 | An advisory stop's level is breached | Nothing is closed; the breach is recorded as a compliance event ([stops.md](./stops.md#advisory-mode)). |
@@ -256,9 +276,14 @@ The rules the engine enforces regardless of which plugin is active:
 - **A triggered stop closes the entire position**, not a fraction — partial
   stop-outs would blur the "you got taken out" signal the Stopped-out state
   exists to deliver.
-- **No stop plugin active is a valid, default configuration.** The player is
-  then fully in charge of exits, which supports the "full manual
-  discipline" risk profile.
+- **No stop plugin active is a valid configuration** — the player is then
+  fully in charge of exits, which supports the "full manual discipline" risk
+  profile. It is no longer the *default*, though: one advisory
+  `trailing-percent` ships active
+  ([config.md](./config.md#stops)), because a trainer with no risk rule
+  out of the box is a strange default and the discipline streak has nothing
+  to measure without one
+  ([game-feel.md](./game-feel.md#where-the-streak-has-tension--and-where-it-doesnt)).
 - **Stops are fixed for a run, never edited mid-position** — the player
   commits to a rule and lives with it. See
   [stops.md](./stops.md#why-this-is-better-than-editable-stop-levels) for
@@ -369,6 +394,21 @@ The rules the engine enforces regardless of which plugin is active:
   elapsed wall-clock time, so the game runs at identical speed on a 60Hz
   laptop and a 120Hz phone. Getting this right in the first render loop is
   cheap; discovering it later means auditing every animation.
+- **But elapsed time must never be allowed to bank bars.** A time-based loop
+  that faithfully resolves every owed bar after a stall is a silent P&L
+  corruption: background a tab for 10 seconds at 2 bars/sec and 20 bars
+  resolve in one frame, applying buffered presses to bars they were never
+  aimed at. Three rules, covering three different sizes of failure:
+  - **At most one bar tick per frame.** Safe unconditionally — `scrollSpeed`
+    tops out at 10 bars/sec against a ≥60Hz display, so no legitimate
+    configuration owes two bars in one frame.
+  - **Clamp the accumulator to one bar's duration.** A GC hitch or a window
+    resize then slows the scroll imperceptibly instead of banking bars.
+  - **Auto-pause when the page is hidden** (`visibilitychange`) — tab
+    switched, phone locked, app backgrounded. This routes into the existing
+    Paused state ([controls.md](./controls.md#run-lifecycle)) rather than
+    inventing a recovery path, so the player sees "Paused" and resumes
+    deliberately instead of losing time silently.
 - **Visible bar count is the layout primitive**: target ~60 bars on screen
   at once. That's enough history to read a trend without poles becoming
   unreadably thin on a phone.
@@ -469,7 +509,7 @@ purposes:
   position a good idea" is a question about the whole campaign, not about
   each press within it.
 - **Close event** — any individual size reduction that realizes P&L. **This
-  is the unit for streak ticks** ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-streaks--multipliers)),
+  is the unit for streak ticks** ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)),
   because the streak wants moment-to-moment feedback and a campaign can last
   a hundred bars.
 
@@ -484,6 +524,11 @@ different things (execution vs. judgement).
 ### Tracked stats
 
 - Running realized P&L (primary score), in currency and percent return.
+- **Discipline streak and `arcadeScore`** — longest compliant run of close
+  events, final multiplier, and the number of advisory breaches that reset it
+  ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)).
+  The reset count is the same signal as the advisory-compliance stat below,
+  reported as an arcade number rather than a coaching one.
 - Campaign count, win rate, average win, average loss, biggest win/loss.
 - Stop-rule compliance: fraction of campaigns ended manually vs. by an
   enforcing stop plugin, and whether manual exits happened before or after

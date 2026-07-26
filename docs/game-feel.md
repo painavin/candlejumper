@@ -63,7 +63,8 @@ An open-ended sandbox with no beginning or end reads as "a toy," not "a
 game." Concretely:
 
 - **Results/summary screen** when the data run ends: final P&L, win rate,
-  biggest win/loss, stop-rule compliance — pulling directly from
+  biggest win/loss, stop-rule compliance, and the run's `arcadeScore` with
+  its longest compliant streak — pulling directly from
   [game-design.md](./game-design.md#scoring--stats)'s stats, maybe
   distilled into one headline grade. This is the single highest-leverage
   addition in this doc: it turns each run into a session with a
@@ -89,7 +90,8 @@ game." Concretely:
   | `visibleBarCount` | How much history is readable when deciding |
   | `allowShorting` | Doubles the available strategies |
   | `startingCapital`, `entrySize` | Determine position granularity and how many units a full deployment takes |
-  | `stops.active` (plugin ids + params) | A trailing stop materially changes achievable outcomes |
+  | `stops.active` (plugin ids + params) | A trailing stop materially changes achievable outcomes — and whether the discipline streak can be lost at all |
+  | `scoring.streakEnabled`, `scoring.maxMultiplier` | Change the achievable `arcadeScore` for the same trading |
   | `priceTransform`, `normalizationMode` | Change what patterns are legible on screen |
 
   Deliberately **excluded** — cosmetic or accessibility settings that don't
@@ -121,39 +123,110 @@ game." Concretely:
   (what buy/sell do, what a pole means, what a stop does) rather than a
   wall of text — standard for the genre.
 
-## New: the arcade scoring layer (streaks & multipliers)
+## New: the arcade scoring layer (the discipline streak)
 
 The most genre-defining thing missing so far. Sonic's ring chains, Tony
 Hawk's combo meter, Jetpack Joyride's token runs — endless runners nearly
 all put a *second*, faster-moving score on top of the base one, and it's
-what creates moment-to-moment tension. It maps unusually well here,
-because the arcade mechanic and the training goal want the same behavior:
+what creates moment-to-moment tension. It maps well here, but **not as a
+win streak.**
 
-- **Win-streak multiplier**: consecutive profitable **close events** build a
-  multiplier applied to P&L score; a loss or a stop-out resets it. Close
-  events rather than campaigns is deliberate — see
-  [game-design.md](./game-design.md#what-counts-as-one-trade) for the two
-  units and why streak uses the finer one: a campaign can run a hundred bars,
-  and a streak that updates once per campaign gives no moment-to-moment
-  feedback. Consequence: the streak can fluctuate *within* a single campaign
-  when partial exits go both ways, while win rate updates only at
-  flat-to-flat. That's intended — they measure execution and judgement
-  respectively.
-  The arcade incentive ("don't break the chain") is *the same* incentive as
-  the trading lesson ("cut losers, let winners run"), so the game-feel layer
-  reinforces the habit rather than competing with it.
-- **Streak meter in the HUD**, visibly filling/draining — a live gauge
-  gives the eye something moving between trades, which is exactly what the
-  Waiting state currently lacks.
-- **Discipline bonus**: award bonus score for exiting *before* a stop
-  triggers, i.e. taking responsibility rather than getting bailed out.
-  Directly gamifies [game-design.md](./game-design.md#risk-management)'s
-  stop-compliance stat.
-- **Risk of over-gamifying**: keep the multiplier a *presentation* layer
-  on top of true realized P&L, and always show raw P&L too. If the
-  multiplier ever encourages behavior a real trader shouldn't have (e.g.
-  panic-scalping tiny wins to protect a streak), it's actively
-  anti-educational — worth watching in playtesting.
+**What the streak measures is rule compliance, not profitability.** A loss
+taken because the player's own committed rule said to exit is a *success* —
+the habit fired correctly and the position was closed on their terms. Not
+every trade has to be a winner, and a meter that resets on a
+correctly-taken loss teaches loss aversion, which is the opposite of this
+game's curriculum. A win streak also measures the market's cooperation as
+much as the player's discipline: identical decisions on NKE's downtrend and
+AAPL's uptrend would produce completely different meters.
+
+So the streak ticks on **close events**
+([game-design.md](./game-design.md#what-counts-as-one-trade)) — the finer of
+the two stat units, since a campaign can run a hundred bars and a meter
+updating once per campaign gives no moment-to-moment feedback — and what it
+asks of each one is whether the player honoured the rule they committed to
+before the run:
+
+| Event | Streak |
+|---|---|
+| Manual exit with a rule active and no advisory level breached — **profit or loss** | **+1** |
+| An advisory level is breached and the position is still open | **reset to 0** |
+| Any close event while in breach of an advisory level | no change (the streak already reset at the breach) |
+| An enforcing stop fired and closed the position | no change — the rule worked, but the engine acted, not the player |
+| Force-close at end of data, or **end run** from the pause menu | no change — not a player decision |
+| Anything at all, in a run with no stop configured | no change — the meter is dormant, see below |
+
+Resetting **at the breach** rather than at the eventual exit is deliberate:
+the feedback belongs at the moment the player fails to act, not several bars
+later when they finally do. The breach is already recorded as a compliance
+event ([stops.md](./stops.md#advisory-mode)), so one signal drives both.
+
+`multiplier = min(1 + streak, 5)`, capped at ×5 — matching the five-unit
+full deployment and the five-ghost stack, so one number governs all three.
+
+- **The multiplier applies to profitable close events only**; losses count at
+  ×1. `arcadeScore = Σ (close event P&L × its multiplier)`. Discipline builds
+  the multiplier, profit collects on it. That split is what makes the streak
+  un-farmable: entering and immediately exiting is perfectly compliant and
+  will climb the meter, but it earns nothing.
+- **Raw realized P&L is never touched**, and stays on screen beside the
+  arcade score. Personal best keys off percent return exactly as before; best
+  `arcadeScore` is recorded in the same fingerprint bucket as a secondary
+  line.
+- **Streak meter in the HUD** ([hud.md](./hud.md#top-hud)) — five pips that
+  fill one per step and empty on a reset. There is deliberately **no time
+  decay**: every version of one creates an incentive to always be in a
+  position, and overtrading is a habit this game should not reward. Worse, a
+  decay running while a position was open would directly punish letting a
+  winner run.
+- **A reset needs no new cue.** The meter emptying is the feedback, and the
+  dashed advisory line the player just watched price cross is the cause,
+  already on screen ([hud.md](./hud.md#top-hud)). Deliberately *not* adding a
+  seventh audio event for it: [audio.md](./audio.md)'s `stoppedOut` stinger
+  has to stay the most jarring sound in the set, and a breach cue competing
+  with it would blunt the one signal that matters most.
+- The streak still moves *within* a campaign when it contains several close
+  events, while win rate updates only at flat-to-flat — intended, since they
+  measure execution and judgement respectively.
+- **Risk of over-gamifying**: raw P&L stays visible alongside the arcade
+  score always. This reframing removes the specific failure the original
+  win-streak design invited — panic-scalping tiny wins to protect a chain —
+  since profit no longer builds the meter. Still worth watching in
+  playtesting whether the multiplier ever rewards behaviour a real trader
+  shouldn't have.
+
+### Where the streak has tension — and where it doesn't
+
+The streak measures the player against their own rule, so what it's worth
+depends entirely on which kind of rule they committed to:
+
+- **Advisory stops are where it lives.** Only an advisory level can be
+  breached and ignored, so this is the one configuration where the meter can
+  actually be lost. That's the same argument
+  [stops.md](./stops.md#advisory-mode) already makes for advisory mode
+  existing at all, and the streak is its payoff — the strongest reason a
+  player has to graduate from enforcing to advisory.
+- **Under enforcing stops only, the streak cannot be lost.** The engine
+  closes the position at the level, so holding past it is impossible; the
+  meter climbs to ×5 and stays. The HUD therefore marks it **automated**
+  rather than showing a permanently full gauge, so nobody is misled about
+  what it's measuring. This doesn't inflate scores across modes, because
+  `stops.active` is part of the run fingerprint below — an enforcing run and
+  an advisory run were never in the same personal-best bucket.
+- **With no stop active there is no rule, so the meter is dormant** for the
+  whole run: no ticks, no resets, multiplier fixed at ×1, `arcadeScore` equal
+  to raw P&L. A ruleless run stays a legitimate choice
+  ([game-design.md](./game-design.md#risk-management)) and scores normally;
+  it simply has no discipline to measure. Rejected alternative: inventing an
+  implicit fallback rule for those runs — a rule the player didn't choose
+  isn't discipline, and it would contradict the commit-to-a-rule model
+  outright.
+
+Which is why **the shipped default is one advisory `trailing-percent` stop**
+rather than an empty list (see [config.md](./config.md#stops)). A trainer
+whose out-of-the-box configuration carries no risk rule is a strange default
+on its own terms, and it means the streak is live on a player's first run
+without anything being invented on their behalf.
 
 ## New: progression & meta-game
 
@@ -305,5 +378,7 @@ Three exceptions that should *not* wait:
 - **HUD number tweening** — close to free once
   [hud.md](./hud.md)'s P&L readout exists in step 3.
 - **Streak/multiplier scoring** — this one touches the trading engine's
-  scoring path rather than just presentation, so fold it in with step 3's
-  P&L work rather than bolting it on later.
+  scoring path rather than just presentation. It can't land before step 4,
+  though, because a compliance streak needs a committed rule to measure and
+  stops arrive there — so build it with step 4 and reserve its HUD space at
+  step 3 ([hud.md](./hud.md#top-hud)).

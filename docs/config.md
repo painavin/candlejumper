@@ -28,7 +28,7 @@ considered defaults.
 | Key | Description | Default |
 |---|---|---|
 | `startingCapital` | Cash balance at the start of a run; caps both long and short notional | $10,000 |
-| `entrySize` | Cash deployed per *entry or add* press. Also sets the maximum unit count (`startingCapital / entrySize`) and therefore the ghost-stack cap | 20% of `startingCapital` *(provisional)* |
+| `entrySize` | Cash deployed per *entry or add* press. Buying power, not a fixed multiple of this, is what bounds the open unit count — an entry clamped by remaining capital still counts as one unit. See [game-design.md](./game-design.md#trading-engine) | 20% of `startingCapital` *(provisional)* |
 | `allowShorting` | `sell` while flat opens a short instead of being a no-op. Engine carries signed size regardless — see [game-design.md](./game-design.md#shorting) | off |
 | `costBasisMethod` | `weighted-average` (built) or `fifo` (config option, unimplemented until wanted) | `weighted-average` |
 | `flattenHoldMs` | How long the exit key must be held to close everything — see [controls.md](./controls.md#flatten-close-everything) | 400 |
@@ -47,7 +47,7 @@ open entry presses. Sizes below `1e-6` shares snap to flat.
 
 | Key | Description | Default |
 |---|---|---|
-| `stops.active` | Active stop plugin instances: `{ typeId, params, advisory }`. Multiple may be active; whichever enforcing level is hit first closes the position. See [stops.md](./stops.md) | empty (no stop — player fully in charge of exits) |
+| `stops.active` | Active stop plugin instances: `{ typeId, params, advisory }`. Multiple may be active; whichever enforcing level is hit first closes the position. See [stops.md](./stops.md) | one **advisory** `trailing-percent` at 8% *(provisional)* |
 | `stops.plugins.loaded` | Loaded custom stop plugin references, same loading surface as indicator plugins | empty |
 
 Per-instance **`advisory: true`** displays the level without enforcing it —
@@ -55,9 +55,20 @@ the player must honour it themselves, and breaches are recorded as
 compliance events ([stops.md](./stops.md#advisory-mode)). Advisory levels
 draw dashed, enforcing ones solid.
 
-Built-ins available to add: `fixed-percent` (param: `percent`, from average
-entry) and `trailing-percent` (param: `percent`, from best price reached).
-Stop levels computed at bar N's close are enforced against bar N+1 —
+**The default is one advisory stop rather than an empty list.** A trainer
+whose out-of-the-box configuration carries no risk rule is a strange default,
+and the discipline streak
+([game-feel.md](./game-feel.md#where-the-streak-has-tension--and-where-it-doesnt))
+has nothing to measure without one — advisory specifically, because that's
+the only mode where the *player* rather than the engine is being measured.
+Clearing the list is still fully supported and scores normally; the streak
+meter simply goes dormant.
+
+Built-ins available to add: `fixed-percent` (param: `percent`, default 5%,
+from average entry) and `trailing-percent` (param: `percent`, default 8%,
+from best price reached — looser than the fixed stop because it ratchets).
+Both percents are *provisional*. Stop levels computed at bar N's close are
+enforced against bar N+1 —
 see [stops.md](./stops.md#causality-and-timing). Manual exits and flatten
 always override an enforcing stop
 ([stops.md](./stops.md#player-override)).
@@ -76,6 +87,30 @@ direction for shorts — see
 [game-design.md](./game-design.md#risk-management). Score is reported as
 both currency P&L and percent return on `startingCapital`. Fills execute at
 the close of the pole the character is standing on.
+
+## Scoring (the discipline streak)
+
+| Key | Description | Default |
+|---|---|---|
+| `scoring.streakEnabled` | The discipline streak and its multiplier. Off means raw P&L only, no `arcadeScore`, no meter | on |
+| `scoring.maxMultiplier` | Cap on `1 + streak`. 5 matches the five-unit full deployment and the five-ghost stack — one number governing all three | 5 *(provisional)* |
+
+The streak ticks on **rule compliance, not profitability** — a loss taken
+because the player's own committed rule said to exit builds the meter exactly
+as a win does. Only ignoring a breached advisory level resets it. Full rules,
+including the automated and dormant meter states, are in
+[game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak).
+
+There is deliberately **no qualifying-P&L threshold and no time decay** to
+configure. Neither is needed once compliance rather than profit drives the
+meter: the multiplier pays out only on profitable closes, so climbing it with
+scratch trades earns nothing, and a decay timer would create an incentive to
+always be in a position.
+
+`arcadeScore` is a second score shown beside raw realized P&L, never in place
+of it. Personal bests key off percent return as before, with best
+`arcadeScore` recorded alongside in the same fingerprint bucket
+([game-feel.md](./game-feel.md#new-session-structure-the-highest-leverage-item-here)).
 
 ## Scroll / poles
 
@@ -154,7 +189,7 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 | `background.layers.<name>.enabled` | Per-layer on/off (sky, clouds, mountains, trees, ground/poles) | all on |
 | `background.layers.<name>.speedMultiplier` | Per-layer speed relative to `scrollSpeed` — motion only, fixed across themes | see [visuals.md](./visuals.md) table |
 | `visuals.theme` | Selected visual theme **parameter set** — palette plus shape/noise params for every layer, generated at runtime (no art files). See [visuals.md](./visuals.md#visual-themes) and [procedural-assets.md](./procedural-assets.md) | `jolly` |
-| `visuals.worldSeed` | Seeds the PRNG that generates background layers. Same theme + seed always yields an identical world; surfaced so a good-looking world can be recovered | random per run |
+| `visuals.worldSeed` | Seeds the PRNG that generates background layers. Same theme + seed always yields an identical world; surfaced so a good-looking world can be recovered | freshly minted per run via `shared/math/` `mintSeed()` |
 | `visuals.reducedMotion` | Damps parallax, particles, and transitions. Initialized from the OS `prefers-reduced-motion` setting | OS-derived |
 | `visuals.screenShake` | Screen shake on stop-out and large wins | on |
 | `visuals.pnlPalette` | `blue-orange` (colorblind-safe default) or `red-green` (familiar trading convention). P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `blue-orange` |

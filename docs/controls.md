@@ -120,6 +120,18 @@ Pause freezes the tick pipeline entirely — scroll, stop evaluation, and
 audio all halt, and no bar advances. It is **not** a settings screen; see
 [config.md](./config.md) for why config is fixed for a run's duration.
 
+**Pause also happens automatically when the page is hidden** — tab switched,
+phone locked, app backgrounded — since a time-based loop must not resolve the
+bars owed for that gap
+([game-design.md](./game-design.md#scroll-speed-timing-and-pole-geometry)).
+Reusing the pause state rather than inventing a catch-up path means the
+player sees what happened and resumes on purpose.
+
+**Entering pause clears the input buffer.** Presses buffered during the bar
+that was interrupted must not apply to the bar that resolves on resume —
+that's the same mis-assignment bug as banking stalled bars, arriving through
+a different door.
+
 ## Input handling rules
 
 - **One action per press, no auto-repeat on hold.** Holding a key must not

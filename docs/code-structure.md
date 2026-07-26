@@ -46,7 +46,7 @@ it isn't source, and Vite can import JSON from anywhere.
 src/
 ├── shared/         contracts at every seam; imports nothing at all
 │   ├── contracts/    OhlcvBar, ParamSpec, both plugin contracts, PriceSeriesSource
-│   └── math/         the one seeded PRNG, easing, stable hashing
+│   └── math/         the one seeded PRNG, the one seed minter, easing, hashing
 │
 ├── config/         the config tree: types, defaults, validation, run fingerprint
 │
@@ -144,9 +144,12 @@ than conventions:
   a plugin author writes.
 - **Only `platform/` may import `@tauri-apps/*` or `@capacitor/*`.** Native
   capability has exactly one door.
-- **`Math.random()` is banned everywhere.** `shared/math/` holds the only
-  randomness source, per
+- **`Math.random()` is banned everywhere, with no exemptions.**
+  `shared/math/` holds the only randomness source, per
   [procedural-assets.md](./procedural-assets.md#determinism--seeded-prng-never-mathrandom).
+  Real entropy has one door too: a single `mintSeed()` over
+  `crypto.getRandomValues`, which is what makes `visuals.worldSeed`'s
+  "random per run" default possible without weakening the rule.
 
 Nothing downstream of `engine/` mutates engine state. `render/` is a
 function of the frame state + theme + elapsed time; `audio/` is a function of
@@ -239,7 +242,7 @@ which is the point.
 | 1 Poles + Y-axis | `engine/run/`, `engine/normalization/`, `render/stage/`, `render/poles/`, `render/hud/` |
 | 2 State machine | `engine/position/`, `engine/pipeline/`, `engine/output/`, `input/`, `render/character/` |
 | 3 Sizing + HUD | `engine/position/`, `engine/scoring/`, `render/hud/` |
-| 4 Stops | `engine/stops/`, `plugins/host/`, `plugins/builtin/`, `render/hud/` |
+| 4 Stops + discipline streak | `engine/stops/`, `engine/scoring/`, `plugins/host/`, `plugins/builtin/`, `render/hud/` |
 | 5 Settings + lifecycle | `ui/screens/`, `platform/persistence/`, `app/` |
 | 6 Backgrounds | `generation/`, `render/bake/`, `render/layers/`, `content/visualThemes/` |
 | 6a Characters | `content/characters/`, `render/character/` |

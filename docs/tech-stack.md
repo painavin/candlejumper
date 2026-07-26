@@ -13,8 +13,10 @@ Windows, macOS, Linux, and Android from one codebase.
 - **Audio**: **Tone.js** for all three channels, including the generative
   ambient bed (see [audio.md](./audio.md)). No audio files.
 - **Randomness**: a small inlined seeded PRNG (mulberry32 or xorshift128 —
-  a few lines, not a dependency). `Math.random()` is banned in generation
-  code; determinism is a hard requirement, not a nicety.
+  a few lines, not a dependency). `Math.random()` is banned repo-wide with
+  no exemptions; the only source of real entropy is one `mintSeed()` helper
+  over `crypto.getRandomValues`, used to mint a run's world seed.
+  Determinism is a hard requirement, not a nicety.
 - **No asset pipeline.** No texture atlases, no sprite sheets, no audio
   encoding, no art tooling. The only binary asset in the build is a web
   font.
@@ -110,6 +112,22 @@ Not every layer is worth the same effort here:
   position entry — otherwise warm-up silently restarts every trade — and
   that a non-finite level is coerced to `null` rather than becoming a stop
   that can never trigger.
+- **The discipline streak — unit tested**, since it's scoring logic and a
+  wrong tick silently changes a player's history
+  ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)).
+  The cases that matter are the ones a win-streak implementation would get
+  wrong: a **losing** close with no advisory breach must *build* the streak,
+  an advisory breach must reset it **on the breach bar** rather than at the
+  eventual exit, an enforcing stop firing must leave it unchanged, and a run
+  with no stop configured must leave the meter dormant with `arcadeScore`
+  equal to raw P&L. Plus: the multiplier applies to profitable closes only,
+  so a sequence of scratch trades climbs the meter and scores nothing.
+- **The run loop's stall rules — unit tested** against a synthetic clock: a
+  frame gap of ten bar-durations must advance exactly one bar, not ten
+  ([game-design.md](./game-design.md#scroll-speed-timing-and-pole-geometry)).
+  This is cheap to test with an injected time source and impossible to notice
+  by playing, since it only manifests as P&L that's subtly wrong after a tab
+  switch.
 - **Normalizers — unit tested**, with an explicit assertion that no causal
   method ever reads a bar beyond the current index. That's the regression
   guard for the future-price leak described in
@@ -122,7 +140,7 @@ Not every layer is worth the same effort here:
   the generators' numeric output is snapshot-testable. This catches
   regressions in the noise pipeline as failing tests rather than as "the
   mountains look a bit different now," which is otherwise very easy to miss.
-  Worth a lint rule banning `Math.random()` in generation code alongside it.
+  Worth a lint rule banning `Math.random()` repo-wide alongside it.
 - **Rendering, audio, parallax — not unit tested.** Verify by playing.
   Snapshot-testing canvas pixels costs more than it catches.
 

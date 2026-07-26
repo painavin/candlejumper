@@ -51,13 +51,27 @@ read as broken.
   to flat ([game-design.md](./game-design.md#order-intent-matrix)).
 - **Buying power remaining**, since entries clamp against it and a silent
   clamp is confusing without a visible cause.
-- **Streak meter**: the multiplier gauge from
-  [game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-streaks--multipliers),
-  visibly filling and draining. This needs **reserved space from step 3**,
-  not retrofitted later — it's a live gauge, and the mobile layout is tight
-  enough that finding room for it afterwards would mean re-laying-out the
-  whole bar. On mobile it collapses to a compact multiplier chip (`×3`) with
-  a thin progress underline rather than a full-width gauge.
+- **Streak meter**: the discipline-streak gauge from
+  [game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)
+  — **five pips**, filling one per compliant close event and emptying on a
+  reset. It measures rule compliance, not profitability, so it has three
+  display states and the difference between them matters:
+  - **Live** (an advisory stop is active) — pips fill and empty as normal.
+  - **Automated** (only enforcing stops active) — the streak can't be lost,
+    so label it as automated rather than drawing a permanently full gauge. A
+    full bar the player didn't earn is worse than no bar.
+  - **Dormant** (no stop active) — no rule to measure; show it greyed with
+    the multiplier pinned at ×1, so the absence reads as a consequence of the
+    player's own config rather than a bug.
+
+  This needs **reserved space from step 3**, even though the gauge itself
+  goes live at step 4 with stops — the mobile layout is tight enough that
+  finding room afterwards would mean re-laying-out the whole bar. On mobile
+  it collapses to a compact multiplier chip (`×3`) with a thin progress
+  underline rather than a full-width gauge.
+- **Arcade score** beside raw P&L, never instead of it
+  ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)).
+  Raw realized P&L stays the primary readout.
 - **Active stop levels**, for each active stop plugin — shown both as a HUD
   number *and* as a horizontal line on the chart at that price, so the
   player can watch it approach rather than only read a number.
@@ -80,7 +94,7 @@ artifact [roadmap.md](./roadmap.md) step 0a calls for.
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ P&L +$1,240 (+12.4%)   LONG 8.4sh @ 218.30  ▲+$92   BP $2,000   │ top HUD
-│ ×3 ▓▓▓▓▓▓▓░░░  stop 214.10 (trailing-5%)   AAPL  2025-03-14 ⅓   │
+│ ×3 ▓▓▓░░ 4,180  stop 214.10 (trailing-5%)  AAPL  2025-03-14 ⅓   │
 ├──────────────────────────────────────────────────────────┬───────┤
 │                                              ▐▌          │  ░░▒▓ │
 │                    ▐▌            ▐▌  ▐▌      ▐▌ 🐦       │  ░░▒▓ │─ 240
@@ -102,7 +116,7 @@ The tight case. Resolutions forced by composing it:
 
 ```
 ┌───────────────────────────────┐
-│ +$1,240 (+12.4%)      ×3 ▓▓▓░ │ top HUD — 2 lines max,
+│ +$1,240 (+12.4%)     ×3 ▓▓▓░░ │ top HUD — 2 lines max,
 │ LONG 8.4sh @218.30  stop 214  │ streak as a chip
 ├────────────────────────┬──────┤
 │              ▐▌        │ ░░▒▓ │
@@ -128,8 +142,10 @@ Conflicts the wireframe surfaced, and their resolutions:
   which means `visibleBarCount` needs an orientation-aware default rather
   than a single value, and the normalizer window changes with it.
 - **The top HUD needs two lines in portrait**, and there isn't room for
-  buying power plus session info plus the streak gauge. Streak collapses to
-  a chip, buying power and full session info move to the pause screen.
+  buying power plus session info plus the streak gauge and the arcade score.
+  Streak collapses to a chip; buying power, arcade score, and full session
+  info move to the pause screen. Raw P&L never moves — it's the primary
+  readout in every orientation.
 - **The control strip must be allocated before sub-panes**, as
   [controls.md](./controls.md#mobile-layout-constraints) already required —
   the wireframe confirms that with 1 sub-pane and a thumb strip, the main

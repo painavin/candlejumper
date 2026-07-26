@@ -42,8 +42,15 @@ comparison and the seeded "daily ticker" idea in
 same run. So:
 
 - Use a small seeded PRNG (mulberry32 / xorshift128 — a few lines, no
-  dependency). **`Math.random()` is banned in generation code**; a lint
-  rule is worth the five minutes.
+  dependency). **`Math.random()` is banned repo-wide, with no exemptions** —
+  a lint rule is worth the five minutes, and a blanket rule is worth more
+  than a scoped one, since an exemption comment is exactly what a stray
+  PRNG call would hide behind.
+- The one legitimate need for real entropy is minting a new
+  `visuals.worldSeed` for a run. That lives in a single `mintSeed()` in
+  `shared/math/` backed by `crypto.getRandomValues`, so entropy has exactly
+  one door and everything downstream of the seed is deterministic. See
+  [code-structure.md](./code-structure.md#src).
 - `theme + seed` must always produce a byte-identical world. That makes
   generation **snapshot-testable**, which is a nice side benefit: a
   regression in the noise pipeline shows up as a failing test rather than
