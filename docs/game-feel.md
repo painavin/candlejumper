@@ -240,11 +240,18 @@ without anything being invented on their behalf.
 Nothing in the plan yet persists across sessions, which is what makes a
 game feel like it has a "shape" beyond one run:
 
-- **Unlockables**: gate some of [character.md](./character.md)'s roster
-  and [visuals.md](./visuals.md)/[audio.md](./audio.md)'s themes behind
-  play milestones instead of having everything available immediately.
-  Costs no new systems — the registries already exist, this just adds a
-  locked/unlocked flag.
+- **Unlockables — considered and rejected.** The original idea was to gate
+  some of [character.md](./character.md)'s roster and
+  [visuals.md](./visuals.md)/[audio.md](./audio.md)'s themes behind play
+  milestones. It was built that way and then removed, because it makes the
+  trainer worse at its job: the roster and both moods are cosmetic,
+  finished, and cost nothing to offer, and a player who wants to be the
+  bear should be the bear on their first run. Locking finished content
+  behind a grind buys engagement metrics at the price of the thing the
+  player came for. Everything cosmetic is available immediately.
+
+  What the mechanism became instead is the achievements below — same
+  registry, same discipline-not-profit rule, no gate.
 - **Achievements tied to discipline, not just profit**: "respected your
   stop 10 runs in a row," "held a winner for 20+ bars," "scaled in three
   times on one trend." These are the trainer's actual curriculum, made

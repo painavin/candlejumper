@@ -6,6 +6,7 @@ import { eventKey } from '@engine/output/index.js'
 import { createAmbientBed } from './channels/bed.js'
 import { createSonification } from './channels/sonification.js'
 import { createStingers } from './channels/stingers.js'
+import { toGain } from './mix.js'
 
 /**
  * The audio system: three independent channels behind one mixer.
@@ -21,34 +22,71 @@ import { createStingers } from './channels/stingers.js'
  *     cue misfires on every short exit, since closing a short is a `buy`.
  */
 
-export interface AudioSystem {
-  /**
-   * Browsers require a user gesture before audio can start. Called from the Start
-   * button's handler, which is exactly such a gesture.
-   */
-  start(): Promise<void>
-  /** Feed one frame: fires stingers for its events and sonifies a completed bar. */
-  update(frame: FrameState): void
-  setPaused(paused: boolean): void
-  dispose(): void
-}
-
-export interface AudioOptions {
-  themeId: string
+/** The mixing knobs, separated from the theme because they aren't theme properties. */
+export interface AudioMix {
   masterVolume: number
   musicVolume: number
   musicMuted: boolean
   sfxVolume: number
   sfxMuted: boolean
-  /** Seeds the bed's voicing, so a run sounds the same way twice. */
-  worldSeed: number
 }
 
-/** Linear 0..1 slider → decibels. Muted is silence, not -60dB. */
-function toDecibels(volume: number, muted: boolean): number {
-  if (muted || volume <= 0) return -Infinity
-  return Tone.gainToDb(volume)
+export interface AudioSystem {
+  /**
+   * Browsers require a user gesture before audio can start. Called from the Start
+   * button's handler — or, for the title screen's bed, from the first click or
+   * keypress anywhere.
+   */
+  start(): Promise<void>
+  /** Feed one frame: fires stingers for its events and sonifies a completed bar. */
+  update(frame: FrameState): void
+  setPaused(paused: boolean): void
+  /**
+   * Change the mix on a running system.
+   *
+   * Volume has to be live. It was originally applied once at construction, which
+   * meant a slider did nothing until the next run started — and on the settings
+   * screen, where the only thing playing is the title bed, it appeared to do nothing
+   * at all. A volume control that needs a commit to take effect is a broken volume
+   * control: the whole way anyone sets a level is by listening while they move it.
+   *
+   * This is not an exception to "config is fixed for a run's duration". That rule is
+   * about settings that change the *challenge*; the mix is excluded from the run
+   * fingerprint precisely because it doesn't.
+   */
+  setMix(mix: AudioMix): void
+  /**
+   * Play one representative cue at the current effects level.
+   *
+   * Because an effects slider you cannot hear is not a control. Behind a menu there
+   * are no position events, so channel 3 would otherwise be silent for exactly as
+   * long as the player is trying to set its level — the one moment they need to hear
+   * it. Uses the entry cue: short, unambiguous, and not the alarming one.
+   */
+  previewSfx(): void
+  dispose(): void
 }
+
+export interface AudioOptions extends AudioMix {
+  themeId: string
+  /** Seeds the bed's voicing, so a run sounds the same way twice. */
+  worldSeed: number
+  /**
+   * Which channels to build.
+   *
+   * `menu` is the title and settings screens: the bed plays, and stingers exist only
+   * so the effects slider can be auditioned. Sonification isn't built at all —
+   * there are no bars being played to sonify, and a synth that can never be
+   * triggered is still a synth kept alive in the audio graph.
+   *
+   * In `menu` mode `update()` is a no-op regardless, so nothing behind a menu can
+   * fire a cue by accident. The only way a stinger sounds there is `previewSfx()`.
+   */
+  channels?: 'all' | 'menu'
+}
+
+/** Seconds to ramp a gain change over. Short enough to feel instant, long enough not to click. */
+const MIX_RAMP = 0.04
 
 export function createAudio(options: AudioOptions): AudioSystem {
   const theme: AudioTheme = audioTheme(options.themeId)
@@ -56,22 +94,24 @@ export function createAudio(options: AudioOptions): AudioSystem {
   // Mixing knobs sit on top of whichever theme is active — they are not theme
   // properties.
   const master = new Tone.Gain(1).toDestination()
-  master.gain.value = Tone.dbToGain(toDecibels(options.masterVolume, false))
+  master.gain.value = toGain(options.masterVolume, false)
 
   const reverb = new Tone.Reverb({ decay: 4, wet: theme.bed.reverbSend }).connect(master)
   const delay = new Tone.FeedbackDelay({ delayTime: 0.36, feedback: 0.28, wet: theme.bed.delaySend })
   delay.connect(reverb)
 
   const musicBus = new Tone.Gain(1)
-  musicBus.gain.value = Tone.dbToGain(toDecibels(options.musicVolume, options.musicMuted))
+  musicBus.gain.value = toGain(options.musicVolume, options.musicMuted)
   musicBus.connect(delay)
 
   const sfxBus = new Tone.Gain(1)
-  sfxBus.gain.value = Tone.dbToGain(toDecibels(options.sfxVolume, options.sfxMuted))
+  sfxBus.gain.value = toGain(options.sfxVolume, options.sfxMuted)
   sfxBus.connect(master)
 
+  const menuOnly = options.channels === 'menu'
   const bed = createAmbientBed(theme, musicBus, options.worldSeed)
-  const sonification = createSonification(theme, sfxBus)
+  const sonification = menuOnly ? undefined : createSonification(theme, sfxBus)
+  // Built even in menu mode, for `previewSfx` alone.
   const stingers = createStingers(theme, sfxBus)
 
   let started = false
@@ -96,16 +136,29 @@ export function createAudio(options: AudioOptions): AudioSystem {
     },
 
     update(frame) {
-      if (!started || paused) return
+      if (!started || paused || menuOnly) return
 
       for (const event of frame.events) fire(event)
 
       const bar = frame.currentBar
       if (bar && frame.currentIndex !== lastSonifiedIndex) {
         lastSonifiedIndex = frame.currentIndex
-        if (previousClose !== undefined) sonification.playMove(previousClose, bar.c)
+        if (previousClose !== undefined) sonification?.playMove(previousClose, bar.c)
         previousClose = bar.c
       }
+    },
+
+    setMix(mix) {
+      // Ramped rather than set, so dragging a slider doesn't machine-gun clicks into
+      // the output — a stepped gain change on a sounding voice is an audible edge.
+      master.gain.rampTo(toGain(mix.masterVolume, false), MIX_RAMP)
+      musicBus.gain.rampTo(toGain(mix.musicVolume, mix.musicMuted), MIX_RAMP)
+      sfxBus.gain.rampTo(toGain(mix.sfxVolume, mix.sfxMuted), MIX_RAMP)
+    },
+
+    previewSfx() {
+      if (!started) return
+      stingers.play('positionOpened')
     },
 
     setPaused(next) {
@@ -119,7 +172,7 @@ export function createAudio(options: AudioOptions): AudioSystem {
 
     dispose() {
       bed.dispose()
-      sonification.dispose()
+      sonification?.dispose()
       stingers.dispose()
       musicBus.dispose()
       sfxBus.dispose()

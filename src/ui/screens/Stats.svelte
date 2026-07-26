@@ -82,7 +82,7 @@
     </div>
   {/if}
 
-  <h2>Unlocks</h2>
+  <h2>Badges</h2>
   <ul>
     {#each unlocks as unlock (unlock.id)}
       {@const got = earned.includes(unlock.id)}
@@ -94,8 +94,9 @@
     {/each}
   </ul>
   <p class="note">
-    Everything unlockable is cosmetic. Nothing here changes how the game plays —
-    locking a mechanic behind a grind would make it worse at teaching.
+    Badges record habits worth noticing. They unlock nothing — every runner and both
+    moods are available from the first run, because hiding finished cosmetics behind
+    a grind would make the game worse at what it's for.
   </p>
 </div>
 

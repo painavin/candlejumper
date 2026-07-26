@@ -22,9 +22,68 @@ touching channel logic, just by adding a new theme bundle.
   per theme is the deliberate mitigation for generative ambient's known
   failure mode: wandering aimlessly and turning monotonous. The randomness
   lives in the surface, not the harmony.
+- **Two layers, because "always playing" is a requirement and not a
+  description.** The first implementation sampled one note at a time from
+  the current chord with silence between, and it did not read as music —
+  it read as a trickle of unrelated plinks, the progression was never
+  actually sounded, and chord changes landed in gaps where nobody could
+  hear them. Continuity is a texture problem, not a mixing one; no amount
+  of reverb fills a hole. So:
+  - **A drone** holds the current chord's root and fifth indefinitely,
+    with a multi-second attack and a longer release, so something is
+    always sounding. Chord changes crossfade because the outgoing
+    release outlasts the incoming attack, and a pitch common to both
+    chords is **held rather than retriggered** — a pedal tone, and the
+    strongest continuity cue available. It omits the third, so the
+    harmony can move without the foundation feeling stuck.
+  - **A sparse surface** of two chord tones at a time on the themed
+    instrument, each gesture held *longer than the gap that follows it*
+    so consecutive gestures overlap into one line.
+- **`droneLevel` is the continuity knob.** At 0 there is no drone and the
+  bed reverts to the trickle described above. `noteOverlap` above 1
+  guarantees the surface never breaks. Both are theme parameters.
+- **A theme supplying `bed.pulse` gets a metered engine instead**, because
+  ambient cannot be *cheerful* at any parameter setting. Cheerfulness in
+  game music is made of meter, and "randomize the timing of single notes"
+  cannot express meter. Metered mode is three layers over the same fixed
+  progression:
+  - a **bass** figure per eighth note, written as chord degrees with rests,
+    alternating root and fifth so the line walks rather than sits;
+  - **chord stabs** on the off-beats, against the bass's on-beats. This
+    oom-pah carries more of the feeling than every other parameter
+    combined, which is why a test asserts the two patterns never collide;
+  - a **melody** on a syncopated sixteenth grid, whose contour is generated
+    once from the seed and then repeated, remapped onto whichever chord is
+    current. Repetition is what makes a melody recognisable; the remapping
+    is what keeps it in key while the harmony moves. Every pitch is a chord
+    degree, so a generated line is in key by construction, not by luck.
+
+  Plus `swing`, which is the cheapest cheerfulness lever there is — a
+  straight grid reads as mechanical however bright the timbre. The three
+  layers are spread across roughly three octaves; bunching them turns the
+  texture to mud.
+
+  In metered mode `droneLevel` wants to be **low**: the pulse is already
+  carrying continuity, and a prominent drone only muddies it.
+- **The grooves are data, not code paths.** Patterns are step arrays in
+  `audioThemes/index.ts`, so a new groove is more numbers — the same
+  themes-as-parameters payoff the visuals get. Nothing branches on theme id.
+- Scheduling runs on `Tone.Transport`, not `setTimeout`: sample-accurate
+  rather than drifting, and it isn't throttled into stuttering when the
+  tab loses focus. Channels 2 and 3 schedule off `Tone.now()` and never
+  read the transport position, so starting and stopping it for the bed is
+  safe.
 - Reverb/delay send levels are theme parameters — ambience does more for
   perceived mood than note choice does.
-- Volume slider and mute toggle as usual.
+- **The bed also plays behind the title screen**, alone: there is nothing
+  to sonify behind a menu, so channels 2 and 3 are not constructed there.
+  It starts on the first click or keypress, since browsers refuse to start
+  an audio context before a gesture.
+- Volume slider and mute toggle as usual, and **live**: the mix applies to
+  whatever is already playing rather than waiting for a commit. A volume
+  control that needs an OK press is a broken volume control — the only way
+  anyone sets a level is by listening while they move it. Muted means
+  exactly zero gain, not a very quiet signal.
 - Stretch goal (not initial scope): shift to a tenser voicing or a minor
   substitution *within* a theme based on drawdown state. Much cheaper now
   that the bed is synthesized rather than a fixed recording — but don't

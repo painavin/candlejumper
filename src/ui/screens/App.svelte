@@ -50,9 +50,9 @@
       <Title
         lifetime={state.lifetime}
         personalBest={state.personalBest}
-        hasSave={(state.lifetime?.runs ?? 0) > 0}
-        onPlay={actions.toSettings}
-        onQuickRun={() => state.config && actions.start(state.config)}
+        ticker={state.config?.data.ticker ?? ''}
+        onPlay={() => state.config && actions.start(state.config)}
+        onSettings={actions.toSettings}
         onSurprise={actions.surprise}
         onHowTo={actions.toHowTo}
         onStats={actions.toStats}
@@ -64,7 +64,7 @@
     </div>
   {:else if state.screen === 'stats'}
     <div in:fly={enter} out:fade={leave}>
-      <Stats lifetime={state.lifetime} earned={state.unlocked} onBack={actions.toTitle} />
+      <Stats lifetime={state.lifetime} earned={state.badges} onBack={actions.toTitle} />
     </div>
   {:else if state.screen === 'settings' && state.config}
     <div in:fly={enter} out:fade={leave}>
@@ -73,12 +73,11 @@
         tickers={state.tickers}
         stopChoices={state.stopChoices}
         indicatorChoices={state.indicatorChoices}
-        unlocked={state.unlocked}
         personalBest={state.personalBest}
         plugins={state.plugins}
-        onStart={actions.start}
+        onCommit={actions.commitSettings}
+        onCancel={actions.cancelSettings}
         onPreview={actions.preview}
-        onBack={actions.toTitle}
         onImportPlugins={actions.importPlugins}
         onRemovePlugin={actions.removePlugin}
       />
@@ -109,7 +108,7 @@
         endedEarly={state.outcome.endedEarly}
         isPersonalBest={state.outcome.isPersonalBest}
         personalBest={state.outcome.personalBest}
-        unlocked={state.outcome.unlocked}
+        newBadges={state.outcome.newBadges}
         onAgain={actions.runAgain}
         onSettings={actions.toSettings}
         onTitle={actions.toTitle}

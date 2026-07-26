@@ -22,12 +22,14 @@ npm run dev
 ```
 
 Vite prints a local URL (usually <http://localhost:5173>). You land on the title
-screen with the game playing itself behind it — press **Play** to configure a run,
-or **Surprise me** for a random ticker and date window.
+screen with the game playing itself behind it. **Play** starts a run with the
+current settings, **Surprise me** picks a random ticker and date window, and
+**Settings** is there when you want to change something — the defaults are a
+perfectly good first run.
 
-Audio starts on the first click rather than on page load, because browsers require
-a user gesture before any sound can play. The attract-mode backdrop is silent by
-design and never loads the audio bundle at all.
+The title screen plays the selected theme's music bed, and only that: there's
+nothing to sonify behind a menu. It starts on your first click or keypress rather
+than on page load, because browsers refuse to start audio before a user gesture.
 
 ## Build it
 
@@ -104,10 +106,12 @@ whether you're on a keyboard or a touchscreen.
 - **Ghosts trailing the runner** are your open units, one each, so "I'm three
   deep" reads at a glance. Past five it becomes a badge.
 
-Everything the game unlocks is cosmetic, and gated on discipline rather than
-profit: finishing a run that traded and broke no rule is what earns things, not
-a lucky number. **Record** on the title screen shows your lifetime totals, led by
-clean runs rather than P&L.
+**Nothing is locked.** Every runner and both moods are available from the first
+run — hiding finished cosmetics behind a grind would make the game worse at what
+it's for. Badges record habits worth noticing instead, and they're earned on
+discipline rather than profit: finishing a run that traded and broke no rule
+counts, a lucky number doesn't. **Record** on the title screen shows your lifetime
+totals, led by clean runs rather than P&L.
 
 ## Your own stop rules and indicators
 

@@ -24,7 +24,7 @@
     endedEarly,
     isPersonalBest,
     personalBest,
-    unlocked,
+    newBadges,
     onAgain,
     onSettings,
     onTitle,
@@ -38,14 +38,14 @@
     endedEarly: boolean
     isPersonalBest: boolean
     personalBest: number | undefined
-    /** Ids crossed by *this* run, so they can be announced once. */
-    unlocked: readonly string[]
+    /** Badge ids earned by *this* run, so they're announced once. */
+    newBadges: readonly string[]
     onAgain: () => void
     onSettings: () => void
     onTitle: () => void
   } = $props()
 
-  const earned = $derived(unlocks.filter((unlock) => unlocked.includes(unlock.id)))
+  const earned = $derived(unlocks.filter((badge) => newBadges.includes(badge.id)))
 
   const money = (value: number): string =>
     `${value > 0 ? '▲ +' : value < 0 ? '▼ −' : '· '}$${Math.abs(value).toFixed(2)}`
@@ -128,10 +128,10 @@
   {/if}
 
   {#if earned.length > 0}
-    <h2>Unlocked</h2>
-    <ul class="unlocks">
-      {#each earned as unlock (unlock.id)}
-        <li><strong>{unlock.displayName}</strong> — {unlock.requirement}</li>
+    <h2>Earned</h2>
+    <ul class="badges">
+      {#each earned as badge (badge.id)}
+        <li><strong>{badge.displayName}</strong> — {badge.requirement}</li>
       {/each}
     </ul>
   {/if}
@@ -233,12 +233,12 @@
     font-size: 12.5px;
     line-height: 1.55;
   }
-  .unlocks {
+  .badges {
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  .unlocks li {
+  .badges li {
     padding: 8px 12px;
     margin-bottom: 4px;
     background: var(--panel);
@@ -247,7 +247,7 @@
     color: var(--dim);
     font-size: 13px;
   }
-  .unlocks strong {
+  .badges strong {
     color: var(--ink);
   }
   .actions {

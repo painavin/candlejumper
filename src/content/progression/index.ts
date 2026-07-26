@@ -1,36 +1,38 @@
 import type { Unlock, UnlockContext } from './types.js'
 
 /**
- * Unlockables, as plain data.
+ * Achievements.
  *
- * The rule from docs/game-feel.md that shapes every entry here:
- * **achievements tied to discipline, not just profit.** Not one of these can be
- * bought with a lucky run, and the two most interesting ones (`bear`, `serious`)
- * require *never breaking your own rule* — which is the behaviour this whole game
- * exists to train. A profit-gated unlock would reward the opposite: holding a loser
- * past a stop and getting away with it.
+ * **Nothing here gates anything.** These used to unlock characters and the second
+ * mood, and that was a mistake: the roster and both themes are cosmetic, they're
+ * finished, and hiding finished content behind a grind makes a trainer worse at
+ * training — a player who wants to be the bear should be the bear on their first
+ * run. What's left is a record of habits worth noticing, which is what the
+ * underlying idea was actually for.
  *
- * Everything gated here is **cosmetic**. Locking a mechanic behind a grind would
- * make the trainer worse at training; locking a costume behind a habit makes the
- * habit visible. See docs/character.md — character choice never affects gameplay.
+ * The rule from docs/game-feel.md that still shapes every entry:
+ * **tied to discipline, not just profit.** Not one of these can be bought with a
+ * lucky run, and the two most interesting ones require *never breaking your own
+ * rule* — which is the behaviour this whole game exists to train. A profit-gated
+ * achievement would reward holding a loser past a stop and getting away with it.
  */
 
 export const unlocks: readonly Unlock[] = [
   {
-    id: 'character:bull',
-    displayName: 'Bull',
+    id: 'badge:regular',
+    displayName: 'Regular',
     requirement: 'Finish 3 runs',
     achieved: (context) => context.lifetime.runs >= 3,
   },
   {
-    id: 'character:bear',
-    displayName: 'Bear',
+    id: 'badge:clean-sheet',
+    displayName: 'Clean sheet',
     requirement: 'Finish a run that trades and never breaks your own rule',
     achieved: (context) => context.lifetime.cleanRuns >= 1,
   },
   {
-    id: 'theme:serious',
-    displayName: 'Serious mood',
+    id: 'badge:streak',
+    displayName: 'On a roll',
     requirement: 'Reach a discipline streak of 5',
     achieved: (context) => context.lifetime.bestStreak >= 5,
   },
@@ -49,21 +51,14 @@ export const unlocks: readonly Unlock[] = [
 ]
 
 /**
- * Everything currently unlocked.
+ * Everything earned so far.
  *
  * Recomputed from lifetime stats on every load rather than stored as a list, so a
- * corrupted or partial save can't permanently lose an unlock the player earned —
- * and so a rule change here applies retroactively instead of only to new players.
+ * corrupted or partial save can't lose something the player earned — and so a rule
+ * change here applies retroactively instead of only to new players.
  */
 export function earnedUnlocks(context: UnlockContext): string[] {
   return unlocks.filter((unlock) => unlock.achieved(context)).map((unlock) => unlock.id)
-}
-
-/** Content ids that need no unlock — the starting set. */
-const ALWAYS: readonly string[] = ['character:robin', 'theme:jolly']
-
-export function isUnlocked(id: string, earned: readonly string[]): boolean {
-  return ALWAYS.includes(id) || earned.includes(id)
 }
 
 /** The next thing to aim for, or `undefined` when everything is earned. */

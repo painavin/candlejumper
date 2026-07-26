@@ -26,6 +26,68 @@ export interface StingerRecipe {
   volume: number
 }
 
+/**
+ * The metered mode for channel 1.
+ *
+ * Present on a theme when its bed should have a **pulse** rather than drift.
+ * Absent, the bed is ambient — a drone plus sparsely timed gestures.
+ *
+ * This exists because ambient cannot be *cheerful*. Cheerfulness in game music comes
+ * from meter: a bouncing bass, accents landing between the beats, a shuffle, and a
+ * phrase short enough to recognise when it comes round again. None of those are
+ * expressible as "randomize the timing of single notes", so a bed asked to be jolly
+ * needs a different engine rather than different parameters.
+ *
+ * Everything here is data. Patterns are step arrays, so retuning the groove means
+ * editing numbers in `audioThemes/index.ts` — no new code path per theme.
+ */
+export interface BedPulse {
+  /** Beats per minute. Sets the shared Tone transport tempo. */
+  tempo: number
+  /**
+   * Shuffle amount, 0..1, applied to eighths.
+   *
+   * The single most effective cheerfulness lever available. A straight grid reads as
+   * mechanical however bright the timbre; a little lilt reads as playful.
+   */
+  swing: number
+  /** Bars per chord, so changes land on a bar line rather than mid-phrase. */
+  barsPerChord: number
+  /**
+   * Bass line, one entry per **eighth note**, one bar long.
+   *
+   * Values index the chord's own tones (0 = root, 1 = third, 2 = fifth, wrapping),
+   * and `-1` is a rest. An alternating root/fifth figure is the classic bounce —
+   * it's what makes a line feel like walking rather than sitting.
+   */
+  bassPattern: number[]
+  /**
+   * Chord stabs, one entry per eighth note. 1 plays, 0 rests.
+   *
+   * Putting these on the **off**-beats against the bass's on-beats is the oom-pah
+   * that carries the whole feel. Straight-through stabs sound like a metronome.
+   */
+  stabPattern: number[]
+  /**
+   * Melody rhythm, one entry per **sixteenth note**, one bar long. 1 plays, 0 rests.
+   *
+   * Syncopation lives here: notes landing off the grid are what stop a generated
+   * line sounding like an exercise.
+   */
+  melodyPattern: number[]
+  /**
+   * How many bars the melodic contour spans before repeating.
+   *
+   * The contour is generated once from the seed and then **reused**, remapped onto
+   * whatever chord is current. Repetition is what makes a melody a melody rather
+   * than a sequence of correct notes — and remapping is what keeps it in key while
+   * the harmony moves.
+   */
+  phraseBars: number
+  /** Per-layer levels, 0..1. */
+  levels: { bass: number; stabs: number; melody: number }
+}
+
 export interface AudioTheme {
   id: string
   displayName: string
@@ -39,16 +101,42 @@ export interface AudioTheme {
      * timing), not the harmony.
      */
     progression: string[][]
+    /** The *surface* voice. The sustained drone underneath is not skinnable. */
     instrument: 'pad' | 'pluck'
     /** Octave the voicing is centred on. */
     register: number
-    /** Seconds between notes, sampled from this range by the seeded PRNG. */
+    /** Seconds between note gestures, sampled from this range by the seeded PRNG. */
     noteRateRange: [number, number]
+    /**
+     * How loud the sustained drone sits under the notes, 0..1.
+     *
+     * **This is the continuity knob.** The drone is the only layer that is always
+     * sounding; the notes are sparse by design. At 0 there is no drone and the bed
+     * goes back to being a trickle of separate events with silence between them,
+     * which is what it used to be. Somewhere around 0.5 it reads as music.
+     */
+    droneLevel: number
+    /**
+     * Note length as a multiple of the gap that follows it.
+     *
+     * Above 1 means consecutive gestures always overlap, which is what makes the
+     * surface read as one line rather than separate hits. Below 1 leaves audible
+     * holes. 1.4–2 is the useful range; much higher and the notes pile into mud.
+     */
+    noteOverlap: number
     /** 0..1 sends. Ambience does more for perceived mood than note choice does. */
     reverbSend: number
     delaySend: number
-    /** Seconds per chord. */
+    /** Seconds per chord. Chord changes crossfade, so this can be long. */
     chordSeconds: number
+    /**
+     * Present ⇒ the bed is metered instead of ambient, and `noteRateRange`,
+     * `noteOverlap`, `instrument`, and `chordSeconds` are unused.
+     *
+     * `droneLevel` still applies and is worth keeping low here: with a pulse
+     * carrying continuity, a prominent drone only muddies it.
+     */
+    pulse?: BedPulse
   }
 
   /** Channel 2: movement sonification. */

@@ -9,33 +9,37 @@
    * missing piece that made the old landing screen read as a web form.
    *
    * Nothing here updates per frame: the canvas underneath does the moving.
+   *
+   * **Play starts a run**, it does not open settings. Settings is its own screen
+   * behind its own button — a title screen whose primary action is a configuration
+   * form asks the player to make eleven decisions before they know what the game is,
+   * and the shipped defaults are a perfectly good first run.
    */
-  import { characters } from '@content/characters/index.js'
   import { nextUnlock } from '@content/progression/index.js'
   import type { UnlockContext } from '@content/progression/types.js'
 
   let {
     lifetime,
     personalBest,
-    hasSave,
+    ticker,
     onPlay,
-    onQuickRun,
+    onSettings,
     onSurprise,
     onHowTo,
     onStats,
   }: {
     lifetime: UnlockContext['lifetime'] | undefined
     personalBest: { percentReturn: number; arcadeScore: number } | undefined
-    hasSave: boolean
+    /** What Play will run, so the button isn't a mystery. */
+    ticker: string
     onPlay: () => void
-    onQuickRun: () => void
+    onSettings: () => void
     onSurprise: () => void
     onHowTo: () => void
     onStats: () => void
   } = $props()
 
   const goal = $derived(lifetime ? nextUnlock({ lifetime }) : undefined)
-  const roster = characters.length
 </script>
 
 <div class="title">
@@ -56,11 +60,11 @@
   <p class="tagline">Two buttons. Real prices. No way to die — only to trade badly.</p>
 
   <div class="actions">
-    <button class="primary" onclick={onPlay}>Play</button>
-    {#if hasSave}
-      <button onclick={onQuickRun}>Quick run <span class="hint">last setup</span></button>
-    {/if}
+    <button class="primary" onclick={onPlay}>Play <span class="hint">{ticker}</span></button>
     <button onclick={onSurprise}>Surprise me <span class="hint">random slice</span></button>
+  </div>
+  <div class="actions secondary">
+    <button onclick={onSettings}>Settings</button>
     <button onclick={onHowTo}>How to play</button>
     <button onclick={onStats}>Record</button>
   </div>
@@ -70,9 +74,9 @@
       <span>Best on your last setup <strong>{personalBest.percentReturn.toFixed(1)}%</strong></span>
     {/if}
     {#if goal}
-      <span class="goal">Next unlock — {goal.requirement}</span>
+      <span class="goal">Next badge — {goal.requirement}</span>
     {:else if lifetime && lifetime.runs > 0}
-      <span class="goal">Everything unlocked. All {roster} runners are yours.</span>
+      <span class="goal">Every badge earned.</span>
     {/if}
   </footer>
 </div>
@@ -134,17 +138,28 @@
   button:hover {
     border-color: var(--accent);
   }
+  .actions.secondary {
+    margin-top: 8px;
+  }
+  .actions.secondary button {
+    padding: 9px 14px;
+    font-size: 13.5px;
+  }
   .primary {
     background: var(--accent);
     border-color: var(--accent);
     /* The accent is a light colour in both themes, so the label goes dark. */
     color: #10151d;
     font-weight: 600;
-    padding-inline: 34px;
+    padding-inline: 28px;
   }
   .hint {
     color: var(--dim);
     font-size: 12.5px;
+  }
+  .primary .hint {
+    color: inherit;
+    opacity: 0.7;
   }
   footer {
     display: flex;

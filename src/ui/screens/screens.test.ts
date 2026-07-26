@@ -21,6 +21,7 @@ import App from './App.svelte'
 
 interface SpiedActions extends AppActions {
   start: Mock<(config: RunConfig) => void>
+  commitSettings: Mock<(config: RunConfig) => void>
 }
 
 function actions(): SpiedActions {
@@ -32,6 +33,8 @@ function actions(): SpiedActions {
     abandon: vi.fn(),
     runAgain: vi.fn(),
     toSettings: vi.fn(),
+    commitSettings: vi.fn<(config: RunConfig) => void>(),
+    cancelSettings: vi.fn(),
     toTitle: vi.fn(),
     toHowTo: vi.fn(),
     toStats: vi.fn(),
@@ -49,7 +52,6 @@ function render(configure: (state: AppState) => void = () => {}) {
   // Every test but the title-screen ones is about a specific screen, so default to
   // settings rather than making each one navigate there first.
   state.screen = 'settings'
-  state.unlocked = ['character:bull', 'character:bear', 'theme:serious']
   state.indicatorChoices = [...createIndicatorRegistry().values()].map((plugin) => ({
     id: plugin.id,
     displayName: plugin.displayName,
@@ -83,8 +85,23 @@ function render(configure: (state: AppState) => void = () => {}) {
 describe('the settings screen', () => {
   it('mounts and renders', () => {
     const { target, dispose } = render()
-    expect(target.textContent).toContain('Set up your run')
-    expect(target.textContent).toContain('Start run')
+    expect(target.textContent).toContain('Settings')
+    expect(button(target, 'OK')).toBeDefined()
+    expect(button(target, 'Cancel')).toBeDefined()
+    dispose()
+  })
+
+  it('commits on OK and discards on Cancel, without starting a run either way', () => {
+    // Reaching this screen is not a commitment to play — it's often "turn the music
+    // down and go back" — so neither button may start anything.
+    const { target, actions: acts, dispose } = render()
+    button(target, 'OK')?.click()
+    expect(acts.commitSettings).toHaveBeenCalledTimes(1)
+    expect(acts.start).not.toHaveBeenCalled()
+
+    button(target, 'Cancel')?.click()
+    expect(acts.cancelSettings).toHaveBeenCalledTimes(1)
+    expect(acts.start).not.toHaveBeenCalled()
     dispose()
   })
 
@@ -95,20 +112,30 @@ describe('the settings screen', () => {
     dispose()
   })
 
-  it('hands Start a plain object, not a reactive proxy', () => {
+  it('hands app/ a plain object, not a reactive proxy', () => {
     // The bug this test exists for: `structuredClone()` of a $state proxy throws
     // DataCloneError, and the config crosses from ui/ into app/ right here.
     const { target, actions: acts, dispose } = render()
-    const button = [...target.querySelectorAll('button')].find((element) =>
-      element.textContent?.includes('Start run')
-    )
-    expect(button).toBeDefined()
-    button?.click()
+    button(target, 'OK')?.click()
 
-    expect(acts.start).toHaveBeenCalledTimes(1)
-    const passed = acts.start.mock.calls[0]?.[0] as RunConfig
+    expect(acts.commitSettings).toHaveBeenCalledTimes(1)
+    const passed = acts.commitSettings.mock.calls[0]?.[0] as RunConfig
     expect(() => structuredClone(passed)).not.toThrow()
     expect(passed.data.ticker).toBe('AAPL')
+    dispose()
+  })
+
+  it('offers every runner, with none locked', () => {
+    // All three were built and rendered; two used to be gated behind a grind, which
+    // is the wrong trade for a trainer — a player who wants to be the bear should be
+    // the bear on their first run.
+    const { target, dispose } = render((state) => {
+      state.badges = []
+    })
+    const picks = [...target.querySelectorAll('button.pick')]
+    expect(picks).toHaveLength(3)
+    expect(picks.filter((pick) => (pick as HTMLButtonElement).disabled)).toEqual([])
+    expect(target.textContent).not.toContain('Locked')
     dispose()
   })
 
@@ -120,24 +147,23 @@ describe('the settings screen', () => {
     dispose()
   })
 
-  it('offers every mood, and one pick sets both theme keys', () => {
+  it('offers every mood unlocked, and one pick sets both theme keys', () => {
     // The first version of this screen shipped without a theme picker at all,
-    // leaving `serious` — a whole second look and soundtrack — unreachable.
+    // leaving `serious` — a whole second look and soundtrack — unreachable. It was
+    // then reachable but *locked*, which was barely better.
     const { target, actions: acts, dispose } = render()
     const moodSelect = [...target.querySelectorAll('select')].find((element) =>
       [...element.options].some((option) => option.value === 'serious')
     )
     expect(moodSelect).toBeDefined()
+    expect([...moodSelect!.options].some((option) => option.disabled)).toBe(false)
 
     moodSelect!.value = 'serious'
     moodSelect!.dispatchEvent(new Event('change', { bubbles: true }))
 
-    const button = [...target.querySelectorAll('button')].find((element) =>
-      element.textContent?.includes('Start run')
-    )
-    button?.click()
+    button(target, 'OK')?.click()
 
-    const passed = acts.start.mock.calls[0]?.[0] as RunConfig
+    const passed = acts.commitSettings.mock.calls[0]?.[0] as RunConfig
     // Both keys, not just the visual one: they are separate keys that the single
     // mood pick is responsible for keeping coherent.
     expect(passed.visuals.theme).toBe('serious')
@@ -157,17 +183,20 @@ describe('the settings screen', () => {
     sound.value = 'serious'
     sound.dispatchEvent(new Event('change', { bubbles: true }))
 
-    const button = [...target.querySelectorAll('button')].find((element) =>
-      element.textContent?.includes('Start run')
-    )
-    button?.click()
+    button(target, 'OK')?.click()
 
-    const passed = acts.start.mock.calls[0]?.[0] as RunConfig
+    const passed = acts.commitSettings.mock.calls[0]?.[0] as RunConfig
     expect(passed.visuals.theme).toBe('jolly')
     expect(passed.audio.theme).toBe('serious')
     dispose()
   })
 })
+
+function button(target: HTMLElement, label: string): HTMLButtonElement | undefined {
+  return [...target.querySelectorAll('button')].find((element) =>
+    element.textContent?.trim().startsWith(label)
+  )
+}
 
 describe('the title screen', () => {
   const titled = (configure: (state: AppState) => void = () => {}) =>
@@ -188,24 +217,30 @@ describe('the title screen', () => {
     dispose()
   })
 
-  it('hides Quick run until there is a run to repeat', () => {
-    const { target, dispose } = titled()
-    expect(target.textContent).not.toContain('Quick run')
-    dispose()
+  it('starts a run from Play, and only reaches settings via Settings', () => {
+    // Play used to open the settings form, which asked a first-time player to make
+    // eleven decisions before they knew what the game was.
+    const { target, actions: acts, dispose } = titled()
+    const button = (label: string) =>
+      [...target.querySelectorAll('button')].find((element) =>
+        element.textContent?.trim().startsWith(label)
+      )
 
-    const seen = titled((state) => {
-      state.lifetime = {
-        runs: 4,
-        campaigns: 9,
-        wins: 5,
-        realized: 220,
-        streakResets: 1,
-        cleanRuns: 2,
-        bestStreak: 3,
-      }
-    })
-    expect(seen.target.textContent).toContain('Quick run')
-    seen.dispose()
+    button('Play')?.click()
+    expect(acts.start).toHaveBeenCalledTimes(1)
+    expect(acts.toSettings).not.toHaveBeenCalled()
+
+    button('Settings')?.click()
+    expect(acts.toSettings).toHaveBeenCalledTimes(1)
+    // Still exactly one run started: opening settings must not start anything.
+    expect(acts.start).toHaveBeenCalledTimes(1)
+    dispose()
+  })
+
+  it('says what Play will run, so the button is not a mystery', () => {
+    const { target, dispose } = titled()
+    expect(button(target, 'Play')?.textContent).toContain('AAPL')
+    dispose()
   })
 
   it('names the next unlock, so progression has a visible goal', () => {
@@ -370,7 +405,7 @@ describe('the results screen', () => {
     endedEarly: false,
     isPersonalBest: true,
     personalBest: undefined,
-    unlocked: [],
+    newBadges: [],
   })
 
   it('renders the headline and the stats', () => {

@@ -17,6 +17,11 @@
    * the config tree is nested. Advanced sections are collapsed rather than omitted:
    * a key with no control is an unshipped feature, but a first run shouldn't open
    * onto thirty of them.
+   *
+   * **OK / Cancel, not Start run.** Reaching this screen is not a commitment to
+   * play — it's often "turn the music down and go back". OK commits the draft and
+   * returns to the title; Cancel restores what was there before, including the
+   * backdrop, so previewing a mood you decide against costs nothing.
    */
   import type {
     IndicatorInstanceConfig,
@@ -29,7 +34,6 @@
   import { audioThemes } from '@content/audioThemes/index.js'
   import { visualThemes } from '@content/visualThemes/index.js'
   import { characters } from '@content/characters/index.js'
-  import { isUnlocked } from '@content/progression/index.js'
   import { untrack } from 'svelte'
   import { snapshot } from '../appState.svelte.js'
   import ParamControl from '../controls/ParamControl.svelte'
@@ -51,12 +55,11 @@
     tickers,
     stopChoices,
     indicatorChoices,
-    unlocked,
     personalBest,
     plugins,
-    onStart,
+    onCommit,
+    onCancel,
     onPreview,
-    onBack,
     onImportPlugins,
     onRemovePlugin,
   }: {
@@ -64,12 +67,13 @@
     tickers: TickerMeta[]
     stopChoices: Choice[]
     indicatorChoices: IndicatorChoice[]
-    unlocked: readonly string[]
     personalBest: { percentReturn: number; arcadeScore: number } | undefined
     plugins: { name: string; kind: 'stop' | 'indicator'; status: string }[]
-    onStart: (config: RunConfig) => void
+    /** Keep these settings and go back. */
+    onCommit: (config: RunConfig) => void
+    /** Throw the draft away and restore what was there before. */
+    onCancel: () => void
     onPreview: (config: RunConfig) => void
-    onBack: () => void
     onImportPlugins: (kind: 'stop' | 'indicator') => void
     onRemovePlugin: (name: string) => void
   } = $props()
@@ -80,16 +84,20 @@
   let draft = $state<RunConfig>(snapshot(config))
 
   /**
-   * Restart the attract-mode backdrop when a *visible* choice changes, so picking a
-   * mood or a runner shows you the result immediately instead of after you commit.
+   * Push the draft to `app/` whenever something *audible or visible* changes, so
+   * mood, runner, and volume all take effect while you're still deciding rather than
+   * after you commit. A volume slider that needs an OK press is a broken volume
+   * slider — the only way anyone sets a level is by listening while they move it.
    *
    * The `untrack` is load-bearing. `$state.snapshot` reads every field of the draft,
-   * so snapshotting inside a tracked effect would subscribe to all of them — and the
-   * carefully chosen key list below would do nothing, rebuilding the Pixi scene on
-   * every drag of a capital slider.
+   * so snapshotting inside a tracked effect would subscribe to all of them, and the
+   * key list below would do nothing — rebuilding the Pixi scene on every drag of a
+   * capital slider. `app/` decides what each change costs: a mix change moves a gain,
+   * while a theme change rebuilds the backdrop.
    */
   $effect(() => {
-    // Read exactly the settings the backdrop can show. These are the dependencies.
+    // Read exactly the settings that have an immediate effect. These are the
+    // dependencies; everything else waits for OK.
     const key = [
       draft.visuals.theme,
       draft.visuals.worldSeed,
@@ -102,6 +110,12 @@
       draft.normalizationMode,
       draft.priceTransform,
       draft.volume.enabled,
+      draft.audio.theme,
+      draft.audio.masterVolume,
+      draft.audio.musicVolume,
+      draft.audio.musicMuted,
+      draft.audio.sfxVolume,
+      draft.audio.sfxMuted,
     ].join('|')
     void key
     untrack(() => onPreview(snapshot(draft)))
@@ -216,9 +230,20 @@
 
 <div class="screen">
   <header>
-    <button class="back" onclick={onBack}>← Title</button>
-    <h1>Set up your run</h1>
+    <h1>Settings</h1>
+    <div class="header-actions">
+      <button class="cancel" onclick={onCancel}>Cancel</button>
+      <button class="ok" onclick={() => onCommit(snapshot(draft))}>OK</button>
+    </div>
   </header>
+
+  {#if personalBest}
+    <p class="best">
+      Best for this exact setup: <strong>{percent(personalBest.percentReturn)}</strong>
+    </p>
+  {/if}
+
+  <div class="columns">
 
   <section>
     <h2>Series</h2>
@@ -244,12 +269,9 @@
     <h2>Runner</h2>
     <div class="roster">
       {#each characters as entry (entry.id)}
-        {@const locked = !isUnlocked(`character:${entry.id}`, unlocked)}
         <button
           class="pick"
           class:selected={draft.character.selected === entry.id}
-          class:locked
-          disabled={locked}
           onclick={() => (draft.character.selected = entry.id)}
         >
           <span
@@ -259,7 +281,6 @@
               .padStart(6, '0')}"
           ></span>
           <span class="name">{entry.displayName}</span>
-          {#if locked}<span class="lock">Locked</span>{/if}
         </button>
       {/each}
     </div>
@@ -387,10 +408,7 @@
       Look &amp; sound
       <select value={mood} onchange={(event) => setMood(event.currentTarget.value)}>
         {#each moods as option (option.id)}
-          {@const locked = !isUnlocked(`theme:${option.id}`, unlocked)}
-          <option value={option.id} disabled={locked}>
-            {option.displayName}{locked ? ' — locked' : ''}
-          </option>
+          <option value={option.id}>{option.displayName}</option>
         {/each}
         {#if mood === 'mixed'}
           <option value="mixed" disabled>Mixed — set separately below</option>
@@ -410,9 +428,7 @@
           Visuals
           <select bind:value={draft.visuals.theme}>
             {#each visualThemes as theme (theme.id)}
-              <option value={theme.id} disabled={!isUnlocked(`theme:${theme.id}`, unlocked)}>
-                {theme.displayName}
-              </option>
+              <option value={theme.id}>{theme.displayName}</option>
             {/each}
           </select>
         </label>
@@ -420,9 +436,7 @@
           Sound
           <select bind:value={draft.audio.theme}>
             {#each audioThemes as theme (theme.id)}
-              <option value={theme.id} disabled={!isUnlocked(`theme:${theme.id}`, unlocked)}>
-                {theme.displayName}
-              </option>
+              <option value={theme.id}>{theme.displayName}</option>
             {/each}
           </select>
         </label>
@@ -649,31 +663,59 @@
     </div>
   </details>
 
-  {#if personalBest}
-    <p class="best">
-      Best for this exact setup: <strong>{percent(personalBest.percentReturn)}</strong>
-    </p>
-  {/if}
+  </div>
 
-  <button class="start" onclick={() => onStart(snapshot(draft))}>Start run</button>
 </div>
 
 <style>
   .screen {
-    max-width: 640px;
+    /* Wide enough for two comfortable columns; the grid below collapses to one
+       when it isn't available, which is every phone in portrait. */
+    max-width: 1080px;
     margin: 0 auto;
-    padding: 28px 24px 72px;
+    padding: 20px 24px 72px;
     color: var(--ink);
   }
   header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 14px;
+    /* Sticky, because with two columns the buttons at the bottom can be a long way
+       from whatever the player just changed. */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin-bottom: 12px;
+    padding: 10px 0;
+    background: linear-gradient(to bottom, var(--panel-solid) 70%, transparent);
+  }
+  .header-actions {
+    display: flex;
+    gap: 8px;
   }
   h1 {
     margin: 0;
     font-size: 24px;
     letter-spacing: -0.01em;
+  }
+  /**
+   * `auto-fit` with a min track width rather than a hard `1fr 1fr`: on a narrow
+   * window or a phone this becomes one column with no media query, and the sections
+   * keep their reading order either way.
+   *
+   * `align-items: start` stops a short section stretching to match a tall neighbour,
+   * which would leave a card that's mostly empty padding.
+   */
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 8px;
+    align-items: start;
+  }
+  /* The two disclosures hold wide content and read badly in a half-width column. */
+  .columns > .advanced {
+    grid-column: 1 / -1;
   }
   h2 {
     margin: 26px 0 10px;
@@ -693,7 +735,6 @@
   section,
   .advanced {
     padding: 4px 18px 18px;
-    margin-bottom: 8px;
     background: var(--panel);
     border: 1px solid var(--edge);
     border-radius: 12px;
@@ -806,20 +847,12 @@
     border-color: var(--accent);
     box-shadow: inset 0 0 0 1px var(--accent);
   }
-  .pick.locked {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
   .swatch {
     width: 18px;
     height: 18px;
     border-radius: 50%;
     background: var(--body);
     box-shadow: inset -3px -3px 0 var(--accent2);
-  }
-  .lock {
-    color: var(--dim);
-    font-size: 11.5px;
   }
   .badge {
     padding: 1px 7px;
@@ -865,19 +898,31 @@
     cursor: pointer;
   }
   .best {
-    margin-top: 20px;
+    margin: 0 0 12px;
     color: var(--dim);
     font-size: 13px;
   }
-  .back {
-    padding: 9px 14px;
-    background: var(--field);
-    color: var(--ink);
-    border: 1px solid var(--edge);
+  .ok,
+  .cancel {
+    padding: 11px 26px;
     border-radius: 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: 14px;
     cursor: pointer;
+  }
+  .ok {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #10151d;
+    font-weight: 600;
+  }
+  .cancel {
+    background: var(--field);
+    border: 1px solid var(--edge);
+    color: var(--dim);
+  }
+  .cancel:hover {
+    color: var(--ink);
   }
   .secondary {
     margin-top: 10px;
@@ -888,20 +933,6 @@
     border-radius: 6px;
     font: inherit;
     font-size: 13px;
-    cursor: pointer;
-  }
-  .start {
-    display: block;
-    width: 100%;
-    margin-top: 24px;
-    padding: 15px;
-    background: var(--accent);
-    color: #10151d;
-    border: 0;
-    border-radius: 10px;
-    font: inherit;
-    font-size: 16px;
-    font-weight: 600;
     cursor: pointer;
   }
 </style>

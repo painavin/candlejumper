@@ -59,8 +59,8 @@ export interface RunOutcome {
   endedEarly: boolean
   isPersonalBest: boolean
   personalBest: number | undefined
-  /** Unlocks this run crossed, for the results screen to announce. */
-  unlocked: readonly string[]
+  /** Badges this run earned for the first time, for the results screen to announce. */
+  newBadges: readonly string[]
 }
 
 export interface PauseInfo {
@@ -89,8 +89,8 @@ export class AppState {
   error = $state<string | undefined>(undefined)
   /** Lifetime totals, for the stats screen. Recorded since the first run. */
   lifetime = $state<LifetimeStats | undefined>(undefined)
-  /** Ids the player has unlocked. Characters and themes gate off this. */
-  unlocked = $state<readonly string[]>([])
+  /** Badge ids earned so far. Nothing is *gated* on these — see content/progression. */
+  badges = $state<readonly string[]>([])
   /** Thumb-button handlers for the active run. Absent when not playing. */
   touch = $state<TouchHandlers | undefined>(undefined)
   /** True on a coarse pointer: shows the thumb buttons and hides key hints. */
@@ -110,6 +110,10 @@ export interface AppActions {
   abandon(): void
   runAgain(): void
   toSettings(): void
+  /** Keep the draft and return to the title. Takes effect immediately. */
+  commitSettings(config: RunConfig): void
+  /** Discard the draft, restore what was there before, return to the title. */
+  cancelSettings(): void
   toTitle(): void
   toHowTo(): void
   toStats(): void

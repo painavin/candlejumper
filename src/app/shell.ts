@@ -65,6 +65,9 @@ export interface Shell {
   destroy(): void
 }
 
+/** Minimum gap between effects-preview cues while a slider is being dragged. */
+const SFX_PREVIEW_THROTTLE_MS = 220
+
 export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement): Promise<Shell> {
   const store = createLocalStorageStore()
   const sources = createSourceRegistry()
@@ -90,11 +93,20 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   state.config.visuals.reducedMotion = prefersReducedMotion()
   state.isTouch = isCoarsePointer()
   state.lifetime = save.lifetime
-  state.unlocked = earnedUnlocks({ lifetime: save.lifetime })
+  state.badges = earnedUnlocks({ lifetime: save.lifetime })
 
   let session: RunSession | undefined
   /** The config the current run was started with — never the editable draft. */
   let running: RunConfig | undefined
+  /**
+   * The committed config as it was when the settings screen opened.
+   *
+   * The screen previews live, which means it mutates the committed config as the
+   * player scrolls through moods — so Cancel needs somewhere to restore *from*.
+   * Without this, backing out of the screen would silently keep every change made
+   * while looking around.
+   */
+  let configBeforeSettings: RunConfig | undefined
   let runVisibleBarCount = 0
   let endedEarly = false
 
@@ -196,6 +208,18 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   /** Guards against two overlapping starts while a series is loading. */
   let attractStarting = false
   /**
+   * Whether a user gesture has happened yet.
+   *
+   * Browsers refuse to start an audio context before one, so the title screen's bed
+   * cannot simply play on load — it waits for the first click or keypress anywhere.
+   * Once the context is running it stays running, so later attract sessions start
+   * their bed immediately.
+   */
+  let audioUnlocked = false
+  /** The last mix pushed from the settings screen, so a change can be detected. */
+  let lastMix: { sfxVolume: number; sfxMuted: boolean } | undefined
+  let lastSfxPreviewAt = 0
+  /**
    * A config that arrived while a start was already in flight.
    *
    * Without this, clicking through themes faster than a series loads drops every
@@ -205,13 +229,21 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   let pendingAttract: RunConfig | undefined
 
   /**
-   * Only the settings the backdrop can visibly show. Rebuilding the Pixi scene on
-   * every capital-slider drag would be pointless and expensive, so the key is what
-   * decides whether a restart is warranted at all.
+   * Only the settings that a restart is the *only* way to apply.
+   *
+   * Rebuilding the Pixi scene and the audio graph on every capital-slider drag would
+   * be pointless and expensive, so this key decides whether a restart is warranted at
+   * all. Volume deliberately isn't here — a mix change moves a gain on the running
+   * session instead, since restarting would drop the music back to the top of the
+   * progression on every pixel of slider travel.
+   *
+   * `audio.theme` *is* here: a different theme means a different progression and
+   * possibly a different bed engine, so there's nothing to adjust in place.
    */
   const backdropKey = (config: RunConfig): string =>
     [
       config.visuals.theme,
+      config.audio.theme,
       config.visuals.worldSeed,
       config.character.selected,
       config.data.source,
@@ -223,6 +255,23 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       config.priceTransform,
       String(config.volume.enabled),
     ].join('|')
+
+  /**
+   * Start the backdrop's bed on the first gesture.
+   *
+   * Deliberately listening for `pointerdown` rather than `click`: the gesture that
+   * unlocks audio is usually the same one that presses a menu button, and starting on
+   * the down-stroke means the bed is already fading in by the time the screen changes.
+   */
+  const unlockAudio = (): void => {
+    if (audioUnlocked) return
+    audioUnlocked = true
+    document.removeEventListener('pointerdown', unlockAudio)
+    document.removeEventListener('keydown', unlockAudio)
+    void attract?.startAudio()
+  }
+  document.addEventListener('pointerdown', unlockAudio)
+  document.addEventListener('keydown', unlockAudio)
 
   function stopAttract(): void {
     attract?.stop()
@@ -272,6 +321,9 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         // Loop with a new world rather than freezing on the last bar.
         onFinished: () => void startAttract(wanted, true),
       })
+      // A gesture already happened — a theme change from the settings screen, say —
+      // so this session's bed can start straight away.
+      if (audioUnlocked) void attract.startAudio()
     } catch {
       // A backdrop that fails to load must never block the menus. The screens are
       // legible without it — they just sit on the page background instead.
@@ -513,7 +565,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       endedEarly: early,
       at: nowMs(),
     }
-    const before = state.unlocked
+    const before = state.badges
     const recorded = recordRun(save, key, result, {
       campaigns: summary.campaigns,
       wins: summary.wins,
@@ -526,7 +578,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
 
     state.lifetime = save.lifetime
     const after = earnedUnlocks({ lifetime: save.lifetime })
-    state.unlocked = after
+    state.badges = after
 
     state.outcome = {
       summary,
@@ -538,7 +590,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       endedEarly: early,
       isPersonalBest: recorded.isPersonalBest,
       personalBest: previous?.percentReturn,
-      unlocked: after.filter((id) => !before.includes(id)),
+      newBadges: after.filter((id) => !before.includes(id)),
     }
     state.screen = 'results'
     session.stop()
@@ -591,8 +643,27 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     },
     toSettings: () => {
       state.error = undefined
+      configBeforeSettings = state.config ? snapshot(state.config) : undefined
       state.screen = 'settings'
       refreshPersonalBest()
+    },
+    commitSettings: (config) => {
+      // Takes effect immediately: the committed config is what the backdrop draws,
+      // what Play runs, and what the personal-best bucket is keyed on.
+      state.config = snapshot(config)
+      configBeforeSettings = undefined
+      state.screen = 'title'
+      refreshPersonalBest()
+      void startAttract(state.config)
+    },
+    cancelSettings: () => {
+      if (configBeforeSettings) state.config = configBeforeSettings
+      configBeforeSettings = undefined
+      state.screen = 'title'
+      refreshPersonalBest()
+      // Restore the backdrop too — a cancelled mood preview shouldn't leave the
+      // world it was previewing on screen.
+      if (state.config) void startAttract(state.config)
     },
     toTitle: () => {
       state.error = undefined
@@ -609,6 +680,39 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       // The settings draft, not a commitment: it drives the backdrop and the menu
       // colours, and is discarded if the player backs out without starting.
       state.config = snapshot(config)
+      /**
+       * Mix changes are applied to whatever is already playing rather than triggering
+       * a restart. Restarting for a volume change would drop the music back to the
+       * top of the progression on every pixel of slider travel, which is both worse
+       * and slower than just moving a gain.
+       */
+      const mix = {
+        masterVolume: config.audio.masterVolume,
+        musicVolume: config.audio.musicVolume,
+        musicMuted: config.audio.musicMuted,
+        sfxVolume: config.audio.sfxVolume,
+        sfxMuted: config.audio.sfxMuted,
+      }
+      attract?.setMix(mix)
+      session?.setMix(mix)
+
+      /**
+       * Audition the effects level when it moves.
+       *
+       * Throttled, because a slider drag fires this dozens of times a second and a
+       * stinger per pixel of travel is a machine gun rather than a preview. Only on
+       * the effects controls: master and music are already audible through the bed
+       * that's playing, so a cue there would be noise for no information.
+       */
+      const sfxChanged =
+        mix.sfxVolume !== lastMix?.sfxVolume || mix.sfxMuted !== lastMix?.sfxMuted
+      const elapsed = performance.now() - lastSfxPreviewAt
+      if (sfxChanged && !mix.sfxMuted && elapsed > SFX_PREVIEW_THROTTLE_MS) {
+        lastSfxPreviewAt = performance.now()
+        attract?.previewSfx()
+      }
+      lastMix = mix
+      // Only restarts if something the backdrop can actually *show* changed.
       void startAttract(state.config)
       refreshPersonalBest()
     },
@@ -649,6 +753,8 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   return {
     destroy() {
       void endedEarly
+      document.removeEventListener('pointerdown', unlockAudio)
+      document.removeEventListener('keydown', unlockAudio)
       session?.stop()
       stopAttract()
       pluginWorker.dispose()

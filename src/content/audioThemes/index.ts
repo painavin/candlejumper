@@ -15,19 +15,71 @@ export const jollyAudioTheme: AudioTheme = {
   id: 'jolly',
   displayName: 'Jolly',
   bed: {
-    // I–V–vi–IV: bright and resolved.
+    /**
+     * I–vi–IV–V, with sixths added.
+     *
+     * The added sixth is the whole reason this reads as *cheerful* rather than merely
+     * major: a plain triad is neutral, and C–E–G–A is the sound of an era of music
+     * that could not stop grinning. I–vi–IV–V also turns over faster than the old
+     * I–V–vi–IV and lands back on the tonic, which keeps a two-bar chord from
+     * feeling like waiting.
+     */
     progression: [
-      ['C3', 'E3', 'G3'],
-      ['G2', 'B2', 'D3'],
-      ['A2', 'C3', 'E3'],
-      ['F2', 'A2', 'C3'],
+      ['C3', 'E3', 'G3', 'A3'],
+      ['A2', 'C3', 'E3', 'G3'],
+      ['F2', 'A2', 'C3', 'D3'],
+      ['G2', 'B2', 'D3', 'E3'],
     ],
     instrument: 'pluck',
     register: 4,
-    noteRateRange: [0.4, 1.6],
-    reverbSend: 0.28,
-    delaySend: 0.18,
-    chordSeconds: 6,
+    /**
+     * The pulse below replaces this engine, so `noteRateRange`, `noteOverlap`, and
+     * `chordSeconds` are unused for this theme. Left in place because dropping the
+     * pulse is the way to hear the ambient version, and having to reinvent these
+     * numbers to do that would make the comparison annoying enough not to bother.
+     */
+    noteRateRange: [0.7, 2.2],
+    noteOverlap: 1.6,
+    chordSeconds: 8,
+    // Quiet: the pulse carries continuity, so the drone is only there to stop the
+    // bottom falling out between phrases.
+    droneLevel: 0.16,
+    // Restrained, so the rhythm stays crisp. Wash is the enemy of bounce.
+    reverbSend: 0.2,
+    delaySend: 0.12,
+    pulse: {
+      // Brisk enough to feel like running, slow enough to read the chart under it.
+      tempo: 138,
+      // The lilt. Straight, this groove is a metronome; at 0.3 it skips.
+      swing: 0.3,
+      barsPerChord: 2,
+      /**
+       * Bass, per eighth: root on the beat, fifth after it, walking up to the third
+       * at the end of the bar so the figure leads somewhere instead of looping in
+       * place. `-1` is a rest — the rests are what make it bounce rather than drone.
+       */
+      bassPattern: [0, -1, 2, -1, 0, -1, 2, 1],
+      /**
+       * Stabs on the off-beats, against a bass that plays on the beats. This is the
+       * oom-pah, and it is doing more work here than any other single parameter.
+       *
+       * The last eighth is left empty on purpose: that's where the bass walks up to
+       * the third, and a stab on top of the pick-up buries the one note in the figure
+       * that's leading somewhere. The hole also gives the bar a breath before it
+       * turns over.
+       */
+      stabPattern: [0, 1, 0, 1, 0, 1, 0, 0],
+      /**
+       * Melody, per sixteenth. Syncopated on purpose: notes on the 1, the back half
+       * of beat 2, and across beat 3 — landing off the grid is what stops a generated
+       * line sounding like an exercise. The gap at the end of the bar lets it breathe.
+       */
+      melodyPattern: [1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0],
+      // Four bars: long enough to be a phrase, short enough to recognise on its
+      // second pass. Two lands as a stutter, eight is a tune nobody remembers.
+      phraseBars: 4,
+      levels: { bass: 0.85, stabs: 0.5, melody: 0.7 },
+    },
   },
   sonification: {
     // Major pentatonic: cheerful, and impossible to make dissonant.
@@ -77,10 +129,14 @@ export const seriousAudioTheme: AudioTheme = {
     ],
     instrument: 'pad',
     register: 3,
-    noteRateRange: [1.2, 3.4],
-    reverbSend: 0.5,
-    delaySend: 0.3,
-    chordSeconds: 9,
+    noteRateRange: [1.6, 3.8],
+    // Heavier drone than jolly: this theme is mostly foundation with occasional
+    // movement over it, where jolly is the other way round.
+    droneLevel: 0.6,
+    noteOverlap: 1.8,
+    reverbSend: 0.6,
+    delaySend: 0.32,
+    chordSeconds: 12,
   },
   sonification: {
     // Minor pentatonic: same dissonance guarantee, colder flavour.

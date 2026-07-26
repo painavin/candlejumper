@@ -4,7 +4,7 @@ import { createRunController } from '@engine/run/runController.js'
 import type { RunController } from '@engine/run/runController.js'
 import type { StopEngine } from '@engine/stops/port.js'
 import type { IndicatorFeed } from '@engine/indicators/feed.js'
-import type { AudioSystem } from '@audio/audioSystem.js'
+import type { AudioMix, AudioSystem } from '@audio/audioSystem.js'
 import { attachKeyboard } from '@input/keyboard.js'
 import { createTouchControls } from '@input/touchControls.js'
 import type { TouchControls } from '@input/touchControls.js'
@@ -47,6 +47,10 @@ export interface RunSession {
   pause(): void
   resume(): void
   endRun(): void
+  /** Live mix change — volume sliders have to be audible while they move. */
+  setMix(mix: AudioMix): void
+  /** One cue at the current effects level, so that slider can be auditioned. */
+  previewSfx(): void
   readonly controller: RunController
   /** Bound by `ui/mobile/` to the thumb buttons. Absent in attract mode. */
   readonly touch: TouchControls | undefined
@@ -84,21 +88,6 @@ export interface RunSessionOptions {
 const CAMERA_FOLLOW = 0.06
 /** Seconds to close ~63% of the gap. Slow, so it reads as drift rather than tracking. */
 const CAMERA_SMOOTHING = 0.32
-
-/**
- * Attract mode needs an `AudioSystem` shaped object but must not start Tone.js:
- * autoplay is blocked before a user gesture, and a menu that greets you with
- * music you didn't ask for is worse than a quiet one. Returning an inert
- * implementation keeps the render loop free of `if (audio)` checks.
- */
-function silentAudio(): AudioSystem {
-  return {
-    start: () => Promise.resolve(),
-    update: () => {},
-    setPaused: () => {},
-    dispose: () => {},
-  }
-}
 
 export async function startRunSession({
   host,
@@ -157,23 +146,29 @@ export async function startRunSession({
     reducedMotion: config.visuals.reducedMotion,
     worldSeed: config.visuals.worldSeed,
   })
-  // Tone.js is ~350kB and nothing needs it before a run starts, so it loads as its
-  // own chunk. Keeps first paint — the title screen — cheap on a phone, and attract
-  // mode never pays for it at all.
-  const audio = attract
-    ? silentAudio()
-    : await (async () => {
-        const { createAudio } = await import('@audio/audioSystem.js')
-        return createAudio({
-          themeId: config.audio.theme,
-          masterVolume: config.audio.masterVolume,
-          musicVolume: config.audio.musicVolume,
-          musicMuted: config.audio.musicMuted,
-          sfxVolume: config.audio.sfxVolume,
-          sfxMuted: config.audio.sfxMuted,
-          worldSeed: config.visuals.worldSeed,
-        })
-      })()
+  /**
+   * Tone.js is ~350kB and nothing needs it before first paint, so it loads as its own
+   * chunk — the title screen still renders before the audio bundle arrives.
+   *
+   * Attract mode gets the **bed**, and stingers only so the settings screen's effects
+   * slider can be auditioned — nothing behind a menu can fire a cue by accident,
+   * since `update()` is inert in that mode. Sonification isn't built: there are no
+   * played bars to sonify. It stays silent until `startAudio()` is called, which
+   * `app/` defers to the first click or keypress — browsers block audio before a
+   * gesture, and a page that greets you with music you didn't ask for would be worse
+   * anyway.
+   */
+  const { createAudio } = await import('@audio/audioSystem.js')
+  const audio: AudioSystem = createAudio({
+    themeId: config.audio.theme,
+    masterVolume: config.audio.masterVolume,
+    musicVolume: config.audio.musicVolume,
+    musicMuted: config.audio.musicMuted,
+    sfxVolume: config.audio.sfxVolume,
+    sfxMuted: config.audio.sfxMuted,
+    worldSeed: config.visuals.worldSeed,
+    channels: attract ? 'menu' : 'all',
+  })
   const topHud = createTopHudLayer({
     ticker: config.data.ticker,
     startingCapital: config.startingCapital,
@@ -347,6 +342,8 @@ export async function startRunSession({
     controller,
     touch,
     startAudio: () => audio.start(),
+    setMix: (mix) => audio.setMix(mix),
+    previewSfx: () => audio.previewSfx(),
     pause: () => {
       controller.pause()
       audio.setPaused(true)

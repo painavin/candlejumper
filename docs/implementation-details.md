@@ -347,6 +347,11 @@ avoided writing cost basis twice, and the tests cover both.
 - **The backdrop plays a random 240-bar window**, since a full series takes minutes
   to loop and a different stretch of market each visit is more interesting. Safe to
   randomise because nothing attract mode does is ever recorded.
+- **Play starts a run; Settings is its own button.** Play originally opened the
+  settings form, which asked a first-time player to make eleven decisions before
+  they knew what the game was — and the shipped defaults are a perfectly good first
+  run. The button names the ticker it will play, so it isn't a mystery. This also
+  retired the separate "Quick run", which Play now *is*.
 - **The settings screen previews live.** Changing mood, runner, ticker, or scroll
   speed restarts the backdrop, keyed on only the settings the backdrop can visibly
   show — reacting to the whole draft would rebuild the Pixi scene on every drag of a
@@ -363,21 +368,76 @@ avoided writing cost basis twice, and the tests cover both.
 
 ### Progression and the record
 
-- **Unlocks are recomputed from lifetime stats on every load**, never stored as a
-  list. A corrupted or partial save then can't permanently lose an unlock someone
-  earned, and changing a rule applies retroactively rather than only to new players.
-- **Every unlock is gated on discipline or volume, never on profit.** A profit-gated
-  unlock would reward holding a loser past a stop and getting away with it — the
-  exact habit the game exists to break. `cleanRuns` (a run that traded and broke no
-  rule) is the new lifetime stat this needed.
+- **Achievements gate nothing.** Built first as unlockables per game-feel.md — the
+  roster and the second mood behind play milestones — and then un-gated, because it
+  makes the trainer worse at its job. All of that content is cosmetic and finished;
+  a player who wants to be the bear should be the bear on their first run. The
+  design doc has been updated rather than the code left contradicting it.
+- **Every badge is earned on discipline or volume, never on profit.** A
+  profit-gated badge would reward holding a loser past a stop and getting away with
+  it — the exact habit the game exists to break. `cleanRuns` (a run that traded and
+  broke no rule) is the lifetime stat this needed.
 - **A run with no campaigns can't be "clean".** Sitting flat for a whole series
-  would otherwise be the cheapest possible way to farm a discipline unlock.
-- **Everything unlockable is cosmetic.** Locking a mechanic behind a grind would
-  make the trainer worse at training; locking a costume behind a habit makes the
-  habit visible.
+  would otherwise be the cheapest possible way to farm a discipline badge.
+- **Badges are recomputed from lifetime stats on every load**, never stored as a
+  list. A corrupted or partial save then can't lose one someone earned, and changing
+  a rule applies retroactively rather than only to new players. It's also why
+  renaming every id from `character:*` to `badge:*` needed no save migration.
 - **Lifetime totals were being recorded and displayed nowhere.** The record screen
   leads with clean runs rather than profit, because that's the number the game is
   about.
+
+### Settings: live mix
+
+- **Volume was applied once at construction and never again**, so a slider did nothing
+  until the next run started — and on the settings screen, where the only thing
+  playing is the title bed, it appeared to do nothing at all. `AudioSystem.setMix`
+  makes it live. Not an exception to "config is fixed for a run's duration": that rule
+  is about settings that change the *challenge*, and the mix is excluded from the run
+  fingerprint precisely because it doesn't.
+- **A mix change moves a gain; it does not restart the session.** Restarting would
+  drop the music back to the top of the progression on every pixel of slider travel.
+  So `backdropKey` — which decides whether a restart is warranted — deliberately
+  excludes volume, and deliberately *includes* `audio.theme`, where a different
+  progression and possibly a different bed engine mean there's nothing to adjust in
+  place.
+- **Gains ramp over 40ms rather than being set.** A stepped gain change on a sounding
+  voice is an audible edge, and a drag would machine-gun them.
+- **The effects slider gets an audition cue**, because behind a menu there are no
+  position events, so channel 3 would be silent for exactly as long as the player is
+  trying to set its level. Stingers are therefore built in menu mode too — but
+  `update()` is inert there, so the only way one sounds behind a menu is the explicit
+  preview. Throttled to 220ms: a stinger per pixel of travel is a machine gun, not a
+  preview. Master and music need no cue, since the bed is already audible.
+- **`toGain` moved to `audio/mix.ts` to be testable.** One rule in it has a right and
+  a wrong answer: **muted is exactly zero**, not −60dB, which is audible in a quiet
+  room and gets reported as a broken mute button. It also rejects non-finite values —
+  a NaN gain silences a Web Audio node permanently and is near-impossible to diagnose
+  from the symptom. The previous version round-tripped through `gainToDb`/`dbToGain`,
+  which cancelled out and only obscured what the number meant.
+
+### Settings: OK / Cancel, and two columns
+
+- **OK and Cancel, not "Start run".** Reaching this screen isn't a commitment to
+  play — it's often "turn the music down and go back" — so neither button starts
+  anything, and both return to the title. OK takes effect immediately: the committed
+  config is what the backdrop draws, what Play runs, and what the personal-best
+  bucket keys on.
+- **Cancel needs a snapshot taken on entry.** The screen previews live, which means
+  it mutates the committed config as the player scrolls through moods. Without
+  stashing the config when the screen opens, backing out would silently keep every
+  change made while looking around — and leave the previewed world on screen.
+- **Two columns via `auto-fit` with a `minmax(300px, 1fr)` track**, not a hard
+  `1fr 1fr` plus a media query: the same rule collapses to one column on a phone,
+  and section reading order survives either way. `align-items: start` stops a short
+  card stretching to match a tall neighbour and becoming mostly padding. The two
+  disclosures span both columns — they hold wide content and read badly at half
+  width.
+- **OK/Cancel live only in the sticky header.** They were briefly duplicated at the
+  bottom as well, on the theory that two columns put the footer a long way from
+  whatever was just changed — but a sticky header already solves that, and a second
+  copy of the same pair is just a second thing to read. The personal-best line moved
+  up under the header, where it sits with the config it describes.
 
 ### Mobile
 

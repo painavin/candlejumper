@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { earnedUnlocks, isUnlocked, nextUnlock, unlocks } from './index.js'
+import { earnedUnlocks, nextUnlock, unlocks } from './index.js'
 
 describe('progression', () => {
   const lifetime = (overrides: Partial<Parameters<typeof earnedUnlocks>[0]['lifetime']> = {}) => ({
@@ -15,21 +15,25 @@ describe('progression', () => {
     },
   })
 
-  it('starts with nothing earned but the starting set still usable', () => {
+  it('starts with nothing earned', () => {
     expect(earnedUnlocks(lifetime())).toEqual([])
-    expect(isUnlocked('character:robin', [])).toBe(true)
-    expect(isUnlocked('theme:jolly', [])).toBe(true)
-    expect(isUnlocked('character:bear', [])).toBe(false)
   })
 
-  it('gates the bear on discipline, not on profit', () => {
-    // The point of the whole progression design: a hugely profitable run that broke
-    // the player's own rule earns nothing here.
+  it('gates nothing — no achievement id names a character or a theme', () => {
+    // Cosmetics used to be locked behind these, which is the wrong trade for a
+    // trainer: hiding a finished runner behind a grind helps nobody learn anything.
+    for (const unlock of unlocks) {
+      expect(unlock.id.startsWith('badge:')).toBe(true)
+    }
+  })
+
+  it('rewards discipline, not profit', () => {
+    // A hugely profitable run that broke the player's own rule earns nothing.
     const profitable = lifetime({ runs: 20, campaigns: 40, realized: 99_999, streakResets: 12 })
-    expect(earnedUnlocks(profitable)).not.toContain('character:bear')
+    expect(earnedUnlocks(profitable)).not.toContain('badge:clean-sheet')
 
     const disciplined = lifetime({ runs: 1, campaigns: 3, cleanRuns: 1 })
-    expect(earnedUnlocks(disciplined)).toContain('character:bear')
+    expect(earnedUnlocks(disciplined)).toContain('badge:clean-sheet')
   })
 
   it('recomputes from lifetime stats, so an unlock is never lost', () => {
@@ -39,6 +43,6 @@ describe('progression', () => {
   })
 
   it('names the next goal while anything is outstanding', () => {
-    expect(nextUnlock(lifetime())?.id).toBe('character:bull')
+    expect(nextUnlock(lifetime())?.id).toBe('badge:regular')
   })
 })
