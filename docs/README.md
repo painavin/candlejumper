@@ -25,6 +25,7 @@ survival.
 | [data-sources.md](./data-sources.md) | Price data sourcing and the `PriceSeriesSource` interface |
 | [tech-stack.md](./tech-stack.md) | Platform, library, persistence, and testing choices |
 | [roadmap.md](./roadmap.md) | Build order / milestones |
+| [review-findings.md](./review-findings.md) | Implementation readiness review — blocking gaps and notable issues |
 
 ## Status
 
