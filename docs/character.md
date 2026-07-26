@@ -35,10 +35,17 @@ sequences:
   vertical axis**, since the character travels beneath the poles while
   short (see [game-design.md](./game-design.md#shorting)). Free, not a
   second animation.
-- **`buyFlourish` / `sellProfit` / `sellLoss`** are optional short
-  transform overlays (a spin, a hop, a slump) on top of the base
-  behaviour. A character that doesn't define one falls back to plain
-  `bounce`.
+- **Trading-event overlays** are optional short transform flourishes (a
+  spin, a hop, a slump) on top of the base behaviour, keyed to the same
+  **semantic position events** the audio stingers use
+  ([audio.md](./audio.md#channel-3--event-stingers-one-shots)) —
+  `positionOpened`, `positionClosed.profit`, `positionClosed.loss` — **not**
+  to button names. When short, the closing action is `buy`, so a flourish
+  bound to "sell" would fire on the wrong half of every short trade. A
+  character that doesn't define one falls back to plain `bounce`.
+- **`actionDenied`** — a small, distinctly non-committal motion (a brief
+  head-shake or recoil) when a press can't be honoured. Pairs with the
+  audio denied cue so a rejected press is legible even muted. Required.
 - **`stoppedOut`** must be defined for **every** character, no fallback —
   it's the one state that must always read as visually distinct, matching
   the distinct stop-out audio cue in [audio.md](./audio.md).

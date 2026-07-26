@@ -11,29 +11,48 @@ comparable for personal-best tracking (a run whose scroll speed or stop
 rules changed halfway through isn't a meaningful score), and it means the
 settings UI and the game loop are never active simultaneously.
 
-One deliberate exception: `initialStopLoss` and `trailingStop` levels can
-be adjusted on an *open position* during a run — that's a trading
-decision, not a settings change. See
-[game-design.md](./game-design.md#risk-management).
+**No exceptions.** Stop levels are *not* editable mid-run either — stops are
+plugins that recompute themselves each bar from a rule committed before the
+run ([stops.md](./stops.md)). The player commits to a rule and lives with
+it, which is the discipline lesson rather than a limitation.
 
 **Tuning values below marked _provisional_ were chosen for internal
-consistency, not from play** (e.g. `buyUnitSize` at 20% gives exactly five
+consistency, not from play** (e.g. `entrySize` at 20% gives exactly five
 presses to fully deploy, matching the 5-ghost cap in
 [character.md](./character.md#position-size-visualization)). Expect all of
 them to move once the game is playable; they're starting points, not
 considered defaults.
 
-## Trading / risk management
+## Trading
 
 | Key | Description | Default |
 |---|---|---|
-| `startingCapital` | Cash balance at the start of a run; caps how far the player can scale in | $10,000 |
-| `buyUnitSize` | Cash amount deployed per buy press | 20% of `startingCapital` *(provisional)* |
-| `sellUnitSize` | Fraction of the open position closed per sell press | 25% *(provisional)* |
-| `allowShorting` | `sell` while flat opens a short position instead of being a no-op. Engine carries signed size regardless — see [game-design.md](./game-design.md#shorting) | off |
+| `startingCapital` | Cash balance at the start of a run; caps both long and short notional | $10,000 |
+| `entrySize` | Cash deployed per *entry or add* press (`buy` when flat/long, `sell` when short-adding). Clamped to remaining buying power | 20% of `startingCapital` *(provisional)* |
+| `exitFraction` | Fraction of the open position closed per *reduce* press (`sell` when long, `buy` when short). Clamped to flat | 25% *(provisional)* |
+| `allowShorting` | `sell` while flat opens a short instead of being a no-op. Engine carries signed size regardless — see [game-design.md](./game-design.md#shorting) | off |
 | `costBasisMethod` | `weighted-average` (built) or `fifo` (config option, unimplemented until wanted) | `weighted-average` |
-| `initialStopLoss` | Stop distance as a **percent** from average entry. Disabled = no forced exit; player has full manual control | off |
-| `trailingStop` | Trailing stop distance as a **percent** from the best price reached. Disabled = no forced exit | off |
+
+Key names describe their **effect on position size** (grow vs. shrink), not
+the button pressed — `buy` on a short is an *exit* and so is governed by
+`exitFraction`. See the order-intent matrix in
+[game-design.md](./game-design.md#order-intent-matrix); getting this
+backwards is the most likely recurring bug in the engine.
+
+Position size is carried in **fractional shares**; cash and percentages are
+input units only. Sizes below `1e-6` shares snap to flat.
+
+## Stops
+
+| Key | Description | Default |
+|---|---|---|
+| `stops.active` | List of active stop plugin instances (`{ typeId, params }`). Multiple may be active; whichever level is hit first closes the position. See [stops.md](./stops.md) | empty (no stop — player fully in charge of exits) |
+| `stops.plugins.loaded` | Loaded custom stop plugin references, same loading surface as indicator plugins | empty |
+
+Built-ins available to add: `fixed-percent` (param: `percent`, from average
+entry) and `trailing-percent` (param: `percent`, from best price reached).
+Stop levels computed at bar N's close are enforced against bar N+1 —
+see [stops.md](./stops.md#causality-and-timing).
 
 Stops trigger on the **bar's close**, not its intraday low, and invert
 direction for shorts — see
@@ -46,28 +65,38 @@ the close of the pole the character is standing on.
 | Key | Description | Default |
 |---|---|---|
 | `scrollSpeed` | Speed in **bars per second** (trading days per second), not pixels — resolution-independent, and the auto-bounce cadence derives from it. Range 0.5–10 | 2 *(provisional)* |
-| `visibleBarCount` | How many bars fit on screen at once. Bar width is derived as `playfieldWidth / visibleBarCount`, where **playfield means the pole region only** (left edge to the character, ~70–80% of viewport — not the full width, since the fog strip never holds poles). Also sets the `visible-window-min-max` window and therefore how reactive the axis is | 60 *(provisional)* |
-| `poleHeightNormalization` | Method used to map price to pole height — see table below | `visible-window-min-max` |
-| `poleHeightNormalization.multiplier` | Reference scale value for `starting-price-relative` | 100 |
+| `visibleBarCount` | How many bars fit on screen at once. Bar width is derived as `playfieldWidth / visibleBarCount`, where **playfield means the pole region only** (left edge to the character, ~70–80% of viewport — not the full width, since the fog strip never holds poles). Also sets the `visible-window-min-max` window and therefore how reactive the axis is. **Orientation-aware**: 60 landscape / ~28 portrait, since 60 poles at phone width are ~4px and unreadable — see the wireframes in [hud.md](./hud.md#screen-layout) | 60 landscape, 28 portrait *(provisional)* |
+| `priceTransform` | Applied to price *before* normalization: `none` or `log10`. `log10` tames series with a huge range so outlier days don't flatten everything else | `none` |
+| `normalizationMode` | How transformed price maps to pole height — see table below | `visible-window-min-max` |
+| `normalizationReference` | Reference scale value for `starting-price-relative` | 100 |
 
-### `poleHeightNormalization` methods
+These are **two independent fields on purpose.** A single enum can't
+represent the valid combinations, because the log transform *composes* with
+a normalization mode rather than replacing one — "log price, then
+visible-window min/max" is a legitimate and useful setting that a
+one-field model has no way to express.
 
-Only **causal** methods (no future data) are legal during a live run.
-Methods that compute bounds over the whole series leak future prices
-through the axis — see
+### `normalizationMode` values
+
+Only **causal** modes (no future data) are legal during a live run. Modes
+that compute bounds over the whole series leak future prices through the
+axis — see
 [game-design.md](./game-design.md#why-full-series-normalization-leaks) for
 a worked example.
 
-| Method | Description | Live play? |
+| Mode | Description | Live play? |
 |---|---|---|
 | `visible-window-min-max` | Min/max over only the bars currently on screen, **excluding anything behind the leading-edge fog** | ✅ default |
 | `fixed-price-per-pixel` | Constant scale factor, no data-dependent bounds | ✅ |
 | `starting-price-relative` | Divide every price by the first bar's close (reference always in the past) | ✅ |
-| `log-price` | Apply `log10` before any of the above (pre-transform, not standalone) | ✅ |
 | `whole-series-min-max` | Min/max over all bars, including unplayed ones | ❌ leaks the run's high/low |
 | `closing-price-relative` | Divide by the *last* bar's close | ❌ reference is the final price — worst leak |
 | `average-price-relative` | Divide by the series' mean close | ❌ mean includes future bars |
 | `high-price-relative` / `low-price-relative` | Divide by the series' max/min close | ❌ reference may be a future bar |
+
+`priceTransform: log10` is causal regardless of mode — it's a per-bar
+function with no dependence on other bars — so it inherits the legality of
+whichever mode it composes with.
 
 The ❌ methods could be revived in a **post-run review/replay mode**, where
 the outcome is already known — not built now. See
@@ -82,7 +111,7 @@ brick/box resampling).
 | `hud.showStopLevelOnChart` | Draw the active stop-loss/trailing-stop level as a horizontal line on the chart, in addition to the HUD readout | on |
 
 See [hud.md](./hud.md) for the auto-scaling Y-axis (driven by
-`poleHeightNormalization` above, not separately configured) and the top
+`normalizationMode` above, not separately configured) and the top
 HUD (score/position/session info, not separately configurable — always
 shown).
 
@@ -139,8 +168,8 @@ anyone who wants to mix them. See
 | Key | Description | Default |
 |---|---|---|
 | `data.source` | Which `PriceSeriesSource` implementation to use; switchable at runtime, not a build-time choice. See [data-sources.md](./data-sources.md) | `bundled` |
-| `data.ticker` | Selected ticker/symbol, chosen from a dropdown of what the active source offers | first bundled ticker |
-| `data.dateRange` | Optional sub-range of the selected ticker's series; unset plays the whole series | unset |
+| `data.ticker` | Selected symbol, chosen from a dropdown of what the active source offers. Bundled set: `AAPL` (uptrend), `MSFT` (choppy), `NKE` (downtrend) | `AAPL` |
+| `data.dateRange` | Optional sub-range (epoch seconds, inclusive); unset plays the whole series | unset |
 
 ## Controls
 

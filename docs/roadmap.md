@@ -16,14 +16,13 @@ resolved defaults and each system doc for its rationale.
    unit-testable headless. Bundle the first OHLCV dataset
    ([data-sources.md](./data-sources.md)). No asset pipeline is needed —
    there are no art or audio files.
-   - **0a. Screen layout wireframe.** Before writing the render loop,
-     compose one wireframe showing the top HUD, right-edge axis, character
-     at ~70–80% right, sub-panes, and mobile control strip *together* — in
-     both landscape and portrait. Each piece is specified in isolation
-     across [hud.md](./hud.md) and [controls.md](./controls.md), but nothing
-     has yet shown them coexisting, and portrait phone is where they're
-     most likely to conflict (60 bars + a volume pane + a thumb strip is
-     tight). Cheap to catch now, expensive mid-implementation.
+   - **0a. Screen layout wireframe — done.** Composed wireframes for
+     landscape and portrait live in
+     [hud.md](./hud.md#screen-layout). They already surfaced three real
+     conflicts: `visibleBarCount` must be orientation-aware (60 poles is
+     ~4px wide on a phone), the portrait top HUD only fits two lines so
+     buying power and full session info move to the pause screen, and the
+     fog strip can't be narrower than the Y-axis labels need.
 1. **Scrolling poles from static price data, plus the auto-scaling Y-axis.**
    No trading input yet. Wire up `scrollSpeed` in bars/second,
    `visibleBarCount`-derived bar geometry, and time-based (never
@@ -42,33 +41,48 @@ resolved defaults and each system doc for its rationale.
    from the same doc — both are direct consequences of not rendering the
    future, not polish, so building them later would mean reworking the
    motion code.
-2. **Buy/sell state machine + auto-bounce.** Signed position size from the
-   start ([game-design.md](./game-design.md#shorting)) even though
+2. **Buy/sell state machine + auto-bounce + tick pipeline.** Signed
+   position size from the start
+   ([game-design.md](./game-design.md#shorting)) even though
    `allowShorting` ships off — retrofitting sign into a scalar position
-   later would touch cost basis, P&L, stops, and rendering at once. Fixed
-   unit size for now to isolate the state machine. Input bindings per
-   [controls.md](./controls.md). Character animation hooks (`idle`,
-   `bounce`, and the vertical flip for shorts) against the placeholder.
-3. **Configurable sizing, cost basis, capital, and core HUD.**
-   `startingCapital` and buying-power limits; `buyUnitSize`/`sellUnitSize`;
-   weighted-average cost basis; the edge-case rules in
-   [game-design.md](./game-design.md#trade-rules--edge-cases). Top HUD
-   ([hud.md](./hud.md)): realized P&L in both currency and percent,
-   position size/avg cost, unrealized P&L, session info. Also fold in the
-   streak/multiplier scoring layer
+   later would touch cost basis, P&L, stops, and rendering at once. Build
+   the ordered tick pipeline
+   ([game-design.md](./game-design.md#tick-pipeline)) here rather than
+   letting ordering emerge — it's what makes same-bar interactions
+   deterministic. Fixed unit size for now to isolate the state machine.
+   Input bindings and buffering per [controls.md](./controls.md). Character
+   animation hooks (`idle`, `bounce`, and the vertical flip for shorts)
+   against the placeholder.
+3. **Sizing, cost basis, capital, and core HUD.** `startingCapital`,
+   buying-power clamps, and the short account model; `entrySize` /
+   `exitFraction` and the order-intent matrix; fractional shares and the
+   flat threshold; weighted-average cost basis; the edge-case rules — all in
+   [game-design.md](./game-design.md#order-intent-matrix). Top HUD
+   ([hud.md](./hud.md#top-hud)): P&L in currency and percent, signed
+   position with explicit LONG/SHORT, avg cost, unrealized P&L, buying
+   power, session info, **and reserved space for the streak meter**. Fold in
+   the streak/multiplier scoring layer
    ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-streaks--multipliers))
-   — it touches the scoring path rather than being pure presentation.
+   — it touches the scoring path rather than being pure presentation — plus
+   the campaign vs. close-event stat units
+   ([game-design.md](./game-design.md#what-counts-as-one-trade)).
    Unit-test the engine hard here, long *and* short side
    ([tech-stack.md](./tech-stack.md#testing)).
-4. **Stop loss / trailing stop with auto-close.** Percent units, close-based
-   triggering, inverted for shorts
-   ([game-design.md](./game-design.md#risk-management)). Distinct
+4. **Stop plugin system.** [stops.md](./stops.md) — the `StopPlugin`
+   contract, the bar-N-computes / bar-N+1-enforces timing rule,
+   multiple-active-stop resolution, and the two built-ins (`fixed-percent`,
+   `trailing-percent`). Close-based triggering, inverted for shorts. Distinct
    "stopped-out" feedback path (visual at minimum; audio in step 7) and the
-   stop level drawn on the chart per [hud.md](./hud.md#top-hud).
-5. **Settings panel UI + persistence.** Surface every config from
-   [config.md](./config.md) that exists so far. A **pre-run screen**, not a
-   mid-run overlay — config is fixed for a run's duration, so the flow is
-   settings → run → results. Add the storage adapter
+   stop level drawn on the chart per [hud.md](./hud.md#top-hud). This lands
+   before the general plugin host in step 8 because the built-ins are needed
+   for gameplay; the sandbox for *user-supplied* stop plugins arrives with
+   step 8's shared host.
+5. **Settings panel UI + persistence + run lifecycle.** Surface every config
+   from [config.md](./config.md) that exists so far. A **pre-run screen**,
+   not a mid-run overlay — config is fixed for a run's duration, so the flow
+   is settings → run → results
+   ([controls.md](./controls.md#run-lifecycle), including the pause menu's
+   four distinct outcomes). Add the storage adapter
    ([tech-stack.md](./tech-stack.md#persistence)), versioned from the first
    write.
 6. **Procedural background generation + parallax.**
@@ -89,16 +103,24 @@ resolved defaults and each system doc for its rationale.
      alongside or after 6 in either order.
 7. **Audio synthesis.** [audio.md](./audio.md) — all three channels via
    Tone.js, including the generative ambient bed (fixed per-theme chord
-   progression, randomized voicing), movement sonification, and event
-   stingers including the distinct stop-out alarm from step 4. Build against
-   one theme parameter set first; the second is again just numbers.
-8. **Indicator plugin architecture + volume pane.**
-   [indicators.md](./indicators.md) — our own overlay/oscillator contract,
-   Web Worker plugin sandboxing, the sub-pane renderer and its vertical
-   layout budget ([hud.md](./hud.md#sub-pane-vertical-layout)), the volume
-   toggle, and one initial built-in indicator (Simple Moving Average) to
-   prove the contract end-to-end. Oscillator normalization follows the same
-   causality rule as poles.
+   progression, randomized voicing), movement sonification, and the event
+   stingers. Note stingers key to **semantic position events**
+   (`positionClosed.profit`, `stoppedOut`, `actionDenied`), never to button
+   names — a `sell`-keyed cue misfires on every short exit, since closing a
+   short is a `buy`. Build against one theme parameter set first; the second
+   is again just numbers.
+8. **Shared plugin host: indicators + user stop plugins + volume pane.**
+   [indicators.md](./indicators.md) — the overlay/oscillator contract, the
+   shared `OhlcvBar`/`ParamSpec` types, Web Worker sandboxing serving **both**
+   plugin kinds, the sub-pane renderer and its vertical layout budget
+   ([hud.md](./hud.md#sub-pane-vertical-layout)), the volume toggle, and one
+   built-in indicator (Simple Moving Average) to prove the contract
+   end-to-end. Oscillator normalization follows the same causality rule as
+   poles. Stop plugins from step 4 move onto this host here, which is where
+   user-supplied stop strategies become loadable — including the explicit
+   player notification when a stop plugin auto-disables
+   ([stops.md](./stops.md#sandboxing-and-hosting)), since a silently dead
+   stop removes risk protection mid-position.
 9. **Game feel & polish pass.** [game-feel.md](./game-feel.md) — floating
    P&L text, HUD number tweening, screen shake/particles, results/summary
    screen, progression/unlockables, date banners and event flags, title
@@ -120,15 +142,18 @@ are parameter sets — interpolating palette values rather than swapping
 assets) and drawdown-reactive bed voicing; day/night as an orthogonal
 lighting variant within a theme; FIFO cost basis (config option,
 unimplemented); a post-run review/replay mode that would allow the
-full-series normalization methods; theme-specific character variants;
-rebindable controls; indicators beyond Simple Moving Average; shorting
-exposed in the UI (`allowShorting` ships off, engine supports it).
+full-series normalization modes; theme-specific character variants;
+rebindable controls; indicators beyond Simple Moving Average; stop
+strategies beyond `fixed-percent` and `trailing-percent` (ATR, time-based,
+break-even — all just new plugins); margin interest and forced liquidation
+on shorts; shorting exposed in the UI (`allowShorting` ships off, engine
+supports it).
 
 ## Notes on tuning and validation
 
 - **The numeric defaults marked _provisional_ in
   [config.md](./config.md) are starting points, not considered values.**
-  `scrollSpeed`, `visibleBarCount`, `buyUnitSize`, and `sellUnitSize` were
+  `scrollSpeed`, `visibleBarCount`, `entrySize`, and `exitFraction` were
   chosen for internal consistency and will move once the game is playable.
 - **Step 3 is not a go/no-go gate.** The design goal is training, not
   arcade fun, so a thin platforming layer is intended rather than a risk to

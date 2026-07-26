@@ -79,18 +79,31 @@ a later schema change doesn't silently discard someone's accumulated stats;
 and treat all persisted data as **untrusted on read** — a corrupt or
 hand-edited file should fall back to defaults rather than crash the app.
 
+Personal bests are stored **keyed by run fingerprint**
+([game-feel.md](./game-feel.md#new-session-structure-the-highest-leverage-item-here)),
+a stable hash of the config keys that change the challenge. Version the
+fingerprint alongside the schema: adding a key to it later invalidates
+existing buckets, which should be an explicit migration rather than silent
+loss of a player's history.
+
 ## Testing
 
 Not every layer is worth the same effort here:
 
-- **Trading engine — unit tested thoroughly.** Signed position sizing,
-  weighted-average cost basis, realized P&L, stop triggering, and the
+- **Trading engine — unit tested thoroughly.** Signed position sizing, the
+  order-intent matrix, weighted-average cost basis, realized P&L, the tick
+  pipeline ordering, buying-power clamps, the flat threshold, and the
   edge-case table in
   [game-design.md](./game-design.md#trade-rules--edge-cases) are pure
   functions over numbers with exactly known expected values. This is the
   part where a subtle sign error silently produces wrong scores forever, so
   it gets real coverage — including a short-side case for every long-side
-  case.
+  case, and an explicit test that `buy` on a short reduces rather than
+  flips.
+- **Stop plugins — unit tested**, including that a level computed at bar N
+  is enforced against bar N+1 and never retroactively against bar N
+  ([stops.md](./stops.md#causality-and-timing)). That off-by-one is
+  invisible in play but changes every stop-out.
 - **Normalizers — unit tested**, with an explicit assertion that no causal
   method ever reads a bar beyond the current index. That's the regression
   guard for the future-price leak described in

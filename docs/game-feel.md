@@ -15,21 +15,26 @@ hook to attach to vs. what's genuinely new work.
 These reuse animation/audio states already designed elsewhere; building
 this content doesn't require new engine work:
 
-- Buy/sell flourish animations — [character.md](./character.md)'s
-  optional `buyFlourish`/`sellProfit`/`sellLoss` states.
+- Trading-event flourishes — [character.md](./character.md)'s optional
+  overlays, keyed to semantic position events rather than button names.
 - Distinct stop-out feedback —
   [character.md](./character.md)'s required `stoppedOut` animation, paired
-  with [audio.md](./audio.md)'s distinct alarm stinger.
+  with [audio.md](./audio.md)'s distinct stop-out stinger.
+- Denied-action feedback — the `actionDenied` animation and stinger, so a
+  rejected press never reads as a dropped input.
 - Theme-consistent color language —
   [visuals.md](./visuals.md)'s accent palette matched to
   [audio.md](./audio.md)'s stinger tone per mood.
 
 ## New: per-action feedback ("juice")
 
-- **Floating P&L text**: on every sell, a "+$X.XX" / "−$X.XX" pops up at
-  the character's position and rises/fades. Ties the score change
-  directly to the action that caused it — far more legible than only
-  updating a HUD number. Standard in trading-game and idle-game UIs.
+- **Floating P&L text**: on every **position close event** — any size
+  reduction that realizes P&L, per
+  [game-design.md](./game-design.md#what-counts-as-one-trade) — a
+  "+$X.XX" / "−$X.XX" pops up at the character's position and rises/fades.
+  Keyed to the close *event*, not to the sell button: closing a short is a
+  `buy` press, so a button-keyed trigger would show nothing on half of all
+  short exits and fire spuriously on short entries.
 - **Squash-and-stretch** on landing/jumping — makes the auto-bounce feel
   weighty and alive instead of a metronome. Classic platformer technique,
   used throughout the Mario-like genre.
@@ -67,6 +72,40 @@ game." Concretely:
   server needed. "Beat your best P&L on this ticker" gives a goal that
   sits on top of the trading-habit-training goal without competing with
   it.
+
+  **Run fingerprint** — two runs only share a personal-best bucket if
+  their fingerprints match. Percent return makes scores comparable *across
+  tickers*, but it doesn't make them comparable across *difficulty*: the
+  same ticker at `scrollSpeed: 0.5` with shorting enabled is a completely
+  different challenge from `scrollSpeed: 8` long-only, and pooling them
+  makes the personal best meaningless.
+
+  Included in the fingerprint (changing any of these starts a new bucket):
+
+  | Key | Why |
+  |---|---|
+  | `data.source`, `data.ticker`, `data.dateRange` | Different price path entirely |
+  | `scrollSpeed` | Reaction time available — the single biggest difficulty lever |
+  | `visibleBarCount` | How much history is readable when deciding |
+  | `allowShorting` | Doubles the available strategies |
+  | `startingCapital`, `entrySize`, `exitFraction` | Determine position granularity and how many presses a full deployment takes |
+  | `stops.active` (plugin ids + params) | A trailing stop materially changes achievable outcomes |
+  | `priceTransform`, `normalizationMode` | Change what patterns are legible on screen |
+
+  Deliberately **excluded** — cosmetic or accessibility settings that don't
+  change the challenge, so a player is never penalized for making the game
+  comfortable: `visuals.*` (theme, seed, reduced motion, shake, palette),
+  `audio.*`, `character.selected`, `indicators.*` and `volume.enabled`
+  (analysis aids the player chooses; excluding them keeps someone from
+  gaming the leaderboard by hiding indicators, and more importantly means
+  turning on a helpful indicator doesn't orphan their history),
+  `hud.showStopLevelOnChart`.
+
+  Store the fingerprint as a stable hash of those values so buckets can be
+  looked up directly. Version it alongside the persistence schema
+  ([tech-stack.md](./tech-stack.md#persistence)) — adding a key to the
+  fingerprint later invalidates old buckets, and that should be an explicit
+  migration rather than silent data loss.
 - **Session variety**: rotate/randomize which ticker + date range plays,
   or a seeded "daily" ticker so repeat sessions don't feel identical. Ties
   into [data-sources.md](./data-sources.md)'s multi-source work.
@@ -82,11 +121,19 @@ all put a *second*, faster-moving score on top of the base one, and it's
 what creates moment-to-moment tension. It maps unusually well here,
 because the arcade mechanic and the training goal want the same behavior:
 
-- **Win-streak multiplier**: consecutive profitable exits build a
-  multiplier applied to P&L score. A stop-out or a loss resets it. The
-  arcade incentive ("don't break the chain") is *the same* incentive as
-  the trading lesson ("cut losers, let winners run") — so the game-feel
-  layer reinforces the habit rather than competing with it.
+- **Win-streak multiplier**: consecutive profitable **close events** build a
+  multiplier applied to P&L score; a loss or a stop-out resets it. Close
+  events rather than campaigns is deliberate — see
+  [game-design.md](./game-design.md#what-counts-as-one-trade) for the two
+  units and why streak uses the finer one: a campaign can run a hundred bars,
+  and a streak that updates once per campaign gives no moment-to-moment
+  feedback. Consequence: the streak can fluctuate *within* a single campaign
+  when partial exits go both ways, while win rate updates only at
+  flat-to-flat. That's intended — they measure execution and judgement
+  respectively.
+  The arcade incentive ("don't break the chain") is *the same* incentive as
+  the trading lesson ("cut losers, let winners run"), so the game-feel layer
+  reinforces the habit rather than competing with it.
 - **Streak meter in the HUD**, visibly filling/draining — a live gauge
   gives the eye something moving between trades, which is exactly what the
   Waiting state currently lacks.

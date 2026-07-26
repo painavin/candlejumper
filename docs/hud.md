@@ -18,7 +18,7 @@ read as broken.
   so the axis stays fully legible even though the world behind it is
   obscured.
 - **Recompute every tick**, not just on trade events: the visible min/max
-  comes from whichever `poleHeightNormalization` method is currently
+  comes from whichever `normalizationMode` is currently
   active, over the currently visible window. The axis is literally the
   inverse of the active normalizer — not a separate system — so it always
   agrees with how poles are actually being drawn. See
@@ -41,16 +41,97 @@ read as broken.
 
 ## Top HUD
 
-- **Score**: running realized P&L — the primary readout, from
+- **Score**: running realized P&L in both currency and percent return — the
+  primary readout, from
   [game-design.md](./game-design.md#scoring--stats).
-- **Position**: current size, average cost basis, and unrealized P&L
-  (mark the current pole's price against avg cost) while Active.
-- **Risk levels**: stop-loss/trailing-stop level, if enabled — shown both
-  as a HUD number *and* as a horizontal line drawn directly on the chart
-  at that price level, so the player can watch it approach rather than
-  only read a number. See
-  [game-design.md](./game-design.md#risk-management).
-- **Session info**: ticker/symbol, date range, current in-series date.
+- **Position**: current signed size, average cost basis, and unrealized P&L
+  (mark the current pole's price against avg cost) while Active. Direction
+  is shown explicitly (LONG / SHORT), not just by sign.
+- **Buying power remaining**, since entries clamp against it and a silent
+  clamp is confusing without a visible cause.
+- **Streak meter**: the multiplier gauge from
+  [game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-streaks--multipliers),
+  visibly filling and draining. This needs **reserved space from step 3**,
+  not retrofitted later — it's a live gauge, and the mobile layout is tight
+  enough that finding room for it afterwards would mean re-laying-out the
+  whole bar. On mobile it collapses to a compact multiplier chip (`×3`) with
+  a thin progress underline rather than a full-width gauge.
+- **Active stop level**, if any stop plugin is active — shown both as a HUD
+  number *and* as a horizontal line on the chart at that price, so the
+  player can watch it approach rather than only read a number. Label it
+  with which plugin owns it when more than one is active
+  ([stops.md](./stops.md#multiple-active-stops)).
+- **Session info**: ticker/symbol, current in-series date, and progress
+  through the series.
+
+## Screen layout
+
+Composed wireframes for both orientations, resolving the layout conflicts
+that the individual specs above couldn't reveal on their own. This is the
+artifact [roadmap.md](./roadmap.md) step 0a calls for.
+
+### Landscape / desktop
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ P&L +$1,240 (+12.4%)   LONG 8.4sh @ 218.30  ▲+$92   BP $2,000   │ top HUD
+│ ×3 ▓▓▓▓▓▓▓░░░  stop 214.10 (trailing-5%)   AAPL  2025-03-14 ⅓   │
+├──────────────────────────────────────────────────────────┬───────┤
+│                                              ▐▌          │  ░░▒▓ │
+│                    ▐▌            ▐▌  ▐▌      ▐▌ 🐦       │  ░░▒▓ │─ 240
+│         ▐▌      ▐▌ ▐▌   ▐▌    ▐▌ ▐▌  ▐▌   ▐▌ ▐▌ ▐▌       │  ░░▒▓ │
+│  ▐▌  ▐▌ ▐▌ ▐▌   ▐▌ ▐▌   ▐▌ ▐▌ ▐▌ ▐▌  ▐▌   ▐▌ ▐▌ ▐▌       │  ░░▒▓ │─ 220
+│- - - - - - - - - - - - - - - - - - - - - - - - - - - - - │- - - -│  stop line
+│  ▐▌  ▐▌ ▐▌ ▐▌   ▐▌ ▐▌   ▐▌ ▐▌ ▐▌ ▐▌  ▐▌   ▐▌ ▐▌ ▐▌       │  ░░▒▓ │─ 200
+│▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀│▀▀▀▀▀▀▀│  main chart 60%
+├──────────────────────────────────────────────────────────┼───────┤
+│ ▁▃▂▅▃▁▂▄▆▃▂▁▃▅▂▁▄▃▂▅▃▁▂▄▃▂▁▃▄▂▁▃▅▄▂▁▂▃▅▃▂▁▃▄▂▁▃▂▄▃      │  ░░▒▓ │  volume 40%
+└──────────────────────────────────────────────────────────┴───────┘
+  ◄──────────── playfield (poles) ~75% ────────────────────►  fog 25%
+                                                              + Y axis
+```
+
+### Portrait / mobile
+
+The tight case. Resolutions forced by composing it:
+
+```
+┌───────────────────────────────┐
+│ +$1,240 (+12.4%)      ×3 ▓▓▓░ │ top HUD — 2 lines max,
+│ LONG 8.4sh @218.30  stop 214  │ streak as a chip
+├────────────────────────┬──────┤
+│              ▐▌        │ ░░▒▓ │
+│      ▐▌  ▐▌  ▐▌ 🐦     │ ░░▒▓ │─ 240
+│  ▐▌  ▐▌  ▐▌  ▐▌ ▐▌     │ ░░▒▓ │
+│- - - - - - - - - - - - │- - - │─ 220  stop
+│  ▐▌  ▐▌  ▐▌  ▐▌ ▐▌     │ ░░▒▓ │
+│▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀│▀▀▀▀▀▀│  main chart
+├────────────────────────┼──────┤
+│ ▁▃▂▅▃▁▂▄▆▃▂▁▃▅▂▁▄▃▂▅   │ ░░▒▓ │  max 1 sub-pane
+├───────────────────────────────┤
+│                               │
+│   ┌────────┐     ┌────────┐   │  control strip —
+│   │  SELL  │     │  BUY   │   │  reserved BEFORE
+│   └────────┘     └────────┘   │  sub-panes
+└───────────────────────────────┘
+```
+
+Conflicts the wireframe surfaced, and their resolutions:
+
+- **`visibleBarCount: 60` is a landscape number.** At portrait width, 60
+  poles are ~4px wide and unreadable. Portrait must reduce it (~25–30) —
+  which means `visibleBarCount` needs an orientation-aware default rather
+  than a single value, and the normalizer window changes with it.
+- **The top HUD needs two lines in portrait**, and there isn't room for
+  buying power plus session info plus the streak gauge. Streak collapses to
+  a chip, buying power and full session info move to the pause screen.
+- **The control strip must be allocated before sub-panes**, as
+  [controls.md](./controls.md#mobile-layout-constraints) already required —
+  the wireframe confirms that with 1 sub-pane and a thumb strip, the main
+  chart is close to its floor.
+- **The Y axis overlays the fog strip** in both orientations, which is fine
+  since it's a HUD layer — but it means the fog strip can't be narrower than
+  the axis labels need.
 
 ## Volume & indicator sub-panes
 

@@ -46,17 +46,32 @@ This is the piece that makes price movement audible on every jump:
 
 ## Channel 3 — Event stingers (one-shots)
 
-Four distinct events, each theme-supplied:
+Stingers are keyed to **semantic position events, not button names.** This
+distinction is load-bearing: when short, the *closing* action is `buy`, so a
+stinger named `sellProfit` fired on the sell button would misfire on every
+short exit — playing an exit sound on entry and vice versa.
 
-- Buy (entry).
-- Sell in profit.
-- Sell at a loss.
-- **Auto-sell via stop-loss/trailing-stop** — deliberately different from
-  a manual sell in every theme. This distinction matters for the "build
-  good habits" goal — a triggered stop should *feel* different from a
-  deliberate exit, not just look different in a log. A theme's stop-out
-  stinger should read as clearly more jarring/alarming than its own
-  sell-at-a-loss stinger, whatever that theme's overall tone is.
+Five events, each theme-supplied:
+
+| Event | Fires when |
+|---|---|
+| `positionOpened` | Size moves off zero, either direction |
+| `positionIncreased` | Size grows in the direction already held (scaling in) |
+| `positionClosed.profit` | Any size reduction realizing positive P&L |
+| `positionClosed.loss` | Any size reduction realizing negative P&L |
+| `stoppedOut` | A stop plugin auto-closed the position ([stops.md](./stops.md)) |
+| `actionDenied` | A press that couldn't be honoured — sell while flat with shorting off, or entry with no buying power |
+
+- **`stoppedOut` must be deliberately different from
+  `positionClosed.loss` in every theme.** A triggered stop should *feel*
+  different from a deliberate exit, not just look different in a log — that
+  distinction is the whole point of the discipline lesson, so a theme's
+  stop-out cue should read as clearly more jarring than its own manual-loss
+  cue whatever its overall tone.
+- **`actionDenied`** exists so a rejected press never reads as a dropped
+  input. It should be short, dry, and unmistakably *not* a trade sound —
+  a soft thud rather than anything melodic, so it can't be confused with a
+  fill. Required in every theme.
 
 ## Audio themes
 
@@ -77,7 +92,11 @@ AudioTheme {
     reverbSend, delaySend,
   }
   sonification: { scale, instrument }          // channel 2
-  stingers: { buyEntry, sellProfit, sellLoss, stopOutAlarm }  // channel 3, synth recipes
+  stingers: {                                  // channel 3, synth recipes
+    positionOpened, positionIncreased,
+    positionClosedProfit, positionClosedLoss,
+    stoppedOut, actionDenied,
+  }
 }
 ```
 
@@ -104,6 +123,7 @@ These describe *parameter intent*; exact synth recipes are tuned in code.
 | Sell-in-profit stinger | Triumphant arpeggio | Understated resolving chime |
 | Sell-at-a-loss stinger | Comedic descending slide | Low descending tone |
 | Stop-out alarm | Playful "uh-oh" cue — still clearly worse than the loss stinger above | Sharp buzzer/siren — clearly worse than the loss stinger above |
+| Denied cue | Muted rubbery thud | Dry short click, lower than the entry click |
 | Reverb/delay | Light, dry | Heavier, more spacious |
 
 **Default: `jolly`**, for approachability on first launch. The settings UI

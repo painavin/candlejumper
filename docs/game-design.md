@@ -47,8 +47,46 @@ in/out while already Active doesn't change state, only size and cost basis.
 - **Position size is signed**: positive = long, negative = short, zero =
   flat. See [Shorting](#shorting) below — the engine handles both
   directions from day one even though the default game mode is long-only.
-- Each buy/sell press moves a *configurable* amount of size — see
-  `buyUnitSize` / `sellUnitSize` in [config.md](./config.md).
+- **The unit of position size is fractional shares.** Cash and percentages
+  are *input* units for order sizing; the position itself is always a
+  signed share quantity, and P&L is `shares × price delta`. Fractional
+  shares avoid a whole class of rounding problems — with whole shares, a
+  fixed cash amount buys a different quantity at every price level and
+  repeated percentage exits never land on zero.
+- **Flat threshold**: any absolute position size below `1e-6` shares is
+  treated as exactly flat and snapped to zero. Repeated 25% exits approach
+  zero asymptotically and would otherwise leave a dust position open
+  forever, keeping the state machine in Active and the stop plugins live.
+- Prices and cash are carried as full-precision floats and only rounded for
+  *display*, never in the P&L path — rounding in the arithmetic makes the
+  engine's unit tests unstable and lets errors accumulate over a 480-bar
+  run.
+
+### Order intent matrix
+
+What each press does depends on current state and direction. Entries are
+sized in cash; reductions are sized as a fraction of the open position.
+That asymmetry is deliberate — "deploy $2,000" is the natural way to
+express an entry, and "close a quarter of what I hold" is the natural way
+to express an exit. A cash-sized reduction would be meaningless against a
+short.
+
+| State | `buy` | `sell` |
+|---|---|---|
+| **Flat** | **Entry (long)** — deploy `entrySize` cash at fill price; `shares = cash / price` | **Entry (short)** if `allowShorting`, sized the same way; otherwise **no-op** with denied cue |
+| **Long** | **Add** — deploy another `entrySize` cash, clamped to remaining buying power; blends `avgCost` | **Reduce** — close `exitFraction` of open shares; realizes P&L; snaps to flat below threshold |
+| **Short** | **Reduce (cover)** — close `exitFraction` of the open short; **note it uses the exit key, not `entrySize`**, because it's an exit | **Add** — short another `entrySize` of notional, clamped to short capacity; blends `avgCost` |
+
+The one counterintuitive cell is `buy` on a short: it's an *exit*, so it's
+governed by `exitFraction`. The config keys are named for the direction of
+their effect on position size (grow vs. shrink), not for the button pressed
+— that naming is deliberate, to keep this from becoming a recurring bug.
+
+Neither action ever flips through zero in one press — see
+[Shorting](#shorting).
+
+### Scoring and cost basis
+
 - **Score is reported two ways**: currency P&L *and* percent return on
   starting capital. Percent is what makes personal bests comparable
   across tickers trading at wildly different price levels — a $5 stock
@@ -93,6 +131,66 @@ once, which is exactly the kind of change worth not doing twice.
   [character.md](./character.md#position-size-visualization) trails the
   same way.
 
+### Short account model
+
+**Cash-collateralized, no leverage.** Deliberately the simplest model that
+is still coherent:
+
+- Short notional is capped at `startingCapital` — the same ceiling the long
+  side has, so neither direction can take a larger position than the other.
+- **Short-sale proceeds are locked as collateral, not credited to buying
+  power.** Shorting $2,000 of stock does not give the player $2,000 more to
+  deploy. Without this rule, proceeds would fund further positions and the
+  player could compound leverage indefinitely.
+- Buying power available for new entries is
+  `startingCapital − (long notional at cost) − (short notional at cost)`,
+  floored at zero.
+- **No margin interest, no maintenance margin, no forced liquidation.**
+  A trainer teaching entry/exit discipline gains nothing from modelling
+  margin calls, and a forced-liquidation path would be a second,
+  competing involuntary-exit mechanism alongside stops
+  ([stops.md](./stops.md)) — two systems that close positions against the
+  player's will is one too many for teaching a clear lesson.
+
+Unrealized losses on a short can therefore exceed the collateral without
+triggering anything; the position simply shows a large negative unrealized
+P&L until closed or stopped out. That's a deliberate simplification, not an
+oversight.
+
+## Tick pipeline
+
+Every bar advances through the same ordered pipeline. Specifying this is
+what makes same-bar interactions deterministic rather than emergent:
+
+1. **Bar N's growth animation completes** — the bar reaches its close
+   height (see [Pole generation](#pole-generation--scroll)).
+2. **Collect inputs** buffered during bar N, in press order.
+3. **Apply orders** in press order at bar N's close as the fill price, each
+   subject to the order-intent matrix and the edge-case rules below.
+4. **Recompute cost basis, position, buying power, and realized P&L.**
+5. **Evaluate stop levels** — the levels computed at bar N−1's close (see
+   [stops.md](./stops.md#causality-and-timing)) against bar N's close.
+   Trigger an auto-close if breached.
+6. **Ask each active stop plugin for the level to enforce on bar N+1**,
+   passing the now-updated position state.
+7. **Update HUD, streak, audio, and stats.**
+8. **Advance**: spawn bar N+1 and begin its growth animation.
+
+Two consequences worth making explicit:
+
+- **Inputs are applied before stops are evaluated** (step 3 before step 5).
+  If the player manually exits on the same bar a stop would have fired, the
+  manual exit wins and the stop finds a flat position — which is the
+  behaviour the edge-case table below describes, and the reason the ordering
+  is fixed rather than incidental.
+- **A press during bar N's growth animation still fills at bar N's
+  completed close**, because inputs are buffered and applied at step 3,
+  after step 1. The player is committing before seeing the final height,
+  which is intentional: it's the same commitment a real trader makes
+  intra-day, and the alternative (blocking input during growth) would drop
+  presses. Keep the growth animation short (a fraction of a bar's duration)
+  so the commitment window stays small.
+
 ## Trade rules & edge cases
 
 Explicit rules the engine needs from day one:
@@ -109,40 +207,42 @@ Explicit rules the engine needs from day one:
 
 ## Risk management
 
-- `initialStopLoss`: a level set at position entry (and editable while the
-  position is open) beyond which the engine force-closes.
-- `trailingStop`: a level that ratchets in the position's favour as price
-  moves that way, force-closing on a pullback from the best price reached.
-- **Units: percent, not absolute price.** A percent stop is portable across
-  tickers and across runs — "risk 2%" means the same thing on a $5 stock
-  and a $500 stock, whereas "$3" is meaningless without knowing the price
-  level. It's also what the player should be thinking in as a habit. A
-  percent is measured from average entry price for `initialStopLoss`, and
-  from the best price reached for `trailingStop`.
+Stops are **plugins**, not fixed built-in rules — the full interface,
+timing, and built-in strategies live in [stops.md](./stops.md). A stop
+plugin receives position state after each bar closes and returns the level
+to enforce on the next bar; the trailing stop is one implementation, and
+players can add their own the same way they add indicators.
+
+The rules the engine enforces regardless of which plugin is active:
+
 - **Trigger basis: the bar's close, not its intraday low.** The pole *is*
   the close, the axis is close-based, and the fill price is a close — so
   triggering on anything else means the stop fires at a price never drawn
   on screen, which reads as arbitrary. Documented tradeoff: this is less
   realistic than a real broker's stop (which fires intraday, and therefore
-  more often), and it means a bar that dipped through the stop and
-  recovered by the close won't trigger. Consistency with what the player
-  can actually see wins here.
-- **Direction inverts for shorts** — see [Shorting](#shorting). The
-  stop-loss sits above average entry and the trailing stop ratchets
-  downward. Same code path, sign-flipped.
-- Both **auto-execute** the close: the game should apply consequences the
-  same way a real broker's stop order would, reinforcing the habit rather
-  than just displaying a suggestion.
-- **Both are optional and off by default.** The player explicitly chooses
-  to set a stop, and can leave either or both disabled. With a stop
-  disabled, the engine never force-closes on that rule — the player is
-  fully in charge of deciding when to exit. This lets the player choose
-  their own risk profile: full manual discipline, or opt into an
-  enforced rule to practice sticking to one.
-- Stats should track how often the player's own manual exits beat, matched,
-  or got bailed out by their configured stop — this only applies to stops
-  that are actually enabled; with both disabled, stats simply track manual
-  exits without any stop comparison.
+  more often), and a bar that dipped through the stop and recovered by the
+  close won't trigger. Consistency with what the player can actually see
+  wins here.
+- **Direction inverts for shorts** — see [Shorting](#shorting). A stop sits
+  above average entry when short and ratchets downward. Same code path,
+  sign-flipped, and the plugin sees signed size so it can handle both.
+- **Stops auto-execute the close**: the game applies consequences the way a
+  real broker's stop order would, reinforcing the habit rather than
+  displaying a suggestion.
+- **A triggered stop closes the entire position**, not a fraction — partial
+  stop-outs would blur the "you got taken out" signal the Stopped-out state
+  exists to deliver.
+- **No stop plugin active is a valid, default configuration.** The player is
+  then fully in charge of exits, which supports the "full manual
+  discipline" risk profile.
+- **Stops are fixed for a run, never edited mid-position** — the player
+  commits to a rule and lives with it. See
+  [stops.md](./stops.md#why-this-is-better-than-editable-stop-levels) for
+  why this is a deliberate improvement over an editable level rather than a
+  missing feature.
+- Stats track how often the player's own manual exits beat, matched, or got
+  bailed out by the active stop; with no stop active, stats simply track
+  manual exits without any comparison.
 
 ## Pole generation & scroll
 
@@ -170,14 +270,18 @@ Explicit rules the engine needs from day one:
   (see [Trading engine](#trading-engine)), so the fill price is the height
   the bar has *finished* growing to — the growth animation is presentation,
   not a moving target the player is trading against.
-- Pole height = price mapped to screen-space height. This needs a
-  normalization strategy, selectable via `poleHeightNormalization` (see
-  [config.md](./config.md) for the full method table).
+- Pole height = price mapped to screen-space height, via **two independent
+  config fields** — `priceTransform` (`none` | `log10`) applied first, then
+  `normalizationMode` (see [config.md](./config.md) for the full table).
+  They're separate because the log transform *composes* with a mode rather
+  than replacing one; "log price, then visible-window min/max" is a valid
+  setting a single enum couldn't express.
 
-  **Default: `visible-window-min-max`** — min/max over only the bars
-  currently on screen. This is the leak-free choice: any method that
-  computes bounds over the whole series would reveal future prices through
-  the axis, defeating the no-lookahead constraint in
+  **Default: `priceTransform: none` + `normalizationMode:
+  visible-window-min-max`** — min/max over only the bars currently on
+  screen. This is the leak-free choice: any mode that computes bounds over
+  the whole series would reveal future prices through the axis, defeating
+  the no-lookahead constraint in
   [game-feel.md](./game-feel.md#new-composition--the-lookahead-problem).
   See [Why full-series normalization leaks](#why-full-series-normalization-leaks)
   below for a worked example.
@@ -189,7 +293,7 @@ Explicit rules the engine needs from day one:
   would leak a screen-width of future prices, which is the exact bug this
   default exists to avoid.
 
-  Methods legal during a live run (all causal — no future data):
+  Modes legal during a live run (all causal — no future data):
   - **visible-window min/max** (default) — min/max over the visible,
     already-played bars only, as described above. Rescales as the window
     slides, so the axis easing in [hud.md](./hud.md) matters.
@@ -198,10 +302,10 @@ Explicit rules the engine needs from day one:
   - **starting-price relative** — divide every price by the *first* bar's
     close. Safe because the reference is always already in the past;
     frames the run as "growth since the start of the series."
-  - **log price** — apply `log10` to price before any of the above — a
-    pre-transform, not a standalone method; tames series with a huge range
-    (long history across splits, high-growth tickers). Inherits the
-    causality of whatever method it composes with.
+
+  `priceTransform: log10` is causal in its own right — a per-bar function
+  with no dependence on other bars — so it's legal with any of the above and
+  inherits that mode's legality.
 
   **Excluded from live play — these leak the future** (see
   [Why full-series normalization leaks](#why-full-series-normalization-leaks)):
@@ -326,8 +430,41 @@ the whole chart.
 
 ## Scoring & stats
 
-- Running realized P&L (primary score).
-- Win/loss trade count, average win size, average loss size.
-- Stop-rule compliance: fraction of exits that were manual vs stopped-out,
-  and whether manual sells happened before or after the configured stop
+### What counts as one "trade"
+
+Scaling in and out makes this genuinely ambiguous — three buys, two partial
+exits, and a final close is either *one* trade or *six* events, and the
+streak mechanic in [game-feel.md](./game-feel.md) gives completely different
+results depending on which is meant. Two distinct units, used for different
+purposes:
+
+- **Campaign** — one flat-to-flat cycle, from the first entry that leaves
+  flat to the exit that returns to flat. **This is the unit for win/loss
+  stats**: win rate, average win, average loss, biggest win/loss. It's the
+  right unit because it's the unit the player actually *decided* — "was this
+  position a good idea" is a question about the whole campaign, not about
+  each press within it.
+- **Close event** — any individual size reduction that realizes P&L. **This
+  is the unit for streak ticks** ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-streaks--multipliers)),
+  because the streak wants moment-to-moment feedback and a campaign can last
+  a hundred bars.
+
+A campaign's win/loss is the sign of its **summed realized P&L** across all
+its close events, not the sign of its final close.
+
+Consequence to note: partial exits mean a campaign can contain both winning
+and losing close events. Streak therefore fluctuates *within* a campaign
+while win rate updates only when it ends — intended, since they're measuring
+different things (execution vs. judgement).
+
+### Tracked stats
+
+- Running realized P&L (primary score), in currency and percent return.
+- Campaign count, win rate, average win, average loss, biggest win/loss.
+- Stop-rule compliance: fraction of campaigns ended manually vs. by a stop
+  plugin, and whether manual exits happened before or after the active stop
   level would have triggered.
+- Whether any active stop widened during the run and by how much
+  ([stops.md](./stops.md#no-monotonic-tightening-enforcement)).
+- Campaigns force-closed at end of data, reported separately so they don't
+  distort win rate.
