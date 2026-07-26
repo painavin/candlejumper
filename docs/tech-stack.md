@@ -101,7 +101,10 @@ Not every layer is worth the same effort here:
   part where a subtle sign error silently produces wrong scores forever, so
   it gets real coverage — including a short-side case for every long-side
   case, and an explicit test that `buy` on a short reduces rather than
-  flips.
+  flips. Both halves of the buying-power `min` need a case of their own: a
+  profitable run must not gain extra capacity, and a run down 90% must have
+  *lost* capacity rather than still being able to deploy five units
+  ([game-design.md](./game-design.md#short-account-model)).
 - **Stop plugins — unit tested**, including that a level computed at bar N
   is enforced against bar N+1 and never retroactively against bar N
   ([stops.md](./stops.md#causality-and-timing)). That off-by-one is

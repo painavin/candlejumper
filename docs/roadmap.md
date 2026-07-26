@@ -28,7 +28,10 @@ resolved defaults and each system doc for its rationale.
      fog strip can't be narrower than the Y-axis labels need.
 1. **Scrolling poles from static price data, plus the auto-scaling Y-axis.**
    No trading input yet. Wire up `scrollSpeed` in bars/second,
-   `visibleBarCount`-derived bar geometry, and time-based (never
+   `visibleBarCount`-derived bar geometry — **resolved once at run start from
+   the current orientation and frozen**, so a mid-run rotation re-lays out
+   pixels without rescaling the chart or changing the run's fingerprint
+   ([config.md](./config.md#scroll--poles)) — and time-based (never
    frame-based) motion
    ([game-design.md](./game-design.md#scroll-speed-timing-and-pole-geometry));
    the `visible-window-min-max` normalizer; and the eased Y-axis that reads
@@ -64,7 +67,11 @@ resolved defaults and each system doc for its rationale.
    animation hooks (`idle`, `bounce`, and the vertical flip for shorts)
    against the placeholder.
 3. **Sizing, cost basis, capital, and core HUD.** `startingCapital`,
-   buying-power clamps, and the short account model; `entrySize` and
+   buying-power clamps — including both halves of the `min(cashBalance,
+   startingCapital)` rule, so profits don't compound and losses genuinely
+   cost capacity
+   ([game-design.md](./game-design.md#short-account-model)) — and the short
+   account model; `entrySize` and
    unit-counted exits (N entries → exactly N exits, including the clamped
    runt unit and the dust-entry guard); flatten-on-hold
    ([controls.md](./controls.md#flatten-close-everything)); fractional

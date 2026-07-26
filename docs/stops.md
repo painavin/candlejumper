@@ -227,6 +227,17 @@ stop, the stat records what the *engine* did; with an advisory stop, it
 records whether the **player** did what their own rule said. That's the
 actual habit being trained.
 
+- **Breach is a per-bar state, not a latch.** It's evaluated at step 5 of
+  the tick pipeline like any other level check: a bar whose close is past
+  the level puts the position *in breach*, and a bar closing back on the
+  favourable side clears it. This comes up constantly, since a trailing level
+  ratchets and price crossing back inside it is ordinary. The consequence
+  worth stating: a player who ignores the signal and then recovers is no
+  longer in breach and can start rebuilding their discipline streak
+  ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak))
+  — the reset already happened at the breach and isn't re-applied. The
+  compliance event still records the whole episode, including how many
+  consecutive bars it lasted.
 - Breaching an advisory level records a **compliance event** — "your rule
   said exit here, price is past it" — with how many bars the player stayed
   past it and what the P&L difference was versus exiting on the signal.

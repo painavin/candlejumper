@@ -28,7 +28,7 @@ considered defaults.
 | Key | Description | Default |
 |---|---|---|
 | `startingCapital` | Cash balance at the start of a run; caps both long and short notional | $10,000 |
-| `entrySize` | Cash deployed per *entry or add* press. Buying power, not a fixed multiple of this, is what bounds the open unit count — an entry clamped by remaining capital still counts as one unit. See [game-design.md](./game-design.md#trading-engine) | 20% of `startingCapital` *(provisional)* |
+| `entrySize` | Cash deployed per *entry or add* press, stored as a **percent of `startingCapital`** so it tracks when that changes. Buying power, not a fixed multiple of this, is what bounds the open unit count — an entry clamped by remaining capital still counts as one unit. See [game-design.md](./game-design.md#trading-engine) | 20% of `startingCapital` *(provisional)* |
 | `allowShorting` | `sell` while flat opens a short instead of being a no-op. Engine carries signed size regardless — see [game-design.md](./game-design.md#shorting) | off |
 | `costBasisMethod` | `weighted-average` (built) or `fifo` (config option, unimplemented until wanted) | `weighted-average` |
 | `flattenHoldMs` | How long the exit key must be held to close everything — see [controls.md](./controls.md#flatten-close-everything) | 400 |
@@ -117,7 +117,7 @@ of it. Personal bests key off percent return as before, with best
 | Key | Description | Default |
 |---|---|---|
 | `scrollSpeed` | Speed in **bars per second** (trading days per second), not pixels — resolution-independent, and the auto-bounce cadence derives from it. Range 0.5–10 | 2 *(provisional)* |
-| `visibleBarCount` | How many bars fit on screen at once. Bar width is derived as `playfieldWidth / visibleBarCount`, where **playfield means the pole region only** (left edge to the character, ~70–80% of viewport — not the full width, since the fog strip never holds poles). Also sets the `visible-window-min-max` window and therefore how reactive the axis is. **Orientation-aware**: 60 landscape / ~28 portrait, since 60 poles at phone width are ~4px and unreadable — see the wireframes in [hud.md](./hud.md#screen-layout) | 60 landscape, 28 portrait *(provisional)* |
+| `visibleBarCount` | How many bars fit on screen at once. Bar width is derived as `playfieldWidth / visibleBarCount`, where **playfield means the pole region only** (left edge to the character, ~70–80% of viewport — not the full width, since the fog strip never holds poles). Also sets the `visible-window-min-max` window and therefore how reactive the axis is. **Orientation-aware**: 60 landscape / ~28 portrait, since 60 poles at phone width are ~4px and unreadable — see the wireframes in [hud.md](./hud.md#screen-layout). **Resolved once at run start and frozen for the run** — see below | 60 landscape, 28 portrait *(provisional)* |
 | `priceTransform` | Applied to price *before* normalization: `none` or `log10`. `log10` tames series with a huge range so outlier days don't flatten everything else | `none` |
 | `normalizationMode` | How transformed price maps to pole height — see table below | `visible-window-min-max` |
 | `normalizationReference` | Reference scale value for `starting-price-relative` | 100 |
@@ -127,6 +127,23 @@ represent the valid combinations, because the log transform *composes* with
 a normalization mode rather than replacing one — "log price, then
 visible-window min/max" is a legitimate and useful setting that a
 one-field model has no way to express.
+
+**Rotating the device mid-run does not change `visibleBarCount`.** It is
+resolved once, at run start, from the orientation at that moment, and frozen
+for the run — rotation re-lays out pixel geometry only. Three reasons this
+matters more than it looks:
+
+- `visibleBarCount` is the `visible-window-min-max` window, so changing it
+  mid-run would rescale the chart under the player.
+- It's a **run-fingerprint key**
+  ([game-feel.md](./game-feel.md#new-session-structure-the-highest-leverage-item-here)),
+  so a rotation would silently move the run into a different personal-best
+  bucket.
+- It's config, and config is fixed for a run's duration. No exception is
+  needed here.
+
+A portrait-started run rotated to landscape therefore shows its 28 bars
+wider rather than reflowing to 60 — readable, and stable.
 
 ### `normalizationMode` values
 
@@ -149,6 +166,11 @@ a worked example.
 `priceTransform: log10` is causal regardless of mode — it's a per-bar
 function with no dependence on other bars — so it inherits the legality of
 whichever mode it composes with.
+
+**Only the three ✅ modes are implemented.** The ❌ rows are documentation of
+what was considered and why it's excluded, not code paths gated behind a
+flag — an unimplemented mode can't leak, and a gated one is one careless
+condition away from leaking. The settings UI offers three options.
 
 The ❌ methods could be revived in a **post-run review/replay mode**, where
 the outcome is already known — not built now. See

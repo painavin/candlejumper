@@ -29,8 +29,11 @@ read as broken.
     `fixed-price-per-pixel`) → literal `$` price labels.
   - `starting-price-relative` → "% of reference" labels, since the values
     are ratios, not price levels.
-  - `log-price` → raw `log10` magnitude.
-  - Surface which one is active somewhere in the axis title/unit suffix
+  - Independently of all three: when `priceTransform` is `log10`, labels show
+    the raw `log10` magnitude. The transform composes with any mode rather
+    than being one ([config.md](./config.md#scroll--poles)), so it modifies
+    the label unit whichever mode is active.
+  - Surface which combination is active in the axis title/unit suffix
     so a player never misreads a `%` axis as a `$` axis.
 - **Ease axis-bound changes**, don't snap every frame. This is
   **load-bearing, not cosmetic**: the default
@@ -140,7 +143,10 @@ Conflicts the wireframe surfaced, and their resolutions:
 - **`visibleBarCount: 60` is a landscape number.** At portrait width, 60
   poles are ~4px wide and unreadable. Portrait must reduce it (~25–30) —
   which means `visibleBarCount` needs an orientation-aware default rather
-  than a single value, and the normalizer window changes with it.
+  than a single value, and the normalizer window changes with it. It is
+  resolved **once at run start and frozen**, so rotating mid-run re-lays out
+  pixel geometry without rescaling the chart or moving the run to a different
+  personal-best bucket ([config.md](./config.md#scroll--poles)).
 - **The top HUD needs two lines in portrait**, and there isn't room for
   buying power plus session info plus the streak gauge and the arcade score.
   Streak collapses to a chip; buying power, arcade score, and full session

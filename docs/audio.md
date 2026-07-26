@@ -51,7 +51,12 @@ distinction is load-bearing: when short, the *closing* action is `buy`, so a
 stinger named `sellProfit` fired on the sell button would misfire on every
 short exit — playing an exit sound on entry and vice versa.
 
-Five events, each theme-supplied:
+Six events, each theme-supplied. This table is the canonical stinger list,
+but it is **not** the full engine event vocabulary — `engine/output/`
+([code-structure.md](./code-structure.md#src)) also emits events audio
+doesn't consume (unit added/removed for the ghost stack, streak change,
+advisory breach, bar advanced). Don't treat this list as complete for
+non-audio consumers.
 
 | Event | Fires when |
 |---|---|

@@ -36,6 +36,11 @@ in/out while already Active doesn't change state, only size and cost basis.
 - **Capital**: the player starts each run with a **cash balance** (default
   $10,000, configurable). Buy presses deploy cash; position size is
   therefore bounded by available buying power rather than unlimited.
+  `cashBalance` moves with realized P&L — profits raise it, losses lower it —
+  but buying power is capped at `startingCapital` so profits never compound.
+  The formula and why it has both halves are in
+  [Short account model](#short-account-model); it applies to long-only runs
+  just as much.
 - **Fill price**: a buy or sell executes at the **close of the pole the
   character is currently standing on**. That price is already visible on
   screen when the player presses, so a fill is never a gotcha, and the
@@ -184,8 +189,23 @@ is still coherent:
   deploy. Without this rule, proceeds would fund further positions and the
   player could compound leverage indefinitely.
 - Buying power available for new entries is
-  `startingCapital − (long notional at cost) − (short notional at cost)`,
-  floored at zero.
+  `min(cashBalance, startingCapital) − (long notional at cost) − (short
+  notional at cost)`, floored at zero.
+
+  Both halves of that `min` are load-bearing, and this is the general
+  formula — it governs long-only runs too, not just shorts:
+  - **Capping at `startingCapital` stops profits compounding.** `entrySize`
+    stays a fixed fraction of the starting balance, so a full deployment is
+    always the same number of units regardless of how well the run is going.
+    That's what keeps unit counts, the ghost stack, and scores comparable
+    between runs.
+  - **Taking `cashBalance` when it's lower stops the player trading money
+    they've already lost.** Without it, someone down $9,000 of $10,000 would
+    still have full $10,000 capacity and could deploy five units of capital
+    that no longer exists — and percent return could pass −100%, which is
+    nonsense in a cash account with no leverage. With it, losses cost
+    capacity: after that drawdown, `entrySize` at 20% affords no further
+    entries and the dust guard denies the press.
 - **No margin interest, no maintenance margin, no forced liquidation.**
   A trainer teaching entry/exit discipline gains nothing from modelling
   margin calls, and a forced-liquidation path would be a second,

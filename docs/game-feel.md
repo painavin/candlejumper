@@ -161,6 +161,13 @@ the feedback belongs at the moment the player fails to act, not several bars
 later when they finally do. The breach is already recorded as a compliance
 event ([stops.md](./stops.md#advisory-mode)), so one signal drives both.
 
+"In breach" is a **per-bar state, not a latch** — a bar closing back on the
+favourable side of the level clears it, which happens routinely as a trailing
+level ratchets ([stops.md](./stops.md#advisory-mode)). So a player who
+ignores the signal and then recovers starts rebuilding from zero rather than
+being locked out for the rest of the campaign. The reset already happened; it
+isn't re-applied every bar they linger.
+
 `multiplier = min(1 + streak, 5)`, capped at ×5 — matching the five-unit
 full deployment and the five-ghost stack, so one number governs all three.
 
