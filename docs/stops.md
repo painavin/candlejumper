@@ -33,7 +33,18 @@ interface StopPlugin {
   id: string
   displayName: string
   params: ParamSpec[]        // same ParamSpec as indicators; drives the settings UI
+  /**
+   * Indicators this stop needs, derived from its own params — so an
+   * `atrLength` param can size the ATR the stop asks for. Omit if none.
+   */
+  requires?(params: Record<string, number>): IndicatorRequest[]
   createInstance(params: Record<string, number>): StopInstance
+}
+
+interface IndicatorRequest {
+  key: string                // local name this stop reads its values under
+  indicatorId: string        // any id in the registry — built-in or user-loaded
+  params: Record<string, number>
 }
 
 interface StopInstance {
@@ -43,8 +54,15 @@ interface StopInstance {
    * Returns the absolute price level to enforce on the NEXT bar,
    * or null for "no stop active this bar".
    */
-  onBar(bar: OhlcvBar, position: PositionState): number | null
+  onBar(
+    bar: OhlcvBar,
+    position: PositionState,
+    indicators: IndicatorValues,
+  ): number | null
 }
+
+/** This bar's indicator outputs, keyed by request key, then by output name. */
+type IndicatorValues = Record<string, Record<string, number>>
 
 interface PositionState {
   size: number             // signed: >0 long, <0 short
@@ -59,6 +77,104 @@ interface PositionState {
 `OhlcvBar` and `ParamSpec` are defined in
 [indicators.md](./indicators.md#shared-types) — deliberately the same types,
 since stop plugins and indicator plugins share a host.
+
+## Using indicators inside a stop plugin
+
+A stop that can't read an indicator is limited to arithmetic on entry price
+and position state, which rules out most of the strategies worth writing —
+an ATR/volatility stop, a chandelier stop, and a moving-average stop are all
+just "compute an indicator, offset from it." So **any indicator in the
+registry is available to any stop plugin**, built-in or user-supplied, in
+either direction: a user's custom indicator can feed a built-in-style stop,
+and a user's custom stop can consume the built-in Simple Moving Average.
+
+Stops declare what they need rather than fetching it. The host then owns
+instantiation and feeding order, which is what keeps the causality rules
+below enforceable rather than left to each plugin author.
+
+### The host owns the instances, and feeds them every bar
+
+- A stop's `requires()` is resolved **once, at run start**, from the params
+  the player committed. The host creates one indicator instance per request
+  and stores it against that stop instance.
+- **Stop-owned indicators are fed every bar from the first bar of the run,
+  not just while a position is open.** This is the non-obvious rule: only
+  the *stop's* `onBar` is gated on having a position. If its indicators were
+  fed only during a position, a 14-bar ATR stop would restart warm-up on
+  every entry and offer no level for the first 14 bars of each trade —
+  precisely the bars where a new position is most exposed.
+- Consequently, `StopInstance.reset()` on entry does **not** reset the
+  stop's indicators. The host resets those only at run start or on a ticker
+  change.
+
+### Causality is unchanged
+
+An indicator value for bar N is available at bar N's close, and the level a
+stop returns at bar N is enforced against bar N+1
+([above](#causality-and-timing)). So an indicator-derived stop is causal for
+the same reason a price-derived one is — no new leak, and no new rule. The
+host feeds a stop's indicators strictly in bar order, never ahead of the
+played position, which is the same guarantee the displayed indicators get.
+
+### Stop-owned instances are separate from displayed ones
+
+If the player has SMA(20) on the chart *and* a stop asking for SMA(20), that
+is **two independent instances** computing the same numbers. This looks
+wasteful and is deliberate:
+
+- **Toggling an indicator pane must never change risk management.** If they
+  shared an instance, hiding an overlay would alter — or kill — the stop
+  driving the player's exits. That's the fail-open-on-risk outcome this doc
+  already calls the worst available.
+- It keeps the **run fingerprint** honest
+  ([game-feel.md](./game-feel.md#new-session-structure-the-highest-leverage-item-here)):
+  `indicators.*` is excluded from the fingerprint as an analysis aid, while
+  `stops.active` is included. A stop's indicator dependency travels inside
+  its own params, so it lands in the fingerprint where it belongs — but only
+  because the two don't share state.
+- The cost is a few extra arithmetic ops per bar. Not worth coupling
+  display to risk over.
+
+A player who wants to *see* the indicator their stop uses adds it to
+`indicators.active` separately. The duplicate instance is harmless.
+
+`paneKind` and `fixedRange` are rendering hints and are ignored when an
+indicator is consumed by a stop — an oscillator and an overlay are equally
+usable as a number.
+
+### Warm-up must produce `null`, never a `NaN` level
+
+Indicators return `NaN` until warmed up
+([indicators.md](./indicators.md#typescript-indicator-contract)). A stop that
+passed that through as a price level would be **worse than having no stop**:
+every comparison against `NaN` is false, so the level would silently never
+trigger while the HUD displayed a stop as active.
+
+Two rules, belt and braces:
+
+- **Plugin contract**: a stop must return `null` while any indicator it
+  depends on is still `NaN`. `null` already means "no stop this bar" and
+  renders as no line, so the player sees the truth.
+- **Engine guard**: `engine/stops/` treats any non-finite
+  level as `null` regardless of what the plugin returned, and records it.
+  A plugin returning `NaN` on more than a warm-up prefix is misbehaving and
+  is subject to the same auto-disable-and-notify path as one that throws.
+
+### A missing indicator fails the run before it starts
+
+If a stop requests an `indicatorId` the registry can't resolve — a user
+indicator that was unloaded, say — the run **refuses to start**, with a
+message naming the stop and the missing indicator.
+
+Deliberately not the auto-disable path: that exists for a plugin that dies
+*mid-position*, where the run is already underway and the only options are
+bad ones. An unresolvable dependency is knowable before the first bar, and
+the player is choosing their risk rules at that moment. Starting a run whose
+stop silently doesn't exist is the failure mode worth spending a blocking
+error to avoid.
+
+No dependency cycle is possible: indicators can't request stops, and stops
+can't request other stops.
 
 ## Causality and timing
 
@@ -161,9 +277,17 @@ Both are **off by default** — a run with no stop plugin active means the
 player is fully in charge of exits, which was already the intended default
 in [game-design.md](./game-design.md#risk-management).
 
-Natural later additions, all costing no engine work: ATR/volatility stop,
-time-based stop ("exit after N bars"), break-even stop ("move to entry once
-up X%"), chandelier stop.
+Neither built-in declares a `requires()`, so both work before the indicator
+registry exists — which is why they can land at
+[roadmap.md](./roadmap.md) step 4 while indicators wait for step 8.
+
+Natural later additions, none needing engine work: a time-based stop ("exit
+after N bars") and a break-even stop ("move to entry once up X%") need only
+`PositionState`. An **ATR/volatility stop** and a **chandelier stop** are
+the first consumers of
+[indicators in stops](#using-indicators-inside-a-stop-plugin) — they become
+possible once the indicator registry lands, and are the reason that
+mechanism exists.
 
 ## Sandboxing and hosting
 
@@ -172,6 +296,12 @@ Stop plugins run in the **same Web Worker sandbox** as indicator plugins
 host, two plugin kinds. Same trust boundary, same contract validation, same
 per-call time budget, same auto-disable on repeated failure.
 
+A stop's **per-call time budget covers its indicator dependencies too** —
+the host times the whole chain, since a stop starved by a slow indicator is
+just as ineffective as a slow stop. A blown budget is attributed to the
+stop, because the stop is what gets disabled and what the player has to be
+told about.
+
 One difference matters: **a misbehaving stop plugin has consequences a
 misbehaving indicator doesn't** — an indicator that dies draws nothing,
 whereas a stop that dies silently removes the player's risk protection
@@ -179,6 +309,13 @@ mid-position. So on auto-disable of a stop plugin, the engine must
 **notify the player explicitly** rather than failing quiet, and record it in
 the run stats. Failing open on risk management without telling anyone is
 the worst possible outcome.
+
+That asymmetry now reaches one level deeper: an indicator instance owned by
+a stop is **not** subject to the quiet auto-disable a *displayed* indicator
+gets. If it fails, the stop that depends on it is disabled and the player is
+notified, exactly as if the stop itself had failed. The same indicator can
+therefore be silently dropped from the chart and loudly fatal to a stop in
+the same run — correct, because the consequences genuinely differ.
 
 ## Config
 

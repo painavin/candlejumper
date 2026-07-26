@@ -99,6 +99,29 @@ signal, a moving average's first bars either draw a line from zero or
 require every renderer to special-case startup. `NaN` gives one rule
 everywhere.
 
+## Two consumers: the chart, and stop plugins
+
+An indicator is not only something to draw. **Any indicator in the registry
+can also be consumed by a stop plugin** to compute its stop level — that's
+how an ATR or chandelier stop gets written, and it works in both directions:
+a user's custom indicator can feed a stop, and a user's custom stop can
+consume the built-in Simple Moving Average. The contract above is unchanged;
+a stop declares what it needs via `requires()` and the host does the
+wiring. Full rules — including who owns the instance, why stop-owned
+instances are deliberately *not* shared with displayed ones, and why `NaN`
+warm-up must become `null` rather than a stop level — are in
+[stops.md](./stops.md#using-indicators-inside-a-stop-plugin).
+
+Two consequences for anything implementing this contract:
+
+- **An indicator must be usable with no pane at all.** `paneKind` and
+  `fixedRange` are rendering hints; a stop consuming an oscillator ignores
+  both. Nothing in an indicator's computation may depend on being displayed.
+- **The host, not the renderer, drives `onBar`.** Displayed indicators and
+  stop-owned indicators are fed by the same per-bar mechanism in the same
+  order, so a stop's values and the chart's values can never disagree about
+  what bar N was.
+
 ## Overlay vs. oscillator — and normalization
 
 This classification is what determines how an indicator's output gets
@@ -183,6 +206,13 @@ above, no engine changes required. Which ones to build next is left open;
 prioritize by what players actually ask for once the core game is
 playable, rather than front-loading a large indicator catalog before the
 mechanics are proven.
+
+One exception to "prioritize by demand": **ATR is the first indicator with a
+second customer.** An ATR/volatility stop and a chandelier stop both need it
+([stops.md](./stops.md#built-in-stop-plugins)), so building ATR unlocks two
+stop strategies rather than one chart line. Worth knowing when picking the
+second indicator, though still not a reason to build it before the mechanics
+are proven.
 
 ## Config
 

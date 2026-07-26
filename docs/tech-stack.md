@@ -103,7 +103,13 @@ Not every layer is worth the same effort here:
 - **Stop plugins — unit tested**, including that a level computed at bar N
   is enforced against bar N+1 and never retroactively against bar N
   ([stops.md](./stops.md#causality-and-timing)). That off-by-one is
-  invisible in play but changes every stop-out.
+  invisible in play but changes every stop-out. Two more assertions once
+  stops can consume indicators
+  ([stops.md](./stops.md#using-indicators-inside-a-stop-plugin)): that a
+  stop's indicators are fed **from the first bar of the run**, not from
+  position entry — otherwise warm-up silently restarts every trade — and
+  that a non-finite level is coerced to `null` rather than becoming a stop
+  that can never trigger.
 - **Normalizers — unit tested**, with an explicit assertion that no causal
   method ever reads a bar beyond the current index. That's the regression
   guard for the future-price leak described in

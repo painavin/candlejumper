@@ -12,7 +12,7 @@ survival.
 | Doc | Covers |
 |---|---|
 | [game-design.md](./game-design.md) | Core loop, state machine, signed positions, shorting, order intent, tick pipeline, pole geometry, scoring |
-| [stops.md](./stops.md) | Stop strategies as plugins — interface, timing, built-ins |
+| [stops.md](./stops.md) | Stop strategies as plugins — interface, timing, indicator use, built-ins |
 | [controls.md](./controls.md) | Input bindings, run lifecycle, mobile layout, pause |
 | [visuals.md](./visuals.md) | Parallax background system and visual themes |
 | [character.md](./character.md) | Character roster, selection, position-size visualization |
@@ -25,6 +25,7 @@ survival.
 | [config.md](./config.md) | Every configurable parameter, consolidated |
 | [data-sources.md](./data-sources.md) | Bar schema, `PriceSeriesSource`, bundled AAPL/MSFT/NKE dataset |
 | [tech-stack.md](./tech-stack.md) | Platform, library, persistence, and testing choices |
+| [code-structure.md](./code-structure.md) | Folder layout, import rules, where each roadmap step's code lands |
 | [roadmap.md](./roadmap.md) | Build order / milestones |
 
 ## Status

@@ -101,6 +101,14 @@ game." Concretely:
   turning on a helpful indicator doesn't orphan their history),
   `hud.showStopLevelOnChart`.
 
+  Note that excluding `indicators.*` stays correct even though stop plugins
+  can consume indicators
+  ([stops.md](./stops.md#using-indicators-inside-a-stop-plugin)): a stop's
+  dependency is derived from the stop's own params, so it travels inside
+  `stops.active` and is already in the fingerprint. Nothing in
+  `indicators.active` can affect a stop, which is one of the reasons the two
+  don't share instances.
+
   Store the fingerprint as a stable hash of those values so buckets can be
   looked up directly. Version it alongside the persistence schema
   ([tech-stack.md](./tech-stack.md#persistence)) — adding a key to the
@@ -276,9 +284,10 @@ Rejected alternatives, for the record:
   makes touch input feel tactile rather than flat.
 - **Pause/resume** that doesn't lose run state. Note that *settings* are
   not reachable mid-run — config is fixed for the duration of a run (see
-  [config.md](./config.md)), so pause offers resume/restart/quit, not a
-  settings panel. Adjusting stop levels on an open position is a trading
-  action and stays available during play.
+  [config.md](./config.md)), so pause offers resume/restart/end/abandon, not
+  a settings panel. Stop levels aren't adjustable either: stops are pre-run
+  rules that recompute themselves each bar
+  ([stops.md](./stops.md#why-this-is-better-than-editable-stop-levels)).
 
 ## Sequencing note
 

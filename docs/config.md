@@ -62,6 +62,15 @@ see [stops.md](./stops.md#causality-and-timing). Manual exits and flatten
 always override an enforcing stop
 ([stops.md](./stops.md#player-override)).
 
+A stop plugin may **consume indicators** to compute its level
+([stops.md](./stops.md#using-indicators-inside-a-stop-plugin)). Its
+dependencies are derived from its own `params` and so need no config key of
+their own — but they add one **pre-run validation rule**: every indicator a
+configured stop requests must resolve in the registry, or the run refuses to
+start. A stop's indicator instances are separate from anything in
+`indicators.active`, so the two lists never interact — toggling a chart
+indicator cannot change what a stop does.
+
 Stops trigger on the **bar's close**, not its intraday low, and invert
 direction for shorts — see
 [game-design.md](./game-design.md#risk-management). Score is reported as

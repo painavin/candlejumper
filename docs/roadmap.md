@@ -11,8 +11,10 @@ resolved defaults and each system doc for its rationale.
    dependencies; seeded PRNG helper
    ([procedural-assets.md](./procedural-assets.md#determinism--seeded-prng-never-mathrandom))
    plus the lint rule banning `Math.random()`; Vitest harness
-   ([tech-stack.md](./tech-stack.md#testing)); directory layout that keeps
-   the trading engine free of any PixiJS/DOM imports so it stays
+   ([tech-stack.md](./tech-stack.md#testing)); the folder layout and
+   import-zone lint rules from
+   [code-structure.md](./code-structure.md#dependency-rules), which are what
+   keep the trading engine free of any PixiJS/DOM imports so it stays
    unit-testable headless. Bundle the first OHLCV dataset
    ([data-sources.md](./data-sources.md)). No asset pipeline is needed —
    there are no art or audio files.
@@ -77,10 +79,15 @@ resolved defaults and each system doc for its rationale.
    built-ins (`fixed-percent`, `trailing-percent`). Close-based triggering,
    inverted for shorts. Distinct "stopped-out" feedback path (visual at
    minimum; audio in step 7), and stop levels drawn on the chart — dashed
-   for advisory, solid for enforcing ([hud.md](./hud.md#top-hud)). This
-   lands before the general plugin host in step 8 because the built-ins are
-   needed for gameplay; the sandbox for *user-supplied* stop plugins
-   arrives with step 8's shared host.
+   for advisory, solid for enforcing ([hud.md](./hud.md#top-hud)). Include
+   the engine guard that coerces any non-finite stop level to `null`
+   ([stops.md](./stops.md#warm-up-must-produce-null-never-a-nan-level)) — a
+   `NaN` level is worse than no stop, since every comparison against it is
+   false. Take `StopInstance.onBar`'s indicator argument now even though it's
+   always empty here; the mechanism arrives in step 8 but the signature
+   shouldn't change twice. This lands before the general plugin host in step
+   8 because the built-ins are needed for gameplay; the sandbox for
+   *user-supplied* stop plugins arrives with step 8's shared host.
 5. **Settings panel UI + persistence + run lifecycle.** Surface every config
    from [config.md](./config.md) that exists so far. A **pre-run screen**,
    not a mid-run overlay — config is fixed for a run's duration, so the flow
@@ -125,6 +132,15 @@ resolved defaults and each system doc for its rationale.
    player notification when a stop plugin auto-disables
    ([stops.md](./stops.md#sandboxing-and-hosting)), since a silently dead
    stop removes risk protection mid-position.
+   Also here: **indicators become available to stop plugins**
+   ([stops.md](./stops.md#using-indicators-inside-a-stop-plugin)) — the host
+   resolves each stop's `requires()` at run start, owns those instances
+   separately from displayed ones, and feeds them **every bar from the first
+   bar**, not only while a position is open, so a warm-up period doesn't
+   restart on every entry. Add the pre-run validation that refuses to start a
+   run whose stop requests an unresolvable indicator. This is the step that
+   makes an ATR or chandelier stop writable, so it's worth proving with one
+   such stop even though neither ships as a built-in.
 9. **Game feel & polish pass.** [game-feel.md](./game-feel.md) — floating
    P&L text, HUD number tweening, screen shake/particles, results/summary
    screen, progression/unlockables, date banners and event flags, title
@@ -148,10 +164,12 @@ lighting variant within a theme; FIFO cost basis (config option,
 unimplemented); a post-run review/replay mode that would allow the
 full-series normalization modes; theme-specific character variants;
 rebindable controls; indicators beyond Simple Moving Average; stop
-strategies beyond `fixed-percent` and `trailing-percent` (ATR, time-based,
-break-even — all just new plugins); margin interest and forced liquidation
-on shorts; shorting exposed in the UI (`allowShorting` ships off, engine
-supports it).
+strategies beyond `fixed-percent` and `trailing-percent` — time-based and
+break-even need only position state, while ATR and chandelier stops depend on
+step 8's indicator-consuming mechanism
+([stops.md](./stops.md#built-in-stop-plugins)); margin interest and forced
+liquidation on shorts; shorting exposed in the UI (`allowShorting` ships off,
+engine supports it).
 
 ## Notes on tuning and validation
 
