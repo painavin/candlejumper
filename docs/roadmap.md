@@ -54,9 +54,11 @@ resolved defaults and each system doc for its rationale.
    animation hooks (`idle`, `bounce`, and the vertical flip for shorts)
    against the placeholder.
 3. **Sizing, cost basis, capital, and core HUD.** `startingCapital`,
-   buying-power clamps, and the short account model; `entrySize` /
-   `exitFraction` and the order-intent matrix; fractional shares and the
-   flat threshold; weighted-average cost basis; the edge-case rules — all in
+   buying-power clamps, and the short account model; `entrySize` and
+   unit-counted exits (N entries → exactly N exits); flatten-on-hold
+   ([controls.md](./controls.md#flatten-close-everything)); fractional
+   shares and the flat threshold; weighted-average cost basis; the
+   edge-case rules — all in
    [game-design.md](./game-design.md#order-intent-matrix). Top HUD
    ([hud.md](./hud.md#top-hud)): P&L in currency and percent, signed
    position with explicit LONG/SHORT, avg cost, unrealized P&L, buying
@@ -70,13 +72,15 @@ resolved defaults and each system doc for its rationale.
    ([tech-stack.md](./tech-stack.md#testing)).
 4. **Stop plugin system.** [stops.md](./stops.md) — the `StopPlugin`
    contract, the bar-N-computes / bar-N+1-enforces timing rule,
-   multiple-active-stop resolution, and the two built-ins (`fixed-percent`,
-   `trailing-percent`). Close-based triggering, inverted for shorts. Distinct
-   "stopped-out" feedback path (visual at minimum; audio in step 7) and the
-   stop level drawn on the chart per [hud.md](./hud.md#top-hud). This lands
-   before the general plugin host in step 8 because the built-ins are needed
-   for gameplay; the sandbox for *user-supplied* stop plugins arrives with
-   step 8's shared host.
+   **advisory mode** (display-only stops that record compliance events
+   instead of closing), multiple-active-stop resolution, and the two
+   built-ins (`fixed-percent`, `trailing-percent`). Close-based triggering,
+   inverted for shorts. Distinct "stopped-out" feedback path (visual at
+   minimum; audio in step 7), and stop levels drawn on the chart — dashed
+   for advisory, solid for enforcing ([hud.md](./hud.md#top-hud)). This
+   lands before the general plugin host in step 8 because the built-ins are
+   needed for gameplay; the sandbox for *user-supplied* stop plugins
+   arrives with step 8's shared host.
 5. **Settings panel UI + persistence + run lifecycle.** Surface every config
    from [config.md](./config.md) that exists so far. A **pre-run screen**,
    not a mid-run overlay — config is fixed for a run's duration, so the flow
@@ -153,7 +157,7 @@ supports it).
 
 - **The numeric defaults marked _provisional_ in
   [config.md](./config.md) are starting points, not considered values.**
-  `scrollSpeed`, `visibleBarCount`, `entrySize`, and `exitFraction` were
+  `scrollSpeed`, `visibleBarCount`, `entrySize`, and `flattenHoldMs` were
   chosen for internal consistency and will move once the game is playable.
 - **Step 3 is not a go/no-go gate.** The design goal is training, not
   arcade fun, so a thin platforming layer is intended rather than a risk to

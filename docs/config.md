@@ -18,7 +18,7 @@ it, which is the discipline lesson rather than a limitation.
 
 **Tuning values below marked _provisional_ were chosen for internal
 consistency, not from play** (e.g. `entrySize` at 20% gives exactly five
-presses to fully deploy, matching the 5-ghost cap in
+units to fully deploy, matching the 5-ghost cap in
 [character.md](./character.md#position-size-visualization)). Expect all of
 them to move once the game is playable; they're starting points, not
 considered defaults.
@@ -28,31 +28,39 @@ considered defaults.
 | Key | Description | Default |
 |---|---|---|
 | `startingCapital` | Cash balance at the start of a run; caps both long and short notional | $10,000 |
-| `entrySize` | Cash deployed per *entry or add* press (`buy` when flat/long, `sell` when short-adding). Clamped to remaining buying power | 20% of `startingCapital` *(provisional)* |
-| `exitFraction` | Fraction of the open position closed per *reduce* press (`sell` when long, `buy` when short). Clamped to flat | 25% *(provisional)* |
+| `entrySize` | Cash deployed per *entry or add* press. Also sets the maximum unit count (`startingCapital / entrySize`) and therefore the ghost-stack cap | 20% of `startingCapital` *(provisional)* |
 | `allowShorting` | `sell` while flat opens a short instead of being a no-op. Engine carries signed size regardless — see [game-design.md](./game-design.md#shorting) | off |
 | `costBasisMethod` | `weighted-average` (built) or `fifo` (config option, unimplemented until wanted) | `weighted-average` |
+| `flattenHoldMs` | How long the exit key must be held to close everything — see [controls.md](./controls.md#flatten-close-everything) | 400 |
 
-Key names describe their **effect on position size** (grow vs. shrink), not
-the button pressed — `buy` on a short is an *exit* and so is governed by
-`exitFraction`. See the order-intent matrix in
-[game-design.md](./game-design.md#order-intent-matrix); getting this
-backwards is the most likely recurring bug in the engine.
+**Exits are not separately configurable.** Each exit press closes
+`shares / unitCount` — one unit's worth — so N entries always take exactly N
+exits to reach flat. A percentage-of-remaining setting was considered and
+rejected: it decays geometrically and never closes (49 presses at 25% to
+reach the flat threshold). See
+[game-design.md](./game-design.md#order-intent-matrix).
 
-Position size is carried in **fractional shares**; cash and percentages are
-input units only. Sizes below `1e-6` shares snap to flat.
+Position size is carried in **fractional shares**, with `unitCount` tracking
+open entry presses. Sizes below `1e-6` shares snap to flat.
 
 ## Stops
 
 | Key | Description | Default |
 |---|---|---|
-| `stops.active` | List of active stop plugin instances (`{ typeId, params }`). Multiple may be active; whichever level is hit first closes the position. See [stops.md](./stops.md) | empty (no stop — player fully in charge of exits) |
+| `stops.active` | Active stop plugin instances: `{ typeId, params, advisory }`. Multiple may be active; whichever enforcing level is hit first closes the position. See [stops.md](./stops.md) | empty (no stop — player fully in charge of exits) |
 | `stops.plugins.loaded` | Loaded custom stop plugin references, same loading surface as indicator plugins | empty |
+
+Per-instance **`advisory: true`** displays the level without enforcing it —
+the player must honour it themselves, and breaches are recorded as
+compliance events ([stops.md](./stops.md#advisory-mode)). Advisory levels
+draw dashed, enforcing ones solid.
 
 Built-ins available to add: `fixed-percent` (param: `percent`, from average
 entry) and `trailing-percent` (param: `percent`, from best price reached).
 Stop levels computed at bar N's close are enforced against bar N+1 —
-see [stops.md](./stops.md#causality-and-timing).
+see [stops.md](./stops.md#causality-and-timing). Manual exits and flatten
+always override an enforcing stop
+([stops.md](./stops.md#player-override)).
 
 Stops trigger on the **bar's close**, not its intraday low, and invert
 direction for shorts — see

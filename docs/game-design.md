@@ -47,40 +47,61 @@ in/out while already Active doesn't change state, only size and cost basis.
 - **Position size is signed**: positive = long, negative = short, zero =
   flat. See [Shorting](#shorting) below — the engine handles both
   directions from day one even though the default game mode is long-only.
-- **The unit of position size is fractional shares.** Cash and percentages
-  are *input* units for order sizing; the position itself is always a
-  signed share quantity, and P&L is `shares × price delta`. Fractional
-  shares avoid a whole class of rounding problems — with whole shares, a
-  fixed cash amount buys a different quantity at every price level and
-  repeated percentage exits never land on zero.
+- **The unit of position size is fractional shares**, but presses are
+  counted in **units**. Each entry press adds one unit; each exit press
+  removes one. The engine tracks both `shares` (signed, fractional) and
+  `unitCount` (how many entry presses are currently open), and an exit
+  closes `shares / unitCount` — i.e. an equal share of what remains.
+  - With 5 units open, successive exits close 1/5, then 1/4 of the
+    remainder, then 1/3, 1/2, and 1/1 — **reaching exactly flat on the
+    fifth press.**
+  - This is deliberate. A naive "close 25% of the remaining position"
+    decays geometrically and *never* closes: 4 presses leaves 31.6%, and
+    reaching a `1e-6` flat threshold takes 49 presses. Unit-symmetric
+    exits make N entries take exactly N exits.
+  - It also makes the ghost stack in
+    [character.md](./character.md#position-size-visualization) literal —
+    one ghost per open unit, added and removed one per press — and
+    `unitCount` is naturally capped at
+    `startingCapital / entrySize` (5 at the default), matching the
+    ghost cap.
+- Fractional shares avoid a whole class of rounding problems — with whole
+  shares, a fixed cash amount buys a different quantity at every price
+  level.
 - **Flat threshold**: any absolute position size below `1e-6` shares is
-  treated as exactly flat and snapped to zero. Repeated 25% exits approach
-  zero asymptotically and would otherwise leave a dust position open
-  forever, keeping the state machine in Active and the stop plugins live.
+  treated as exactly flat and snapped to zero, with `unitCount` forced to
+  0. Unit-symmetric exits should land on zero exactly, so this is a
+  floating-point guard rather than the primary mechanism.
 - Prices and cash are carried as full-precision floats and only rounded for
   *display*, never in the P&L path — rounding in the arithmetic makes the
   engine's unit tests unstable and lets errors accumulate over a 480-bar
   run.
+- **Flatten** closes every open unit at once in a single action — see
+  [controls.md](./controls.md#flatten-close-everything). It's one exit
+  event for stats purposes, not N.
 
 ### Order intent matrix
 
 What each press does depends on current state and direction. Entries are
-sized in cash; reductions are sized as a fraction of the open position.
-That asymmetry is deliberate — "deploy $2,000" is the natural way to
-express an entry, and "close a quarter of what I hold" is the natural way
-to express an exit. A cash-sized reduction would be meaningless against a
-short.
+sized in cash; exits are sized in **units**, closing an equal share of
+what's open. That asymmetry is deliberate — "deploy $2,000" is the natural
+way to express an entry, and unit-counted exits guarantee that N entries
+take exactly N exits to unwind.
 
 | State | `buy` | `sell` |
 |---|---|---|
-| **Flat** | **Entry (long)** — deploy `entrySize` cash at fill price; `shares = cash / price` | **Entry (short)** if `allowShorting`, sized the same way; otherwise **no-op** with denied cue |
-| **Long** | **Add** — deploy another `entrySize` cash, clamped to remaining buying power; blends `avgCost` | **Reduce** — close `exitFraction` of open shares; realizes P&L; snaps to flat below threshold |
-| **Short** | **Reduce (cover)** — close `exitFraction` of the open short; **note it uses the exit key, not `entrySize`**, because it's an exit | **Add** — short another `entrySize` of notional, clamped to short capacity; blends `avgCost` |
+| **Flat** | **Entry (long)** — deploy `entrySize` cash at fill price; `shares = cash / price`; `unitCount = 1` | **Entry (short)** if `allowShorting`, sized the same way; otherwise **no-op** with denied cue |
+| **Long** | **Add** — deploy another `entrySize` cash, clamped to remaining buying power; `unitCount++`; blends `avgCost` | **Reduce** — close `shares / unitCount`; `unitCount--`; realizes P&L |
+| **Short** | **Reduce (cover)** — close `shares / unitCount`; `unitCount--`; **note it's governed by the exit rule, not `entrySize`**, because it's an exit | **Add** — short another `entrySize` of notional, clamped to short capacity; `unitCount++`; blends `avgCost` |
 
-The one counterintuitive cell is `buy` on a short: it's an *exit*, so it's
-governed by `exitFraction`. The config keys are named for the direction of
-their effect on position size (grow vs. shrink), not for the button pressed
-— that naming is deliberate, to keep this from becoming a recurring bug.
+Plus, from either direction: **flatten** (hold the exit key) closes all
+units at once — see [controls.md](./controls.md#flatten-close-everything).
+
+The one counterintuitive cell is `buy` on a short: it's an *exit*, so it
+reduces by one unit rather than deploying `entrySize`. Config keys are named
+for the direction of their effect on position size (grow vs. shrink), not
+for the button pressed — that naming is deliberate, to keep this from
+becoming a recurring bug.
 
 Neither action ever flips through zero in one press — see
 [Shorting](#shorting).
@@ -197,12 +218,15 @@ Explicit rules the engine needs from day one:
 
 | Situation | Rule |
 |---|---|
-| `sell` while flat, shorting off | No-op. Give feedback (a soft "denied" cue) rather than silence, so the press doesn't read as a dropped input. |
+| `sell` while flat, shorting off | No-op. Fire the `actionDenied` cue rather than silence, so the press doesn't read as a dropped input. |
 | `sell` while flat, shorting on | Opens a short position. |
-| Exit size larger than the open position | Clamp to flat. Never overshoot into an opposite-direction position. |
-| Entry with insufficient remaining capital | Clamp to whatever buying power is left; if that's zero, no-op with the same "denied" feedback. |
-| `buy` and `sell` on the same bar | Both apply, in press order. They partially or fully cancel, and each is recorded as a separate trade for stats — the player did two things and the stats should say so. |
-| Stop triggers on the same bar as a manual exit | The manual exit wins if it was pressed first; otherwise the stop fires and the exit becomes a no-op against a flat position. |
+| Exit press while flat | No-op with denied cue. |
+| Flatten while flat | No-op, no cue — holding the exit key with nothing open is harmless, and a denial here would punish a reasonable "make sure I'm out" reflex. |
+| Entry with insufficient remaining capital | Clamp to whatever buying power is left; if that's zero, no-op with the denied cue. |
+| Entry at max units | Same as above — `unitCount` is capped by `startingCapital / entrySize`. |
+| `buy` and `sell` on the same bar | Both apply, in press order. They partially or fully cancel, and each is recorded separately for stats — the player did two things and the stats should say so. |
+| Stop triggers on the same bar as a manual exit | Inputs are applied before stops are evaluated (see [Tick pipeline](#tick-pipeline)), so a manual exit that reached flat wins and the stop finds nothing to close. **Manual action always overrides an enforcing stop**, including flatten. |
+| An advisory stop's level is breached | Nothing is closed; the breach is recorded as a compliance event ([stops.md](./stops.md#advisory-mode)). |
 | Data runs out with a position still open | Force-close at the final bar's close. Report it distinctly on the results screen ("closed at end of data"), since it's neither a player decision nor a stop — counting it as a normal exit would quietly distort win-rate stats. |
 
 ## Risk management
@@ -461,10 +485,20 @@ different things (execution vs. judgement).
 
 - Running realized P&L (primary score), in currency and percent return.
 - Campaign count, win rate, average win, average loss, biggest win/loss.
-- Stop-rule compliance: fraction of campaigns ended manually vs. by a stop
-  plugin, and whether manual exits happened before or after the active stop
-  level would have triggered.
+- Stop-rule compliance: fraction of campaigns ended manually vs. by an
+  enforcing stop plugin, and whether manual exits happened before or after
+  the active level would have triggered.
+- **Advisory-stop compliance** ([stops.md](./stops.md#advisory-mode)): for
+  display-only stops, how often the player exited on their own signal, how
+  many bars they lingered past a breached level, and the P&L difference
+  versus having exited on the signal. This is the sharpest feedback the game
+  offers about hesitation — with an enforcing stop the engine acts, so the
+  stat only measures automation; with an advisory stop it measures the
+  player.
 - Whether any active stop widened during the run and by how much
   ([stops.md](./stops.md#no-monotonic-tightening-enforcement)).
+- Flatten usage — how often a campaign ended in a decisive close-everything
+  rather than a staged exit. Neither is better, but the ratio says something
+  about how the player handles pressure.
 - Campaigns force-closed at end of data, reported separately so they don't
   distort win rate.

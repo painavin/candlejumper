@@ -44,9 +44,11 @@ read as broken.
 - **Score**: running realized P&L in both currency and percent return — the
   primary readout, from
   [game-design.md](./game-design.md#scoring--stats).
-- **Position**: current signed size, average cost basis, and unrealized P&L
-  (mark the current pole's price against avg cost) while Active. Direction
-  is shown explicitly (LONG / SHORT), not just by sign.
+- **Position**: current signed size, average cost basis, unrealized P&L
+  (mark the current pole's price against avg cost), and **open unit count**
+  while Active. Direction is shown explicitly (LONG / SHORT), not just by
+  sign. Unit count matters because it's exactly how many exit presses remain
+  to flat ([game-design.md](./game-design.md#order-intent-matrix)).
 - **Buying power remaining**, since entries clamp against it and a silent
   clamp is confusing without a visible cause.
 - **Streak meter**: the multiplier gauge from
@@ -56,10 +58,13 @@ read as broken.
   enough that finding room for it afterwards would mean re-laying-out the
   whole bar. On mobile it collapses to a compact multiplier chip (`×3`) with
   a thin progress underline rather than a full-width gauge.
-- **Active stop level**, if any stop plugin is active — shown both as a HUD
+- **Active stop levels**, for each active stop plugin — shown both as a HUD
   number *and* as a horizontal line on the chart at that price, so the
-  player can watch it approach rather than only read a number. Label it
-  with which plugin owns it when more than one is active
+  player can watch it approach rather than only read a number.
+  **Enforcing stops draw solid; advisory stops draw dashed**
+  ([stops.md](./stops.md#advisory-mode)) — the player must never be unsure
+  whether a line will actually save them. Label lines with the owning
+  plugin when more than one is active
   ([stops.md](./stops.md#multiple-active-stops)).
 - **Session info**: ticker/symbol, current in-series date, and progress
   through the series.

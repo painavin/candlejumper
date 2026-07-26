@@ -88,7 +88,7 @@ game." Concretely:
   | `scrollSpeed` | Reaction time available — the single biggest difficulty lever |
   | `visibleBarCount` | How much history is readable when deciding |
   | `allowShorting` | Doubles the available strategies |
-  | `startingCapital`, `entrySize`, `exitFraction` | Determine position granularity and how many presses a full deployment takes |
+  | `startingCapital`, `entrySize` | Determine position granularity and how many units a full deployment takes |
   | `stops.active` (plugin ids + params) | A trailing stop materially changes achievable outcomes |
   | `priceTransform`, `normalizationMode` | Change what patterns are legible on screen |
 
