@@ -56,7 +56,33 @@ this — mood themes skin the world, not the P&L semantics.
 ## Readability
 
 - Minimum font sizes on the HUD, which is dense with numbers and is the
-  first thing to become unreadable on a phone.
+  first thing to become unreadable on a phone. Enforced in one place
+  (`render/hud/hudFont.ts`) rather than spread across the literals that
+  set sizes — a floor repeated in six files is a convention, not a floor.
+- **Every HUD glyph is outlined**, in a colour the theme supplies as
+  `accent.outline`. This is structural rather than cosmetic: the HUD is
+  drawn directly over a moving scene — a sky gradient, clouds passing
+  behind it, candles scrolling through it — so **no single fill colour is
+  legible everywhere**. Choosing a better fill can only move which part of
+  the frame is unreadable; an outline makes the contrast travel with the
+  text instead of depending on what happens to be behind it.
+
+  Two consequences worth stating, because both look like mistakes:
+
+  - `accent.dim` is *close* to `accent.text` in both themes rather than
+    much darker. With an outline, secondary text reads as light-on-dark-edge,
+    so pushing it toward the text colour raises contrast. A darker `dim`
+    would fight the outline rather than rest on it.
+  - A theme with **dark** HUD text would need a light outline. That's why
+    the colour is theme data and not a constant.
+
+  Style goes through `render/hud/hudText.ts` for the same reason sizes go
+  through `hudFont.ts`: seven files construct HUD `Text` objects, and a
+  treatment applied seven times decays the first time someone adds an
+  eighth.
+- Axis price labels are drawn in the **primary** text colour, not the dim
+  one. A price level is a value the player reads off the chart to decide
+  with, so it isn't secondary information.
 - The `visibleBarCount` default (~60, see
   [game-design.md](./game-design.md#scroll-speed-timing-and-pole-geometry))
   exists partly for this reason — more bars means thinner, less legible

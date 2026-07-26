@@ -9,6 +9,7 @@ export type {
   PriceTransform,
   NormalizationMode,
   PnlPalette,
+  BarStyle,
 } from './types.js'
 export {
   defaultConfig,

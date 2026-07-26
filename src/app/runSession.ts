@@ -124,9 +124,14 @@ export async function startRunSession({
   // Every layer is generated at load from `theme + worldSeed`, so the same pair
   // always produces an identical world.
   const parallax = createParallaxStack(stage.app.renderer, config, theme, stage.layout)
-  const poles = createPoleLayer(theme)
+  const poles = createPoleLayer({
+    theme,
+    palette: config.visuals.pnlPalette,
+    barStyle: config.visuals.barStyle,
+  })
   const actor = createCharacterLayer({
     character: character(config.character.selected),
+    theme,
     reducedMotion: config.visuals.reducedMotion,
   })
   const axis = createAxisLayer(
@@ -142,6 +147,7 @@ export async function startRunSession({
   const landmarks = createLandmarkLayer(theme)
   const juice = createJuiceLayer({
     palette: config.visuals.pnlPalette,
+    theme,
     screenShake: config.visuals.screenShake,
     reducedMotion: config.visuals.reducedMotion,
     worldSeed: config.visuals.worldSeed,

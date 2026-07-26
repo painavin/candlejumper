@@ -1,9 +1,11 @@
 import { Container, Graphics, Text } from 'pixi.js'
 import type { PnlPalette } from '@config/index.js'
+import { pnlColours } from '@content/pnlColours.js'
+import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { FrameState, PositionEvent } from '@engine/output/index.js'
 import { clamp, createPrng, easeOutCubic } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
-import { HUD_FONT, hudFontSize } from '../hud/hudFont.js'
+import { hudTextStyle } from '../hud/hudText.js'
 
 /**
  * Per-action feedback.
@@ -60,6 +62,8 @@ const MAX_PARTICLES = 220
 
 export interface JuiceOptions {
   palette: PnlPalette
+  /** Supplies the HUD outline colour, so a floating number reads over any scene. */
+  theme: VisualTheme
   /** Screen shake toggle, and the broader reduced-motion setting. */
   screenShake: boolean
   reducedMotion: boolean
@@ -67,13 +71,9 @@ export interface JuiceOptions {
   worldSeed?: number
 }
 
-const PNL_COLOURS = {
-  'blue-orange': { up: 0x4da3ff, down: 0xff9d4d },
-  'red-green': { up: 0x4ddb7a, down: 0xff6b6b },
-} as const
-
 export function createJuiceLayer({
   palette,
+  theme,
   screenShake,
   reducedMotion,
   worldSeed = 1,
@@ -88,7 +88,7 @@ export function createJuiceLayer({
   const labels: FloatingLabel[] = []
   const pool: Text[] = []
   const particles: Particle[] = []
-  const colours = PNL_COLOURS[palette]
+  const colours = pnlColours(palette)
   const prng = createPrng(worldSeed)
 
   let shake = 0
@@ -230,11 +230,9 @@ export function createJuiceLayer({
   function makeText(): Text {
     const text = new Text({
       text: '',
-      style: {
-        fontFamily: HUD_FONT,
-        fontSize: hudFontSize(16),
-        fontWeight: 'bold',
-      },
+      // Fill is assigned per label from the P&L palette; the outline comes from the
+      // shared style so a floating number stays legible over sky, clouds, or a candle.
+      style: { ...hudTextStyle({ theme, size: 18 }), fontWeight: 'bold' },
     })
     text.anchor.set(0.5, 1)
     return text

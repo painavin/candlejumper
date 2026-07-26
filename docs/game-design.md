@@ -2,22 +2,34 @@
 
 ## Core concept
 
-An endless side scroller. Poles scroll past at a configurable speed, each
-pole's height derived from a day's closing price. There is no fail/death
+An endless side scroller. A day's price data scrolls past at a configurable
+speed, drawn as a **floating candle**: a coloured body spanning the open to
+the close, with the high–low range behind it. There is no fail/death
 condition tied to platforming — the run ends only when the price data runs
 out or the player chooses to stop. The goal is to train pattern recognition
 and trading discipline; the game keeps score via realized P&L and trading
 stats, not lives.
 
+Bars float rather than standing on the ground, which they did in the first
+version. A column rising from a baseline can only express **one** number, so
+it drew the close and silently discarded the open, high, and low — three
+quarters of every bar, all of it already in the data. A trainer whose chart
+can't show a bar's range is teaching from a chart the player will never see
+again the moment they open a real terminal. See
+[Candle geometry](#candle-geometry).
+
 ## State machine
 
 Three states:
 
-- **Waiting** — no open position (size == 0). Poles still scroll past, but
+- **Waiting** — no open position (size == 0). Bars still scroll past, but
   the character stays grounded and ignores them.
 - **Active** — position open (size != 0). Character auto-bounces along the
-  poles: **on top of them when long, suspended beneath them when short**,
-  so position direction is readable at a glance without looking at the HUD.
+  **closing line** — each bar's close: **above it when long, suspended
+  beneath it when short**, so position direction is readable at a glance
+  without looking at the HUD. Because bars float there is no solid surface
+  underfoot; the character rides the price it actually fills at, which is
+  the only line it could stand on without lying about something.
   Buy presses move size up, sell presses move it down.
 - **Stopped-out** — a transient state entered when a configured stop
   loss / trailing stop triggers. The engine auto-closes the full position
@@ -326,22 +338,32 @@ The rules the engine enforces regardless of which plugin is active:
   regress by tweaking a gradient. It also avoids rendering ~15 poles per
   frame that are meant to be invisible. The fog therefore becomes purely
   atmospheric.
-- **New bars "form" rather than pop in.** A pole spawning at full height
-  directly under the character would read as a rendering glitch, so instead
-  the newest bar **grows from the ground up to its close height** over a
-  fraction of a bar's duration, the way a real bar forms during a trading
-  day. The character rides it up or down. This turns an unavoidable
+- **New bars "form" rather than pop in.** A bar appearing complete directly
+  under the character would read as a rendering glitch, so instead the newest
+  bar **opens as a flat mark at its open price and extends toward its close**
+  over a fraction of a bar's duration, the way a real bar forms during a
+  trading day. The character rides it up or down. This turns an unavoidable
   artifact of not rendering the future into something that reads as
   intentional — and incidentally teaches that the current bar is still
   forming, which is true.
+
+  The close, high, and low are all interpolated away from the open by the
+  *same* factor. That's what keeps the range enclosing the body at every
+  intermediate frame: price ordering (`low ≤ open,close ≤ high`) survives a
+  shared interpolation factor, so a body can never poke out of its own wick
+  partway through a bar. Interpolating them independently, or animating the
+  body but not the range, breaks it.
 - Consequence worth noting: the current (rightmost, under-character) bar is
-  the only one whose height is still changing. Fills execute at its close
-  (see [Trading engine](#trading-engine)), so the fill price is the height
-  the bar has *finished* growing to — the growth animation is presentation,
+  the only one still changing. Fills execute at its close
+  (see [Trading engine](#trading-engine)), so the fill price is where the
+  bar has *finished* extending to — the growth animation is presentation,
   not a moving target the player is trading against.
-- Pole height = price mapped to screen-space height, via **two independent
-  config fields** — `priceTransform` (`none` | `log10`) applied first, then
-  `normalizationMode` (see [config.md](./config.md) for the full table).
+- Candle heights = prices mapped to screen-space height, via **two
+  independent config fields** — `priceTransform` (`none` | `log10`) applied
+  first, then `normalizationMode` (see [config.md](./config.md) for the full
+  table). All four of a bar's prices go through the same pipeline, so the
+  body and the range can't disagree about the scale.
+
   They're separate because the log transform *composes* with a mode rather
   than replacing one; "log price, then visible-window min/max" is a valid
   setting a single enum couldn't express.
@@ -361,6 +383,19 @@ The rules the engine enforces regardless of which plugin is active:
   on screen but haven't been played yet; letting them into the min/max
   would leak a screen-width of future prices, which is the exact bug this
   default exists to avoid.
+
+  **Second critical detail: the window's bounds span the visible lows and
+  highs, not the closes.** Since bars draw their full range, bounds that only
+  know about closes don't push a wick off-screen where someone would notice —
+  the unit conversion clamps, so every high above the window's highest close
+  flattens into a line along the chart ceiling and reads as a rendering
+  artefact rather than as data. Widening the bounds to the range is what makes
+  the range drawable at all. It zooms the chart out slightly compared to a
+  close-only window; the axis is the inverse of the same eased bounds, so its
+  labels follow automatically rather than needing a matching change.
+
+  This is not a lookahead concession. A played bar's high and low are as much
+  in the past as its close.
 
   Modes legal during a live run (all causal — no future data):
   - **visible-window min/max** (default) — min/max over the visible,
@@ -495,15 +530,108 @@ window slides, which makes the axis easing in [hud.md](./hud.md)
 load-bearing rather than cosmetic — without it, every new extreme snaps
 the whole chart.
 
+## Candle geometry
+
+Each bar is two rectangles sharing a centre line:
+
+- the **body**, spanning open to close, in the direction colour at full strength
+- the **high–low range** behind it, in a desaturated and dimmed version of that
+  same colour
+
+```
+   candlestick            bollinger bar
+        │  high                 ▒   ← muted direction colour
+      ┌─┴─┐ close             ███   ← full-strength
+      │   │                   ███      (open → close)
+      └─┬─┘ open              ███
+        │  low                  ▒
+```
+
+**One number is the entire difference between the two standard chart types**,
+which is why it's a single parameter and not two drawing routines — the range's
+width as a fraction of the body's:
+
+| Value  | Result                                                             |
+| ------ | ------------------------------------------------------------------ |
+| ~0.15  | a **candlestick** — narrow wick, wide body                         |
+| `1`    | a **Bollinger bar** — one uniform column, open→close section picked out in the direction colour |
+
+Anything between is a legitimate hybrid, so it's a continuum rather than an
+enum with two members.
+
+**Two settings feed it, with the player's winning.** `poles.wickWidthFraction`
+is the visual theme's house style; **every shipped mood asks for `1`, so
+Bollinger bars are the default everywhere.** It stays theme data rather than
+collapsing into a constant because it's what a future mood would reach for to
+ship candlesticks, and keeping it is what holds the two chart types one
+parameter apart. `visuals.barStyle` is the player's override — `theme` (the
+default) defers to the mood, while `candlestick` and `bollinger` pin one style
+across every mood.
+
+Precedence is resolved in a single function so it exists in one place rather
+than at each call site.
+
+Chart type is a **reading preference, not a difficulty setting** — both styles
+draw all four prices — so it's excluded from the run fingerprint. Nobody's
+personal-best history is orphaned by preferring one.
+
+Three rules the geometry has to keep:
+
+- **The range always encloses the body**, including at every intermediate
+  frame of the forming animation. Enforced structurally, not by inputs
+  happening to be well-behaved: both rectangles get the same minimum drawn
+  height, and the body is then clamped into the range. Two independent
+  height floors is enough on its own to break it — a doji body floored to 2px
+  inside a range floored to 1px sits outside its own high and low.
+- **Direction comes from the prices, not from the heights.** At the edge of
+  the chart the unit conversion clamps, so a genuinely rising bar whose open
+  and close both sit above the bounds would compare *equal* in height space
+  and be miscoloured as unchanged.
+- **A doji still draws.** Zero pixels is indistinguishable from missing data,
+  and "opened and closed at the same price" is information. It gets the
+  minimum height, centred on the price it printed, in the theme's own colour —
+  there is no direction to report.
+
+### Colour
+
+**Body colour comes from `visuals.pnlPalette`, not from the visual theme.**
+The same setting the HUD and the exit particles read. A red/green chart is
+*the* canonical colourblind hazard, and a player who selected blue/orange
+selected it for the bars most of all. Colour is never the only cue regardless:
+the body's position relative to the range says the same thing.
+
+**The range is a muted version of the body's colour, not a shared neutral.**
+It started as a neutral, on the reasoning that direction is the body's job and a
+coloured range would say the same thing twice. That holds for a *candlestick*,
+where the range is a thin wick. It fails at Bollinger width, where the range
+**is** most of the column: the neutral then occupies the majority of every bar,
+and the coloured section reads as a sticker applied to a dark bar rather than as
+the bar's own direction. The thing the eye lands on first ends up being the part
+carrying no information.
+
+So the range takes the direction colour, muted two ways — **and it needs both**:
+
+- **Desaturated**, by mixing toward `palette.candleRange`. This is where a mood
+  keeps control of how dark and how muted its bars come out.
+- **Dimmed**, to a guaranteed minimum lightness below the body. Not redundant,
+  though it looks it: `serious`'s neutral is a *light* steel blue, so mixing its
+  red body toward it barely changes the lightness at all and the two sections
+  would have differed only in saturation. A saturation-only difference is the
+  weakest cue available and the first one lost to any colour-vision difference.
+
+Always dimmer, never lighter, so the rule reads the same in every theme rather
+than flipping depending on which side of the body colour a mood's neutral
+happens to fall.
+
 ## Jump mechanic
 
 - **Automatic bounce, no timing skill.** While Active, the character
-  bounces pole-to-pole on a cadence derived from scroll speed — one bounce
+  bounces bar-to-bar on a cadence derived from scroll speed — one bounce
   per bar, and the player never has to time a jump manually. All skill
   expression is in the buy/sell/sizing/stop decisions, not platforming.
 - **Fixed-height hop, variable landing.** Every hop uses the same arc
-  height; the character lands wherever the new bar's top happens to be.
-  This isn't just an aesthetic pick — an arc that *scales* to the height
+  height; the character lands on wherever the new bar's **close** happens to
+  be. This isn't just an aesthetic pick — an arc that *scales* to the height
   difference would require knowing the next bar's price before jumping,
   which is exactly the future information the no-lookahead constraint
   forbids. The standard auto-runner solution and the only causally legal

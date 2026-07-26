@@ -214,7 +214,8 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 | `visuals.worldSeed` | Seeds the PRNG that generates background layers. Same theme + seed always yields an identical world; surfaced so a good-looking world can be recovered | freshly minted per run via `shared/math/` `mintSeed()` |
 | `visuals.reducedMotion` | Damps parallax, particles, and transitions. Initialized from the OS `prefers-reduced-motion` setting | OS-derived |
 | `visuals.screenShake` | Screen shake on stop-out and large wins | on |
-| `visuals.pnlPalette` | `red-green` (the familiar trading convention) or `blue-orange` (colorblind-safe). P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `red-green` |
+| `visuals.pnlPalette` | `red-green` (the familiar trading convention) or `blue-orange` (colorblind-safe). Drives the HUD, the exit particles, the menus' up/down accents, **and the candle bodies** — a chart is the setting's most important consumer. P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `red-green` |
+| `visuals.barStyle` | `theme` (defer to the visual theme's `wickWidthFraction`), `candlestick` (narrow wick through a wide body), or `bollinger` (one uniform column, open→close picked out in colour). Both styles draw all four prices, so this is a reading preference and is **excluded from the run fingerprint**. See [game-design.md](./game-design.md#candle-geometry) | `theme` |
 
 ## Character
 

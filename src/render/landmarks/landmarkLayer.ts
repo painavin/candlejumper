@@ -2,7 +2,7 @@ import { Container, Graphics, Text } from 'pixi.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { FrameState, VisibleBar } from '@engine/output/index.js'
 import type { Layout } from '../stage/layout.js'
-import { HUD_FONT, hudFontSize } from '../hud/hudFont.js'
+import { hudDimTextStyle } from '../hud/hudText.js'
 import { EMPHASIS, boundaryBetween } from './landmarks.js'
 
 /**
@@ -35,14 +35,7 @@ export function createLandmarkLayer(theme: VisualTheme): LandmarkLayer {
   const labelFor = (index: number): Text => {
     const existing = labelPool[index]
     if (existing) return existing
-    const text = new Text({
-      text: '',
-      style: {
-        fontFamily: HUD_FONT,
-        fontSize: hudFontSize(12),
-        fill: theme.accent.dim,
-      },
-    })
+    const text = new Text({ text: '', style: hudDimTextStyle(theme, 13) })
     text.anchor.set(0, 0)
     labelPool[index] = text
     container.addChild(text)

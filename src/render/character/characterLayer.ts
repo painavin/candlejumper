@@ -1,11 +1,12 @@
 import { Container, Graphics, Text } from 'pixi.js'
 import { LAYOUT } from '@config/index.js'
 import type { Character, RigShape } from '@content/characters/types.js'
+import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { FrameState } from '@engine/output/index.js'
 import { arc, lerp } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
 import { unitToY } from '../stage/layout.js'
-import { HUD_FONT, hudFontSize } from '../hud/hudFont.js'
+import { hudTextStyle } from '../hud/hudText.js'
 
 /**
  * The character: a primitive rig animated by transform maths.
@@ -16,11 +17,14 @@ import { HUD_FONT, hudFontSize } from '../hud/hudFont.js'
  *
  * Three behaviours, all continuous functions of game state:
  *
- *   - **Waiting** (flat): grounded with a slow idle bob. Poles scroll past and the
+ *   - **Waiting** (flat): grounded with a slow idle bob. Bars scroll past and the
  *     character ignores them.
- *   - **Active long**: bounces along the tops of the poles.
+ *   - **Active long**: bounces along the **closing line** — each bar's close, which
+ *     is the price the game fills at. Bars float, so there's no solid surface
+ *     underfoot; what it rides is the price it would trade at, which is the honest
+ *     thing for it to be standing on.
  *   - **Active short**: the same bounce with a **sign flip on the vertical axis**,
- *     suspended beneath the poles — so direction is readable at a glance without
+ *     suspended beneath the line — so direction is readable at a glance without
  *     looking at the HUD. Free, not a second animation.
  *
  * **The hop is fixed-height with a variable landing.** An arc scaled to the height
@@ -51,21 +55,21 @@ const TRAIL_LENGTH = 7
 
 export interface CharacterLayerOptions {
   character: Character
+  /** Supplies the HUD outline colour for the unit-count badge. */
+  theme: VisualTheme
   /** Reduced motion damps the bounce and the idle fidget. */
   reducedMotion: boolean
 }
 
 export function createCharacterLayer({
   character,
+  theme,
   reducedMotion,
 }: CharacterLayerOptions): CharacterLayer {
   const container = new Container()
   const ghostLayer = new Container()
   const rig = new Container()
-  const badge = new Text({
-    text: '',
-    style: { fontFamily: HUD_FONT, fontSize: hudFontSize(11), fill: 0xffffff },
-  })
+  const badge = new Text({ text: '', style: hudTextStyle({ theme, size: 12 }) })
   badge.anchor.set(0.5, 0.5)
   container.addChild(ghostLayer, rig, badge)
 
@@ -122,7 +126,7 @@ export function createCharacterLayer({
       const damp = reducedMotion ? 0.35 : 1
 
       if (flat) {
-        // Grounded and ignoring the poles, with a small idle fidget so it reads as
+        // Grounded and ignoring the chart, with a small idle fidget so it reads as
         // alive rather than parked.
         const bob = Math.sin(elapsed * 2.2) * radius * 0.1 * damp
         container.position.set(layout.characterX, layout.groundY - radius + bob)

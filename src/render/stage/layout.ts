@@ -38,8 +38,15 @@ export interface Layout {
   maxSubPanes: number
 }
 
-/** Two lines of HUD; portrait is tighter and drops to a denser two-line block. */
-const TOP_HUD_HEIGHT = { landscape: 56, portrait: 46 } as const
+/**
+ * Height reserved for the top HUD band.
+ *
+ * Has to cover the tallest the plates can get, because they size themselves to their
+ * text rather than being clipped to a fixed band — so this and `SIZES` in `topHud.ts`
+ * have to be changed together. Portrait is taller despite smaller type: the streak
+ * plate can't fit beside the primary one at phone widths, so it wraps to a second row.
+ */
+const TOP_HUD_HEIGHT = { landscape: 74, portrait: 96 } as const
 /** Breathing room under the poles so the ground line reads as ground. */
 const GROUND_MARGIN = 28
 /**

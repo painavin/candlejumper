@@ -3,7 +3,8 @@ import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { FrameState } from '@engine/output/index.js'
 import type { Layout } from '../stage/layout.js'
 import { unitToY } from '../stage/layout.js'
-import { HUD_FONT, hudFontSize } from './hudFont.js'
+import { hudDimTextStyle } from './hudText.js'
+import { AXIS_WIDTH } from './axisLayer.js'
 
 /**
  * Stop levels drawn on the chart, so the player can watch one approach rather
@@ -46,23 +47,16 @@ export function createStopLinesLayer(enabled: boolean, theme: VisualTheme): Stop
 
         if (line.advisory) {
           // Dashed: displayed but never enforced.
-          for (let x = 0; x < layout.width - 52; x += DASH + GAP) {
+          for (let x = 0; x < layout.width - AXIS_WIDTH; x += DASH + GAP) {
             lines.rect(x, y, DASH, 1.5).fill({ color: colour, alpha: 0.9 })
           }
         } else {
-          lines.rect(0, y, layout.width - 52, 1.5).fill({ color: colour, alpha: 0.95 })
+          lines.rect(0, y, layout.width - AXIS_WIDTH, 1.5).fill({ color: colour, alpha: 0.95 })
         }
 
         let label = labels[index]
         if (!label) {
-          label = new Text({
-            text: '',
-            style: {
-              fontFamily: HUD_FONT,
-              fontSize: hudFontSize(11),
-              fill: theme.accent.dim,
-            },
-          })
+          label = new Text({ text: '', style: hudDimTextStyle(theme, 12) })
           label.anchor.set(0, 1)
           labels.push(label)
           container.addChild(label)

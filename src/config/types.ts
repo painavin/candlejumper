@@ -26,6 +26,17 @@ export type NormalizationMode =
 export type PnlPalette = 'blue-orange' | 'red-green'
 
 /**
+ * How a bar is drawn. Both styles show the same four prices — the difference is
+ * only how wide the high–low range is relative to the body, so this is purely a
+ * preference and is excluded from the run fingerprint.
+ *
+ * `theme` defers to the active visual theme's `wickWidthFraction`, which is what
+ * lets a mood ship with a house style (`jolly` candlesticks, `serious` Bollinger
+ * bars) while still letting a player who prefers one override it everywhere.
+ */
+export type BarStyle = 'theme' | 'candlestick' | 'bollinger'
+
+/**
  * Defined in `shared/contracts` rather than here, because the plugin host needs
  * this shape and may not import the config tree. One definition, two readers.
  */
@@ -120,6 +131,7 @@ export interface RunConfig {
     reducedMotion: boolean
     screenShake: boolean
     pnlPalette: PnlPalette
+    barStyle: BarStyle
   }
 
   // ── Character ────────────────────────────────────────────────────────────

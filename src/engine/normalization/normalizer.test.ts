@@ -13,6 +13,8 @@ const bar = (close: number, t = 0): OhlcvBar => ({
   t,
 })
 
+const ohlc = (o: number, h: number, l: number, c: number, t = 0): OhlcvBar => ({ o, h, l, c, v: 1, t })
+
 /** One big step, so easing has fully settled and assertions are about bounds. */
 const SETTLE = 100
 
@@ -89,6 +91,57 @@ describe('visible-window-min-max (the default)', () => {
     normalizer.update([bar(100), bar(110)], SETTLE)
     expect(normalizer.unit(10_000)).toBe(1)
     expect(normalizer.unit(1)).toBe(0)
+  })
+})
+
+describe('bounds span the range, not the closes', () => {
+  it('fits a high above every close inside the chart', () => {
+    // Bars float now and draw their whole high–low range. Bounds taken from closes
+    // alone don't push a wick off-screen where it would be obvious — `unit()` clamps,
+    // so every high above the highest close flattens into a line along the chart
+    // ceiling, which reads as a rendering artefact rather than as data.
+    const normalizer = createNormalizer(defaultConfig())
+    normalizer.reset(ohlc(100, 140, 90, 110))
+    normalizer.update([ohlc(100, 140, 90, 110), ohlc(110, 150, 105, 120)], SETTLE)
+
+    expect(normalizer.unit(150)).toBeLessThan(1)
+    expect(normalizer.unit(90)).toBeGreaterThan(0)
+  })
+
+  it('zooms out further than a close-only window would', () => {
+    const normalizer = createNormalizer(defaultConfig())
+    normalizer.reset(bar(100))
+    const flat = normalizer.update([bar(100), bar(110)], SETTLE)
+    const flatSpan = flat.max - flat.min
+
+    const wicked = createNormalizer(defaultConfig())
+    wicked.reset(ohlc(100, 130, 80, 100))
+    const wide = wicked.update([ohlc(100, 130, 80, 100), ohlc(100, 130, 80, 110)], SETTLE)
+    expect(wide.max - wide.min).toBeGreaterThan(flatSpan)
+  })
+
+  it('widens rather than inverts when a bar has its low above its high', () => {
+    // A malformed CSV should make the chart a little too tall, not turn the scale
+    // inside out and send every bar to a clamped edge.
+    const normalizer = createNormalizer(defaultConfig())
+    normalizer.reset(ohlc(100, 90, 130, 110))
+    const bounds = normalizer.update([ohlc(100, 90, 130, 110)], SETTLE)
+    expect(bounds.max).toBeGreaterThan(bounds.min)
+    expect(normalizer.unit(110)).toBeGreaterThan(0)
+    expect(normalizer.unit(110)).toBeLessThan(1)
+  })
+
+  it('still refuses to look past the window it was handed', () => {
+    // The no-lookahead guard has to survive the widening: reading lows and highs is
+    // only legal for bars that have already been played.
+    const normalizer = createNormalizer(defaultConfig())
+    normalizer.reset(ohlc(100, 105, 95, 100))
+    const bounds = normalizer.update(
+      [ohlc(100, 105, 95, 100), ohlc(100, 112, 98, 105)],
+      SETTLE
+    )
+    expect(bounds.max).toBeLessThan(200)
+    expect(bounds.min).toBeGreaterThan(50)
   })
 })
 

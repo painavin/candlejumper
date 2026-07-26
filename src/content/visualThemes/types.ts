@@ -8,8 +8,9 @@ import type { CloudParams, HeightfieldParams, MotifParams } from '@shared/contra
  * theme supply for layer N" and never branches on theme id, which is what keeps
  * that true.
  *
- * Pole *height* is always price data and is never touched by a theme; only pole
- * colour and cap style are skinnable.
+ * Candle *geometry* is always price data and is never touched by a theme. What a
+ * theme controls is colour, corner style, and the width of the high–low range —
+ * and that last one is what makes one drawing routine serve two chart types.
  */
 
 export interface ThemePalette {
@@ -18,8 +19,17 @@ export interface ThemePalette {
   /** Back to front, one per terrain layer instance. */
   mountains: [number, number]
   trees: number
-  poles: number
-  polesForming: number
+  /**
+   * The mood's own bar colour: what a direction colour is muted *toward*, and the flat
+   * colour for a bar that closed exactly where it opened.
+   *
+   * Not the range colour itself. The range takes a desaturated, dimmed version of the
+   * body's own direction colour — see `render/poles/candleColour.ts` for why a shared
+   * neutral fails once the range is as wide as the body. What this controls is how
+   * dark and how muted a mood's bars come out, so a theme still governs its own look
+   * without owning the direction.
+   */
+  candleRange: number
   ground: number
   groundLine: number
   clouds: number
@@ -33,6 +43,19 @@ export interface AccentPalette {
   dim: number
   axisLine: number
   accent: number
+  /**
+   * Outline drawn behind every HUD glyph.
+   *
+   * The HUD sits directly on a moving scene — a sky gradient, clouds, candles — so
+   * **no single fill colour can be legible everywhere**. Contrast has to come from
+   * the glyph's edge rather than from choosing a better fill, which is why this
+   * exists as its own colour rather than being handled by tuning `text` and `dim`.
+   *
+   * Should be the counter-colour to `text` and `dim`: both shipped themes use light
+   * HUD text, so both use a dark outline. A theme with *dark* HUD text would need a
+   * light one, which is exactly why it's theme data.
+   */
+  outline: number
 }
 
 export interface VisualTheme {
@@ -52,5 +75,21 @@ export interface VisualTheme {
     /** Rounded caps read playful; flat caps read like a terminal. */
     capStyle: 'round' | 'flat'
     outline: boolean
+    /**
+     * Width of the high–low range, as a fraction of the body's width.
+     *
+     * **This one number is the difference between the two standard chart types**,
+     * which is why it's a parameter and not two drawing routines:
+     *
+     *   - a small fraction (~0.15) draws a **candlestick** — a narrow wick with a
+     *     wide body around it
+     *   - `1` draws a **Bollinger bar** — body and range the same width, so the
+     *     bar is one uniform column whose open→close section is simply drawn in
+     *     the direction colour
+     *
+     * Anything between is a legitimate hybrid, so this is a continuum rather than
+     * an enum with two members.
+     */
+    wickWidthFraction: number
   }
 }

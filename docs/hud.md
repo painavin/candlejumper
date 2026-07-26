@@ -86,6 +86,57 @@ read as broken.
 - **Session info**: ticker/symbol, current in-series date, and progress
   through the series.
 
+### Panels
+
+Readouts sit on **bordered, translucent plates** rather than directly on the
+scene, and are grouped into three:
+
+| Plate | Contents | Why grouped |
+|---|---|---|
+| Primary (top left) | P&L headline over the position line | One reading — "what am I holding and what is it doing". Two plates would imply they answer different questions. |
+| Streak | Multiplier, arcade score, pips | Measures rule compliance, not money, so it's deliberately not inside the P&L plate. |
+| Context (top right) | Buying power, ticker/date/progress | Read occasionally rather than continuously, so it lives at the opposite edge and stays out of the way. |
+
+The axis gutter and each indicator sub-pane get the same treatment, so the
+whole HUD reads as one instrument cluster rather than the top band alone.
+
+**Every pane carries its own scale band**, aligned with the price axis above
+it and labelled in the pane's own units — three labels (top, middle, bottom),
+which is the minimum that conveys a *scale* rather than just a ceiling. The
+bounds used to be crammed into the pane title instead, which told you the range
+without telling you where in it any given bar sat.
+
+**Nothing below the ground line is world.** The ground fill stops where the
+sub-panes begin rather than running to the bottom of the viewport. It used to
+run the whole way, *behind* the translucent pane plates, so the grass showed
+through and tinted the volume histogram green — which read as a deliberate
+colour choice rather than a bug. Below the ground line is instrument territory;
+a data pane must never sit on scenery.
+
+Three properties this relies on:
+
+- **Plates are measured from their contents, not fixed.** Which means all
+  text and all font sizes must be settled *before* any box is measured.
+  Laying out as we go would fit a plate to the previous frame's numbers,
+  which shows up as a border that jitters by a character width whenever a
+  value crosses a digit.
+- **Consequence: `TOP_HUD_HEIGHT` and the HUD type sizes have to change
+  together.** Growing a font grows the band, and the reserved height has to
+  cover it.
+- **Portrait reserves a *taller* band than landscape**, which looks backwards
+  and isn't: at phone width the streak plate can't fit beside the primary one,
+  so it wraps to a second row. Portrait economises on type size instead.
+  Whether it wraps is decided by *measuring the fit*, not by branching on
+  orientation — it's the window width that determines it, not which way the
+  phone is turned.
+
+Plates are translucent for the same reason the menus are: attract mode is
+playing behind them, and hiding the thing you're advertising defeats the
+point. Fill and border come from `accent.outline` and `accent.axisLine`, so a
+plate matches the gridlines it sits above rather than introducing a third
+greyscale. See [accessibility.md](./accessibility.md#readability) for why
+outlined glyphs are the other half of this.
+
 ## Screen layout
 
 Composed wireframes for both orientations, resolving the layout conflicts

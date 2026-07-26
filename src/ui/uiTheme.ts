@@ -1,3 +1,4 @@
+import { pnlColours } from '@content/pnlColours.js'
 import { visualTheme } from '@content/visualThemes/index.js'
 
 /**
@@ -33,8 +34,13 @@ function rgba(value: number, alpha: number): string {
  * keeps text legible over a moving scene — without it, light poles under white text
  * make the whole thing unreadable.
  */
-export function uiVars(themeId: string): string {
+export function uiVars(themeId: string, pnlPalette: string): string {
   const theme = visualTheme(themeId)
+  // The menus' up/down now come from the same table the candles and the HUD read,
+  // rather than from the ground and pole colours they used to borrow. Those were
+  // arbitrary — and it meant selecting the colourblind-safe palette recoloured the
+  // game but left the menus green and red.
+  const pnl = pnlColours(pnlPalette)
   return [
     `--ink: ${hex(theme.accent.text)}`,
     `--dim: ${hex(theme.accent.dim)}`,
@@ -44,7 +50,7 @@ export function uiVars(themeId: string): string {
     `--field: ${rgba(theme.palette.mountains[0], 0.55)}`,
     `--edge: ${rgba(theme.accent.axisLine, 0.45)}`,
     `--scrim: ${rgba(theme.palette.mountains[0], 0.55)}`,
-    `--up: ${hex(theme.palette.ground)}`,
-    `--down: ${hex(theme.palette.poles)}`,
+    `--up: ${hex(pnl.up)}`,
+    `--down: ${hex(pnl.down)}`,
   ].join('; ')
 }

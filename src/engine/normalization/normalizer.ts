@@ -6,7 +6,7 @@ import { applyPriceTransform } from './priceTransform.js'
 /**
  * Price → screen height, and the axis that describes it.
  *
- * Two rules make this file more than arithmetic:
+ * Three rules make this file more than arithmetic:
  *
  *   1. **Only already-played bars may inform the bounds.** Every mode here is
  *      causal. A mode computing bounds over the whole series would reveal the
@@ -16,6 +16,9 @@ import { applyPriceTransform } from './priceTransform.js'
  *   2. **The axis is the inverse of this, not a parallel system.** Poles and
  *      axis labels read the same eased bounds, so they cannot disagree about
  *      what the chart is showing.
+ *   3. **Bounds span the visible lows and highs, not the closes.** Candles draw
+ *      their full range, and a bound that only knows about closes clips every
+ *      wick flat against the top and bottom of the chart.
  */
 
 export interface Bounds {
@@ -108,9 +111,17 @@ export function createNormalizer(config: RunConfig): Normalizer {
     let min = Number.POSITIVE_INFINITY
     let max = Number.NEGATIVE_INFINITY
     for (const bar of visible) {
-      const value = valueOf(bar.c)
-      if (value < min) min = value
-      if (value > max) max = value
+      // The **low and the high**, not the close. `unit()` clamps to 0..1, so
+      // bounds taken from closes alone don't push a wick off-chart where it would
+      // be noticed — they silently flatten every high above the window's highest
+      // close into a line along the chart ceiling.
+      //
+      // Min/max of the pair rather than assuming `l <= h`: a malformed bar from a
+      // bad CSV should widen the window, not invert it.
+      const a = valueOf(bar.l)
+      const b = valueOf(bar.h)
+      if (Math.min(a, b) < min) min = Math.min(a, b)
+      if (Math.max(a, b) > max) max = Math.max(a, b)
     }
 
     if (mode === 'fixed-price-per-pixel') {

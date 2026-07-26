@@ -29,6 +29,22 @@ describe('createPlayback', () => {
     expect(frame.bars.some((b) => b.bar.c >= 300)).toBe(false)
   })
 
+  it('carries every OHLC height, not just the close', () => {
+    // The renderer draws a floating candle, so it needs four heights on one scale.
+    // Doing the conversion here rather than in `render/` is what stops a candle
+    // drifting out of alignment with the axis that describes it.
+    const bars: OhlcvBar[] = [{ o: 100, h: 130, l: 90, c: 120, v: 1, t: 0 }]
+    const play = createPlayback({ bars, config: defaultConfig(), visibleBarCount: 5 })
+    const visible = play.advance(0).bars[0]
+
+    expect(visible?.lowUnit).toBeLessThan(visible!.openUnit)
+    expect(visible?.openUnit).toBeLessThan(visible!.unit)
+    expect(visible?.unit).toBeLessThan(visible!.highUnit)
+    // And all four are on the chart rather than clamped against its edges.
+    expect(visible?.lowUnit).toBeGreaterThan(0)
+    expect(visible?.highUnit).toBeLessThan(1)
+  })
+
   it('grows only the newest bar', () => {
     const play = playback([100, 110, 120])
     play.advance(BAR)

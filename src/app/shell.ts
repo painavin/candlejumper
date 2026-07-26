@@ -245,6 +245,10 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       config.visuals.theme,
       config.audio.theme,
       config.visuals.worldSeed,
+      // Bar style and P&L palette are read once when the pole layer is built, so a
+      // change to either needs the scene rebuilt to be visible.
+      config.visuals.barStyle,
+      config.visuals.pnlPalette,
       config.character.selected,
       config.data.source,
       config.data.ticker,

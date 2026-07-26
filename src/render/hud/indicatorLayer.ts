@@ -2,7 +2,9 @@ import { Container, Graphics, Text } from 'pixi.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { FrameState } from '@engine/output/index.js'
 import type { Layout } from '../stage/layout.js'
-import { HUD_FONT, hudFontSize } from './hudFont.js'
+import { hudDimTextStyle, hudTextStyle } from './hudText.js'
+import { AXIS_WIDTH } from './axisLayer.js'
+import { drawPanel } from './hudPanel.js'
 
 /**
  * Overlay indicator lines, and the oscillator/volume sub-panes.
@@ -27,6 +29,19 @@ export interface IndicatorLayer {
 /** Distinct enough to tell two overlays apart without a legend. */
 const SERIES_COLOURS = [0xffd166, 0x4da3ff, 0xff9d4d, 0x9dd6a0, 0xd2a8ff] as const
 
+/**
+ * Scale labels per pane: top, middle, bottom.
+ *
+ * Three rather than the price axis's five because a pane is a fraction of the
+ * height — five would collide. Three is the minimum that conveys a *scale* rather
+ * than just a ceiling: you need two endpoints to know the range and a midpoint to
+ * know it's linear.
+ */
+const PANE_AXIS_LABELS = 3
+
+/** Keeps the top and bottom labels clear of the plate's own border. */
+const LABEL_INSET = 9
+
 export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
   const container = new Container()
   const overlays = new Graphics()
@@ -34,6 +49,18 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
   container.addChild(overlays, panes)
 
   const titles: Text[] = []
+  /** Flat pool, indexed `paneIndex * PANE_AXIS_LABELS + row`. */
+  const scaleLabels: Text[] = []
+
+  const scaleLabelFor = (index: number): Text => {
+    const existing = scaleLabels[index]
+    if (existing) return existing
+    const label = new Text({ text: '', style: hudTextStyle({ theme, size: 12 }) })
+    label.anchor.set(0, 0.5)
+    scaleLabels[index] = label
+    container.addChild(label)
+    return label
+  }
 
   return {
     container,
@@ -66,14 +93,32 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
         overlays.stroke({ width: 1.6, color: colour, alpha: 0.95 })
       })
 
+      const axisX = layout.width - AXIS_WIDTH
+
       frame.subPanes.forEach((pane, paneIndex) => {
         const top = layout.subPaneTops[paneIndex]
         const height = layout.subPaneHeight
         if (top === undefined || height <= 0) return
 
-        // A faint frame, so a pane reads as its own scale rather than as part of the
-        // chart above it.
-        panes.rect(0, top, layout.width - 52, height).fill({ color: theme.accent.axisLine, alpha: 0.08 })
+        // Each pane is a plate, so it reads as its own instrument.
+        drawPanel(panes, { x: 0, y: top, width: axisX, height }, theme)
+        // And its own scale band, aligned with the price axis above it. A pane
+        // without one shows a *shape* rather than a measurement — you can see that
+        // today's volume is tall without being able to say what it was.
+        drawPanel(panes, { x: axisX, y: top, width: AXIS_WIDTH - 4, height }, theme)
+
+        // Labels and their gridlines, top value first.
+        for (let row = 0; row < PANE_AXIS_LABELS; row++) {
+          const t = row / (PANE_AXIS_LABELS - 1)
+          const label = scaleLabelFor(paneIndex * PANE_AXIS_LABELS + row)
+          label.visible = true
+          label.text = formatBound(pane.max - (pane.max - pane.min) * t)
+          const y = top + LABEL_INSET + t * (height - LABEL_INSET * 2)
+          label.position.set(axisX + 6, y)
+          // Fainter than the price axis's gridlines: a pane is secondary, and a
+          // strong grid here would compete with the chart it sits under.
+          panes.rect(0, y, axisX, 1).fill({ color: theme.accent.axisLine, alpha: 0.18 })
+        }
 
         pane.series.forEach((series, seriesIndex) => {
           const colour = SERIES_COLOURS[(paneIndex + seriesIndex) % SERIES_COLOURS.length] as number
@@ -106,21 +151,25 @@ export function createIndicatorLayer(theme: VisualTheme): IndicatorLayer {
 
         let title = titles[paneIndex]
         if (!title) {
-          title = new Text({
-            text: '',
-            style: { fontFamily: HUD_FONT, fontSize: hudFontSize(10), fill: theme.accent.dim },
-          })
+          title = new Text({ text: '', style: hudDimTextStyle(theme, 12) })
           titles.push(title)
           container.addChild(title)
         }
-        title.text = `${pane.title}  ${formatBound(pane.max)} / ${formatBound(pane.min)}`
-        title.position.set(6, top + 2)
+        // Name only. The bounds used to be crammed in here, which is what an axis is
+        // for — and reading "90.2M / 0.00" told you the range without telling you
+        // where in it any given bar sat.
+        title.text = pane.title
+        title.position.set(8, top + 3)
         title.visible = true
       })
 
       for (let i = frame.subPanes.length; i < titles.length; i++) {
         const title = titles[i]
         if (title) title.visible = false
+      }
+      for (let i = frame.subPanes.length * PANE_AXIS_LABELS; i < scaleLabels.length; i++) {
+        const label = scaleLabels[i]
+        if (label) label.visible = false
       }
     },
   }

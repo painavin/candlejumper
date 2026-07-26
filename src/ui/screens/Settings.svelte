@@ -101,6 +101,8 @@
     const key = [
       draft.visuals.theme,
       draft.visuals.worldSeed,
+      draft.visuals.barStyle,
+      draft.visuals.pnlPalette,
       draft.character.selected,
       draft.data.source,
       draft.data.ticker,
@@ -359,6 +361,20 @@
 
   <section>
     <h2>Chart</h2>
+    <label>
+      Bar style
+      <select bind:value={draft.visuals.barStyle}>
+        <option value="theme">Match the mood</option>
+        <option value="candlestick">Candlesticks</option>
+        <option value="bollinger">Bollinger bars</option>
+      </select>
+    </label>
+    <p class="note">
+      Both show the same four prices — open, high, low, close. Bollinger bars draw one
+      uniform column with the open-to-close section picked out in colour; candlesticks
+      draw a narrow wick through a wider body. Every mood ships as Bollinger bars, so
+      "Match the mood" and "Bollinger bars" currently agree.
+    </p>
     {#each indicatorChoices as choice (choice.id)}
       {@const active = indicatorFor(choice.id)}
       <div class="row">

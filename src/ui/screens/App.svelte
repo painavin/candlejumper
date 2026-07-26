@@ -26,7 +26,9 @@
   let { state, actions }: { state: AppState; actions: AppActions } = $props()
 
   /** Menus take their colours from the game's own theme, not their own palette. */
-  const vars = $derived(uiVars(state.config?.visuals.theme ?? 'jolly'))
+  const vars = $derived(
+    uiVars(state.config?.visuals.theme ?? 'jolly', state.config?.visuals.pnlPalette ?? 'red-green')
+  )
 
   /**
    * Transitions are skipped entirely under reduced motion rather than shortened:

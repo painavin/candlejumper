@@ -1,9 +1,21 @@
 import { Container, Graphics, Text } from 'pixi.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
+import { pnlColours } from '@content/pnlColours.js'
 import { damp } from '@shared/math/index.js'
 import type { FrameState, HudState, PnlSign } from './hudTypes.js'
 import type { Layout } from '../stage/layout.js'
-import { HUD_FONT, hudFontSize } from './hudFont.js'
+import { hudFontSize } from './hudFont.js'
+import { hudDimTextStyle, hudTextStyle } from './hudText.js'
+import {
+  PANEL_GAP,
+  PANEL_MARGIN,
+  PANEL_PADDING,
+  PANEL_ROW_GAP,
+  bottomOf,
+  drawPanel,
+  rightOf,
+} from './hudPanel.js'
+import type { PanelBox } from './hudPanel.js'
 
 /**
  * The top HUD.
@@ -39,11 +51,6 @@ export interface TopHudOptions {
  */
 const NUMBER_SMOOTHING = 0.14
 
-const PNL_COLOURS = {
-  'blue-orange': { up: 0x4da3ff, down: 0xff9d4d },
-  'red-green': { up: 0x4ddb7a, down: 0xff6b6b },
-} as const
-
 function signOf(value: number): PnlSign {
   if (value > 0) return 'up'
   if (value < 0) return 'down'
@@ -62,6 +69,30 @@ function formatPercent(value: number): string {
   return `${sign}${Math.abs(value).toFixed(1)}%`
 }
 
+/**
+ * Type sizes, per orientation.
+ *
+ * Collected here rather than inline because they now have to agree with
+ * `TOP_HUD_HEIGHT` in `layout.ts` — the plates size themselves to their text, so
+ * growing a number here grows the band, and the reserved height has to cover it.
+ */
+const SIZES = {
+  landscape: { pnl: 19, position: 16, dim: 13, multiplier: 15 },
+  portrait: { pnl: 17, position: 14, dim: 12, multiplier: 13 },
+} as const
+
+/** Streak pips. Wider in landscape, where there's room for them to be countable. */
+const PIP = {
+  landscape: { width: 11, height: 9 },
+  portrait: { width: 9, height: 8 },
+} as const
+
+/** Gap between the multiplier text and the first pip. */
+const PIP_OFFSET = 8
+
+/** Gap between pips, so they stay countable rather than reading as one bar. */
+const PIP_GAP = 3
+
 export function createTopHudLayer({
   ticker,
   startingCapital,
@@ -71,22 +102,23 @@ export function createTopHudLayer({
   const container = new Container()
   const meter = new Graphics()
 
-  const base = {
-    fontFamily: HUD_FONT,
-    fontSize: hudFontSize(14),
-    fill: theme.accent.text,
-  } as const
-  const dim = { ...base, fontSize: hudFontSize(12), fill: theme.accent.dim } as const
+  const base = hudTextStyle({ theme, size: SIZES.landscape.position })
+  const dim = hudDimTextStyle(theme, SIZES.landscape.dim)
 
-  const pnl = new Text({ text: '', style: { ...base, fontSize: hudFontSize(16) } })
+  const panels = new Graphics()
+  const pnl = new Text({ text: '', style: hudTextStyle({ theme, size: SIZES.landscape.pnl }) })
   const position = new Text({ text: '', style: base })
   const capital = new Text({ text: '', style: dim })
   const session = new Text({ text: '', style: dim })
-  const multiplier = new Text({ text: '', style: { ...base, fontSize: hudFontSize(13) } })
+  const multiplier = new Text({
+    text: '',
+    style: hudTextStyle({ theme, size: SIZES.landscape.multiplier }),
+  })
 
-  container.addChild(pnl, position, capital, session, multiplier, meter)
+  // Panels first, so every readout sits on top of its own plate.
+  container.addChild(panels, pnl, position, capital, session, multiplier, meter)
 
-  const colours = PNL_COLOURS[palette]
+  const colours = pnlColours(palette)
 
   /**
    * A number that catches up to its target instead of jumping.
@@ -136,10 +168,19 @@ export function createTopHudLayer({
       const shownUnrealized = unrealized.to(hud.unrealizedPnl, dt)
       const shownBuyingPower = buying.to(hud.buyingPower, dt)
       const portrait = layout.isPortrait
+      const sizes = portrait ? SIZES.portrait : SIZES.landscape
+      const pad = portrait ? PANEL_PADDING.portrait : PANEL_PADDING.landscape
 
-      // Line 1: the primary readout. Raw realized P&L is always the headline —
-      // arcadeScore sits beside it, never instead of it.
+      // ── Content first, geometry second ────────────────────────────────────
+      // Plates are sized from the text they contain, so every string and every font
+      // size has to be settled before a single box is measured. Laying out as we go
+      // would mean a plate fitted to the *previous* frame's numbers, which shows up
+      // as a border that jitters by a character width as a value crosses a digit.
+
+      // The primary readout. Raw realized P&L is always the headline — arcadeScore
+      // sits beside it, never instead of it.
       pnl.text = `${formatSigned(shownTotal)}  (${formatPercent(shownPercent)})`
+      pnl.style.fontSize = hudFontSize(sizes.pnl)
       // Colour keys off the *true* value, not the tweened one: a number sliding
       // through zero should not flicker to the opposite colour on the way.
       pnl.style.fill =
@@ -148,7 +189,6 @@ export function createTopHudLayer({
           : signOf(hud.totalPnl) === 'up'
             ? colours.up
             : colours.down
-      pnl.position.set(14, 8)
 
       // Direction is shown explicitly as LONG/SHORT, not just by sign, and unit
       // count is exactly how many exit presses remain to reach flat.
@@ -157,15 +197,14 @@ export function createTopHudLayer({
           ? 'FLAT'
           : `${hud.direction.toUpperCase()} ${Math.abs(hud.shares).toFixed(2)}sh @ ${hud.avgCost.toFixed(2)}` +
             `  ${hud.unitCount}u  ${formatSigned(shownUnrealized)}`
-      position.style.fontSize = hudFontSize(portrait ? 12 : 14)
-      position.position.set(14, portrait ? 28 : 30)
+      position.style.fontSize = hudFontSize(sizes.position)
 
       // Buying power is shown because entries clamp against it, and a silent
       // clamp is confusing without a visible cause. In portrait there is no room,
       // so it moves to the pause screen.
       capital.text = `BP $${shownBuyingPower.toFixed(0)} / $${startingCapital.toFixed(0)}`
       capital.visible = !portrait
-      capital.position.set(layout.width - 240, 10)
+      capital.style.fontSize = hudFontSize(sizes.dim)
 
       const date = frame.currentBar ? isoDate(frame.currentBar.t) : '—'
       const progress =
@@ -175,14 +214,93 @@ export function createTopHudLayer({
       if (frame.phase === 'finished') notes.push('END OF DATA')
       if (frame.droppedBars > 0) notes.push(`${frame.droppedBars} skipped`)
       session.text = notes.join('  ')
-      session.position.set(layout.width - 240, portrait ? 10 : 30)
+      session.style.fontSize = hudFontSize(sizes.dim)
 
-      drawStreak(hud, portrait)
+      const streak = streakContent(hud, sizes.multiplier)
+
+      // ── Geometry ──────────────────────────────────────────────────────────
+      panels.clear()
+
+      // Left: the instrument. P&L over position, because they're one reading — "what
+      // am I holding and what is it doing" — and splitting them into two plates would
+      // imply they're answers to different questions.
+      const primary: PanelBox = {
+        x: PANEL_MARGIN,
+        y: PANEL_MARGIN - 4,
+        width: pad * 2 + Math.max(pnl.width, position.width),
+        height: pad * 2 + pnl.height + PANEL_ROW_GAP + position.height,
+      }
+      drawPanel(panels, primary, theme)
+      pnl.position.set(primary.x + pad, primary.y + pad)
+      position.position.set(primary.x + pad, primary.y + pad + pnl.height + PANEL_ROW_GAP)
+
+      // Right: session context. Read occasionally rather than continuously, so it
+      // gets its own plate at the opposite edge and stays out of the way.
+      const contextRows = portrait ? [session] : [capital, session]
+      const context: PanelBox = {
+        x: 0,
+        y: primary.y,
+        width: pad * 2 + Math.max(...contextRows.map((row) => row.width)),
+        height:
+          pad * 2 +
+          contextRows.reduce((sum, row) => sum + row.height, 0) +
+          PANEL_ROW_GAP * (contextRows.length - 1),
+      }
+      context.x = layout.width - PANEL_MARGIN - context.width
+      drawPanel(panels, context, theme)
+      let rowY = context.y + pad
+      for (const row of contextRows) {
+        row.position.set(context.x + pad, rowY)
+        rowY += row.height + PANEL_ROW_GAP
+      }
+
+      // Middle: the streak. Beside the instrument when it fits, tucked under it when
+      // it doesn't — measured rather than assumed per orientation, because it's the
+      // window width that decides, not whether the phone is turned sideways.
+      const pip = portrait ? PIP.portrait : PIP.landscape
+      const pipsWidth =
+        streak.pips === 0 ? 0 : PIP_OFFSET + streak.pips * (pip.width + PIP_GAP) - PIP_GAP
+      const streakBox: PanelBox = {
+        x: rightOf(primary) + PANEL_GAP,
+        y: primary.y,
+        width: pad * 2 + multiplier.width + pipsWidth,
+        height: pad * 2 + Math.max(multiplier.height, pip.height),
+      }
+      if (streakBox.x + streakBox.width > context.x - PANEL_GAP) {
+        streakBox.x = PANEL_MARGIN
+        streakBox.y = bottomOf(primary) + PANEL_GAP / 2
+      }
+      drawPanel(panels, streakBox, theme)
+      multiplier.position.set(
+        streakBox.x + pad,
+        streakBox.y + (streakBox.height - multiplier.height) / 2
+      )
+
+      meter.clear()
+      const pipY = streakBox.y + (streakBox.height - pip.height) / 2
+      const pipX = multiplier.x + multiplier.width + PIP_OFFSET
+      for (let i = 0; i < streak.pips; i++) {
+        meter.rect(pipX + i * (pip.width + PIP_GAP), pipY, pip.width, pip.height).fill({
+          color: i < streak.filled ? colours.up : theme.accent.axisLine,
+          alpha: streak.automated ? 0.4 : 1,
+        })
+      }
     },
   }
 
-  function drawStreak(hud: HudState, portrait: boolean): void {
+  /**
+   * Sets the multiplier text and reports what the meter should draw.
+   *
+   * Split from the drawing so the plate can be measured before anything is
+   * positioned — the streak plate's width depends on both the text and the pip
+   * count, and neither is known until the streak state has been read.
+   */
+  function streakContent(
+    hud: HudState,
+    size: number
+  ): { pips: number; filled: number; automated: boolean } {
     const { meter: state, multiplier: value, maxMultiplier, arcadeScore } = hud.streak
+    multiplier.style.fontSize = hudFontSize(size)
 
     if (state === 'dormant') {
       // No rule committed, so nothing to measure. Greyed with the multiplier
@@ -190,9 +308,7 @@ export function createTopHudLayer({
       // rather than a bug.
       multiplier.text = '×1  no stop rule'
       multiplier.style.fill = theme.accent.dim
-      meter.clear()
-      multiplier.position.set(portrait ? 14 : 300, portrait ? 44 : 8)
-      return
+      return { pips: 0, filled: 0, automated: false }
     }
 
     const automated = state === 'automated'
@@ -200,24 +316,9 @@ export function createTopHudLayer({
       ? `×${value} automated`
       : `×${value}  ${formatSigned(arcadeScore, 0)}`
     multiplier.style.fill = automated ? theme.accent.dim : theme.accent.text
-    multiplier.position.set(portrait ? 14 : 300, portrait ? 44 : 8)
-
     // Five pips, filling one per compliant close event and emptying on a reset.
     // Deliberately not a continuous bar: there is no time decay to animate.
-    const pipWidth = 10
-    const pipGap = 3
-    const x = multiplier.x + multiplier.width + 10
-    const y = multiplier.y + 5
-    meter.clear()
-    for (let i = 0; i < maxMultiplier; i++) {
-      const filled = i < hud.streak.streak
-      meter
-        .rect(x + i * (pipWidth + pipGap), y, pipWidth, 8)
-        .fill({
-          color: filled ? colours.up : theme.accent.axisLine,
-          alpha: automated ? 0.4 : 1,
-        })
-    }
+    return { pips: maxMultiplier, filled: hud.streak.streak, automated }
   }
 }
 

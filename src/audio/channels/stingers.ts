@@ -1,5 +1,6 @@
 import * as Tone from 'tone'
 import type { AudioTheme, StingerRecipe } from '@content/audioThemes/types.js'
+import { stingerTimes } from './stingerSchedule.js'
 
 /**
  * Channel 3 — event stingers.
@@ -9,6 +10,10 @@ import type { AudioTheme, StingerRecipe } from '@content/audioThemes/types.js'
  * action is `buy`, so a stinger fired on the sell button would misfire on every
  * short exit — playing an exit sound on entry and vice versa. The keys here are the
  * event keys the engine emits, so that mistake is unrepresentable.
+ *
+ * The voices are monophonic and reused, so *when* a note may be scheduled on one
+ * depends on what that voice is already committed to. That arithmetic lives in
+ * `stingerSchedule.ts`, along with the bug it exists to prevent.
  */
 
 export interface Stingers {
@@ -43,20 +48,43 @@ export function createStingers(theme: AudioTheme, destination: Tone.InputNode): 
 
   for (const voice of Object.values(voices)) voice.connect(destination)
 
+  type VoiceName = keyof typeof voices
+  /**
+   * Last time scheduled on each voice.
+   *
+   * Without this, two stingers sharing a voice inside one gesture's span both
+   * schedule from the same `Tone.now()` and the second one throws — which two exit
+   * presses on a single bar are enough to cause. See `stingerSchedule.ts`.
+   */
+  const lastScheduled = new Map<VoiceName, number>()
+
   const play = (recipe: StingerRecipe): void => {
     const voice = voices[recipe.voice]
-    voice.volume.value = recipe.volume
-    const now = Tone.now()
+    const times = stingerTimes({
+      now: Tone.now(),
+      lastScheduled: lastScheduled.get(recipe.voice),
+      noteCount: recipe.notes.length,
+      step: recipe.step,
+    })
+    // Dropped rather than trailed: a stinger arriving long after its event has
+    // stopped being feedback about it.
+    if (times.length === 0) return
+
+    // Scheduled rather than set, because a voice can now be holding one gesture
+    // while the next is queued behind it — assigning `.value` would retroactively
+    // change the level of notes already sounding.
+    voice.volume.setValueAtTime(recipe.volume, times[0] as number)
     recipe.notes.forEach((note, index) => {
       // Nudged forward per note so an arpeggio reads as one gesture rather than a
       // chord, without needing the transport.
-      const at = now + index * recipe.step
+      const at = times[index] as number
       if (voice instanceof Tone.PluckSynth) {
         voice.triggerAttack(note, at)
       } else {
         voice.triggerAttackRelease(note, recipe.duration, at)
       }
     })
+    lastScheduled.set(recipe.voice, times[times.length - 1] as number)
   }
 
   return {

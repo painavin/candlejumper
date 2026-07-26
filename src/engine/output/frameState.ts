@@ -21,12 +21,30 @@ export interface VisibleBar {
   index: number
   /** 0 for the newest (under the character), increasing to the left. */
   age: number
-  /** Close mapped to 0..1 of chart height, via the active normalizer. */
+  /**
+   * Close mapped to 0..1 of chart height, via the active normalizer.
+   *
+   * Still named `unit` unqualified because the close is the price the game
+   * *trades* at: fills, stop comparisons, and where the character lands all read
+   * this one and nothing else.
+   */
   unit: number
   /**
-   * 0..1 of the way to its close height. Only the newest bar is ever below 1 —
-   * a bar spawning at full height directly under the character reads as a
-   * rendering glitch, so it grows the way a real bar forms during a day.
+   * Open, high, and low on the exact same 0..1 scale as `unit`.
+   *
+   * They're computed here rather than in `render/` for the same reason overlay
+   * lines are: normalization is the engine's, and a renderer doing its own
+   * price→height conversion is a renderer whose candles can drift out of
+   * alignment with the axis describing them.
+   */
+  openUnit: number
+  highUnit: number
+  lowUnit: number
+  /**
+   * 0..1 through the bar's formation. Only the newest bar is ever below 1 — a
+   * bar appearing complete directly under the character reads as a rendering
+   * glitch, so it forms the way a real bar does: opening as a flat mark at the
+   * open and extending toward its close.
    */
   growth: number
 }

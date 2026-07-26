@@ -24,12 +24,24 @@ describe('computeLayout', () => {
     expect(layout.poleWidth).toBeCloseTo(layout.barWidth * 0.85, 6)
   })
 
-  it('detects portrait and gives the HUD less room there', () => {
+  it('reserves a HUD band tall enough for the plates in either orientation', () => {
     const portrait = computeLayout(400, 900, 28)
     const landscape = computeLayout(900, 400, 60)
     expect(portrait.isPortrait).toBe(true)
     expect(landscape.isPortrait).toBe(false)
-    expect(portrait.topHudHeight).toBeLessThan(landscape.topHudHeight)
+
+    // Portrait is *taller*, which looks backwards and isn't. The HUD plates size
+    // themselves to their text, and at phone width the streak plate can't fit beside
+    // the primary readout, so it wraps to a second row and the band has to cover it.
+    // Portrait economises on type size instead — see SIZES in topHud.ts.
+    expect(portrait.topHudHeight).toBeGreaterThan(landscape.topHudHeight)
+
+    // What actually matters either way: the band never eats the chart.
+    for (const layout of [portrait, landscape]) {
+      expect(layout.topHudHeight).toBeLessThan(layout.height / 3)
+      expect(layout.chartTop).toBeGreaterThan(layout.topHudHeight)
+      expect(layout.chartHeight).toBeGreaterThan(0)
+    }
   })
 
   it('gives portrait a readable bar width at the reduced count', () => {

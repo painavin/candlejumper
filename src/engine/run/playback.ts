@@ -72,6 +72,9 @@ export function createPlayback({ bars, config, visibleBarCount }: PlaybackOption
         index,
         age,
         unit: normalizer.unit(bar.c),
+        openUnit: normalizer.unit(bar.o),
+        highUnit: normalizer.unit(bar.h),
+        lowUnit: normalizer.unit(bar.l),
         // Only the newest bar is still forming.
         growth: age === 0 ? growth : 1,
       }

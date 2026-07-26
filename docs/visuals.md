@@ -59,21 +59,35 @@ files, and no build step. Conceptually:
 ```
 VisualTheme {
   id, displayName
-  palette: { sky: [top, bottom], mountains: [...], trees, poles, ground, fog, accent }
+  palette: { sky: [top, bottom], mountains: [...], trees, candleRange, ground, fog, accent }
   terrain: {
     mountains: { amplitude, frequency, octaves, ridgeSharpness },
     trees:     { amplitude, frequency, density },
   }
   clouds: { style: 'puffy' | 'wispy', density, scale }
   foreground: { motif: 'grass' | 'leaves' | 'railing', density }
-  poles: { outline, capStyle }
+  poles: { outline, capStyle, wickWidthFraction }
   accentPalette: HUD/UI colors matching mood
 }
 ```
 
 Rendering code always asks "what does the *current* theme supply for layer
-N" — it never branches on theme id. Pole **height** is always price data
-and never touched by theme — only pole **color/material** is skinnable.
+N" — it never branches on theme id. Candle **geometry** is always price data
+and never touched by theme. What a theme owns is colour, corner style, and
+`wickWidthFraction` — the width of the high–low range relative to the body,
+which is the single number separating a candlestick from a Bollinger bar.
+
+That one is a **default rather than a decision**: every shipped mood asks for
+Bollinger bars, and `visuals.barStyle` lets a player pin candlesticks instead
+across every mood. See [game-design.md](./game-design.md#candle-geometry).
+
+Note that the body's **up/down colour is deliberately not here**. It comes
+from `visuals.pnlPalette`, the same accessibility setting the HUD and the exit
+particles read, because a red/green chart is the canonical colourblind hazard.
+`palette.candleRange` is the theme's contribution: the colour a direction is
+muted *toward* for the high–low range, and the flat colour for a bar with no
+direction to report. It controls how dark and how muted a mood's bars are
+without owning which way they point.
 
 Note: the jumping character is **not** part of this bundle — see
 [character.md](./character.md) for why it's a separate, theme-independent
@@ -91,7 +105,8 @@ describe the *parameter intent*; exact values are tuned in code:
 | Clouds | `puffy`, high density, large scale | `wispy`, low density, thin |
 | Mountains | Low ridge sharpness (rounded), saturated greens/purples | High ridge sharpness (angular), desaturated grey-blue |
 | Trees / background props | Dense, bright | Sparse, muted — or a skyline silhouette via high frequency + low amplitude |
-| Poles / ground | Candy-colored, rounded caps | Charcoal/steel, flat caps |
+| Bars | Bollinger bars, rounded corners | Bollinger bars, square corners, outlined |
+| Ground | Candy-colored grass | Charcoal/steel |
 | Foreground occlusion | `grass` motif, moderate density | `railing` motif, sparse |
 | Leading-edge fog | Soft white | Cold grey |
 | HUD accent palette | Warm, saturated | Cool, professional (navy/graphite) |

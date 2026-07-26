@@ -61,6 +61,9 @@ export function defaultConfig(): RunConfig {
       // because P&L never depends on hue — every value carries a sign and an arrow
       // too — and blue/orange stays one click away. See docs/accessibility.md.
       pnlPalette: 'red-green',
+      // Defer to the mood: `jolly` draws candlesticks, `serious` draws Bollinger
+      // bars. A player with a preference can pin either one for every theme.
+      barStyle: 'theme',
     },
 
     character: { selected: 'robin' },
