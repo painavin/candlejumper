@@ -1,0 +1,82 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output — Vite
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Caches
+.vite/
+node_modules/.vite/
+.eslintcache
+
+# Test output — see the note below about __snapshots__
+coverage/
+.vitest-cache/
+
+# Local environment / config overrides
+.env
+.env.*
+!.env.example
+*.local
+
+# Tauri desktop shell (roadmap step 11)
+# `tauri init` also writes its own src-tauri/.gitignore; these are belt and braces.
+# Cargo.lock is deliberately NOT ignored — this builds a binary, so the lockfile
+# belongs in the repo.
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Capacitor Android (roadmap step 11)
+# `cap add android` writes its own android/.gitignore. The native project itself
+# is tracked — it's ours to modify — but its build artifacts and the web build
+# that `cap sync` copies in are not.
+android/build/
+android/.gradle/
+android/local.properties
+android/app/build/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT ignored — each of these is load-bearing, and ignoring it
+# would quietly break something the plan depends on.
+#
+# data/                  The bundled OHLCV datasets. Offline, reproducible runs
+#                        are a design requirement, not a convenience:
+#                        docs/data-sources.md.
+#
+# **/__snapshots__/      Vitest snapshots ARE the determinism guard for
+#                        procedural generation — theme + seed must always
+#                        produce an identical world, and a drifting generator
+#                        should fail a test rather than look "a bit different":
+#                        docs/procedural-assets.md.
+#
+# public/                Holds the web font, which is the only binary asset in
+#                        the build.
+#
+# There is no art or audio output to ignore here, and that is on purpose:
+# every visual and audio asset is generated at runtime, so the project has no
+# asset pipeline and produces no generated media: docs/procedural-assets.md.
+# ---------------------------------------------------------------------------
