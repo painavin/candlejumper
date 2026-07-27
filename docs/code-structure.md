@@ -101,6 +101,8 @@ src/
 ├── platform/       the ONLY place Tauri/Capacitor APIs may be imported
 │   ├── persistence/   one store interface, one implementation per platform
 │   ├── pluginLoading/ obtains plugin *source*; never evaluates it
+│   ├── fileImport/    one file picker, shared by plugin and price-data import
+│   ├── http/          one GET interface; browser `fetch` now, native later
 │   └── haptics/       navigator.vibrate now, Capacitor Haptics when packaged
 │
 ├── ui/             Svelte. Menus and screens only, never the game world.
@@ -145,6 +147,7 @@ Arrows are the only permitted direction. Anything not listed is forbidden.
 | `input/` | `shared/`, `engine/pipeline/` (to enqueue presses) |
 | `platform/` | `shared/` |
 | `ui/` | `shared/`, `config/`, `content/`, `platform/`, `engine/scoring/` |
+| `app/` | everything |
 
 **`shared/palette/` is a deliberate exception worth explaining**, because it looks
 misfiled. The indicator line colours are presentation data and belong with the themes
@@ -154,7 +157,6 @@ and `plugins/host/` for an instance that arrives without one — and `engine/` a
 `plugins/` may not import `content/`. Widening that grant to place a colour table
 would trade a real boundary for a filing preference. `shared/` is the zone every other
 one may reach, so that's where cross-zone constant data goes.
-| `app/` | everything |
 
 Four prohibitions carry real weight, and all four are lint rules rather
 than conventions:

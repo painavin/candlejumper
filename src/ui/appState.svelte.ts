@@ -51,6 +51,28 @@ export interface IndicatorChoice {
   sandboxed?: boolean
 }
 
+export interface SourceChoice {
+  id: string
+  displayName: string
+  /** Whether it can fetch new tickers, i.e. whether to offer a download control. */
+  downloadable: boolean
+}
+
+/** Where the library can download from. */
+export interface ProviderChoice {
+  id: string
+  displayName: string
+}
+
+/** What the last download or import is doing, or did. */
+export interface DownloadState {
+  busy: boolean
+  /** The symbol currently being fetched. */
+  symbol?: string
+  notice?: string
+  error?: string
+}
+
 export interface RunOutcome {
   summary: Summary
   percentReturn: number
@@ -82,6 +104,12 @@ export class AppState {
   screen = $state<Screen>('title')
   config = $state<RunConfig | undefined>(undefined)
   tickers = $state<TickerMeta[]>([])
+  /** Every registered price source, and whether it can download. */
+  sources = $state<SourceChoice[]>([])
+  /** Providers the library can fetch from, for the download picker. */
+  providers = $state<ProviderChoice[]>([])
+  /** Progress and outcome of the last ticker download. */
+  download = $state<DownloadState>({ busy: false })
   stopChoices = $state<StopChoice[]>([])
   indicatorChoices = $state<IndicatorChoice[]>([])
   /** Best percent return for the *pending* config's fingerprint, if any. */
@@ -127,5 +155,14 @@ export interface AppActions {
   /** Opens a file picker; the chosen modules are validated in the sandbox. */
   importPlugins(kind: 'stop' | 'indicator'): void
   removePlugin(name: string): void
+  /**
+   * Fetch a ticker from a named provider into the library. Resolves with what was
+   * stored, or `undefined` if it failed — the reason is in `state.download.error`.
+   */
+  downloadTicker(symbol: string, providerId: string): Promise<TickerMeta | undefined>
+  /** Open a picker and adopt the chosen CSV or JSON files. Resolves with what landed. */
+  importSeriesFiles(): Promise<TickerMeta[]>
+  /** Drop a ticker from the library. */
+  forgetTicker(symbol: string): Promise<void>
 }
 

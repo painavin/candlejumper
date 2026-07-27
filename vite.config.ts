@@ -34,6 +34,35 @@ export default defineConfig(({ mode }) => ({
     },
   },
   /**
+   * The one configuration in which the browser build can download price data without
+   * anything installed.
+   *
+   * Yahoo's chart endpoint sends no `Access-Control-Allow-Origin`, and a page cannot
+   * override that — CORS is enforced by the browser, on the user's behalf, and there
+   * is no developer switch. Proxying it here sidesteps the rule rather than defeating
+   * it: the request becomes same-origin from the page's point of view, and Vite's Node
+   * process makes the real cross-origin call, where no such rule exists.
+   *
+   * `app/shell.ts` points the source at `/yahoo` when `import.meta.env.DEV`. A built
+   * bundle has no proxy and therefore needs a CORS extension scoped to that host —
+   * see docs/data-sources.md#downloading-a-ticker.
+   */
+  server: {
+    proxy: {
+      '/yahoo': {
+        target: 'https://query1.finance.yahoo.com',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/yahoo/, ''),
+      },
+      // The fallback provider, for when Yahoo is throttling. Same reasoning.
+      '/stooq': {
+        target: 'https://stooq.com',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/stooq/, ''),
+      },
+    },
+  },
+  /**
    * The worker is referenced by `new Worker(new URL(...), { type: 'module' })` in
    * `plugins/host/workerClient.ts`, which is enough for Vite to emit it as its own
    * chunk — so it needs no `rollupOptions.input` entry. It used to have one, back

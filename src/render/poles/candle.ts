@@ -1,6 +1,5 @@
 import type { BarStyle } from '@config/index.js'
 import type { BarDirection, VisibleBar } from '@engine/output/index.js'
-import type { VisualTheme } from '@content/visualThemes/types.js'
 import { clamp, lerp } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
 import { unitToY } from '../stage/layout.js'
@@ -30,9 +29,9 @@ import { unitToY } from '../stage/layout.js'
  *   - range as wide as the body → a Bollinger bar, one uniform column whose
  *     open→close section is picked out in the direction colour
  *
- * So `wickWidthFraction` is a theme parameter and there is no branch on chart
- * type. Everything else — colour by direction, neutral range, the forming
- * animation — is shared, because it's the same information either way.
+ * So the width is a parameter and there is no branch on chart type. Everything
+ * else — colour by direction, neutral range, the forming animation — is shared,
+ * because it's the same information either way.
  */
 
 export interface Rect {
@@ -79,17 +78,15 @@ const STYLE_WIDTHS = {
 } as const
 
 /**
- * The wick width actually in force: the player's setting, or the theme's when they
- * haven't expressed one.
+ * The range width the chosen style implies.
  *
- * Resolved in one function rather than at the call site so the precedence exists
- * once. `theme` is the default because a mood shipping a house style is the whole
- * reason `wickWidthFraction` is theme data — but a player who reads one style more
- * fluently should be able to pin it, and chart type is a reading preference rather
- * than a difficulty setting.
+ * A lookup rather than a branch at the call site, so the two chart types stay one
+ * number apart. It used to also resolve a `theme` setting that deferred to the active
+ * mood's own width; both moods asked for Bollinger bars, so that indirection only ever
+ * produced the default.
  */
-export function wickWidthFor(style: BarStyle, theme: VisualTheme): number {
-  return style === 'theme' ? theme.poles.wickWidthFraction : STYLE_WIDTHS[style]
+export function wickWidthFor(style: BarStyle): number {
+  return STYLE_WIDTHS[style]
 }
 
 /**

@@ -14,9 +14,17 @@ export type {
 } from './stop.js'
 export type {
   PriceSeriesSource,
+  DownloadableSource,
+  SeriesProvider,
+  TextFile,
+  CachedDataset,
+  DatasetCache,
   TickerMeta,
   DateRange,
 } from './priceSeries.js'
+export { isDownloadable } from './priceSeries.js'
+export type { HttpTransport, HttpGetOptions, HttpFailure } from './http.js'
+export { HttpRequestError } from './http.js'
 export type {
   FbmParams,
   HeightfieldParams,

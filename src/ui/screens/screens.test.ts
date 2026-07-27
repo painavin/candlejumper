@@ -43,6 +43,9 @@ function actions(): SpiedActions {
     surprise: vi.fn(),
     importPlugins: vi.fn(),
     removePlugin: vi.fn(),
+    downloadTicker: vi.fn(async () => undefined),
+    importSeriesFiles: vi.fn(async () => []),
+    forgetTicker: vi.fn(async () => undefined),
   }
 }
 

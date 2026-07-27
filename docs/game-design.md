@@ -560,17 +560,15 @@ width as a fraction of the body's:
 Anything between is a legitimate hybrid, so it's a continuum rather than an
 enum with two members.
 
-**Two settings feed it, with the player's winning.** `poles.wickWidthFraction`
-is the visual theme's house style; **every shipped mood asks for `1`, so
-Bollinger bars are the default everywhere.** It stays theme data rather than
-collapsing into a constant because it's what a future mood would reach for to
-ship candlesticks, and keeping it is what holds the two chart types one
-parameter apart. `visuals.barStyle` is the player's override — `theme` (the
-default) defers to the mood, while `candlestick` and `bollinger` pin one style
-across every mood.
+**One setting feeds it: `visuals.barStyle`**, either `bollinger` (the default)
+or `candlestick`, and it applies in every mood.
 
-Precedence is resolved in a single function so it exists in one place rather
-than at each call site.
+There were briefly two. The visual theme carried its own `wickWidthFraction` as
+a house style, read whenever `barStyle` was `theme` — but both shipped moods
+asked for `1`, so that path only ever produced the default. A control whose
+setting made no difference, plus a themeable number nothing else read, is worse
+than a single value: it's two places for the same decision to drift apart. The
+width now comes from the setting alone, resolved by one lookup.
 
 Chart type is a **reading preference, not a difficulty setting** — both styles
 draw all four prices — so it's excluded from the run fingerprint. Nobody's

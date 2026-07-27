@@ -43,6 +43,20 @@ Tauri bridge, and no filesystem. Denying `blob:` wouldn't make plugins safer, it
 would make them impossible — and the pressure would then be to run them on the
 main thread, which is the actually-dangerous option.
 
+`connect-src` also lists `https://query1.finance.yahoo.com` and `https://stooq.com`,
+the two price providers. Those entries are **necessary but not sufficient**, which is the part
+worth knowing before debugging it: the Tauri webview enforces CORS exactly as a
+browser does, and Yahoo sends no `Access-Control-Allow-Origin` (Stooq's header is
+unchecked), so a plain `fetch` from the page fails in the desktop shell too. The fix is to add
+`@tauri-apps/plugin-http` and a second implementation of the transport port beside
+[`platform/http/browser.ts`](../src/platform/http/browser.ts) — its `fetch`
+performs the request in Rust, outside the browser engine, where no such rule
+exists. Capacitor's equivalent is `CapacitorHttp`, enabled with
+`plugins.CapacitorHttp.enabled: true`, which reroutes `window.fetch` through
+native Android code and therefore needs no new transport at all. Both also want
+both provider hosts in the plugin's own permission allowlist. See
+[data-sources.md](./data-sources.md#cors-is-the-whole-difficulty).
+
 ## Android (Capacitor)
 
 `capacitor.config.json` points at `dist/`, so `npm run build` then

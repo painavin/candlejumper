@@ -175,8 +175,12 @@ resolved defaults and each system doc for its rationale.
    [accessibility.md](./accessibility.md) here: colorblind-safe P&L
    encoding, reduced-motion handling, minimum font sizes.
 10. **Additional data sources**, expanding beyond the bundled OHLCV dataset
-    used since step 0 ([data-sources.md](./data-sources.md)) — live API
-    and/or synthetic, both behind the existing interface.
+    used since step 0 ([data-sources.md](./data-sources.md)) — synthetic
+    random-walk series and downloaded Yahoo Finance daily bars, both behind
+    the existing interface. Downloading brought two things the interface didn't
+    have: a transport port in `platform/http/`, because the request must be
+    swappable for a native one, and the dataset's bar count in the run
+    fingerprint, because a re-download changes the series a record was set on.
 11. **Packaging**: desktop via Tauri first (Windows/macOS/Linux share one
     build), then Android via Capacitor. Config and scripts are in place;
     **neither shell has been built** — see [packaging.md](./packaging.md), which

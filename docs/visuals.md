@@ -66,20 +66,20 @@ VisualTheme {
   }
   clouds: { style: 'puffy' | 'wispy', density, scale }
   foreground: { motif: 'grass' | 'leaves' | 'railing', density }
-  poles: { outline, capStyle, wickWidthFraction }
+  poles: { outline, capStyle }
   accentPalette: HUD/UI colors matching mood
 }
 ```
 
 Rendering code always asks "what does the *current* theme supply for layer
 N" — it never branches on theme id. Candle **geometry** is always price data
-and never touched by theme. What a theme owns is colour, corner style, and
-`wickWidthFraction` — the width of the high–low range relative to the body,
-which is the single number separating a candlestick from a Bollinger bar.
+and never touched by theme. What a theme owns of the bars is colour and corner
+style, and nothing else.
 
-That one is a **default rather than a decision**: every shipped mood asks for
-Bollinger bars, and `visuals.barStyle` lets a player pin candlesticks instead
-across every mood. See [game-design.md](./game-design.md#candle-geometry).
+Bar *width* deliberately isn't here. A `wickWidthFraction` lived in this block
+briefly, so a mood could ship its own chart type; both moods chose the same
+value, so it never varied. The width comes from `visuals.barStyle` alone — see
+[game-design.md](./game-design.md#candle-geometry).
 
 Note that the body's **up/down colour is deliberately not here**. It comes
 from `visuals.pnlPalette`, the same accessibility setting the HUD and the exit

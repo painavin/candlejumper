@@ -18,7 +18,7 @@ import type { RunConfig } from './types.js'
  */
 
 /** Bump when the *set* of included keys changes; old buckets then migrate. */
-export const FINGERPRINT_VERSION = 1
+export const FINGERPRINT_VERSION = 2
 
 export interface FingerprintInputs {
   /**
@@ -27,6 +27,24 @@ export interface FingerprintInputs {
    * value per orientation and only the resolved one describes the challenge.
    */
   visibleBarCount: number
+  /**
+   * What the chosen source currently holds for this ticker.
+   *
+   * `source` and `ticker` alone stopped identifying a price path once tickers became
+   * downloadable: re-downloading AAPL tomorrow yields the same source, the same
+   * symbol, and one more bar. Without this, a refreshed dataset would keep competing
+   * against records set on the old one — silently, and in the direction that flatters
+   * whichever was easier.
+   *
+   * Taken from `TickerMeta` — the source's view of the whole series — rather than from
+   * the bars a run was handed, so the value is the same before the run and after it.
+   * `dateRange` already covers playing a slice of it.
+   */
+  series: {
+    barCount: number
+    /** Epoch seconds. */
+    lastBarTime: number
+  }
 }
 
 export function fingerprintPayload(config: RunConfig, inputs: FingerprintInputs): Hashable {
@@ -39,6 +57,8 @@ export function fingerprintPayload(config: RunConfig, inputs: FingerprintInputs)
     dateRange: config.data.dateRange
       ? { from: config.data.dateRange.from, to: config.data.dateRange.to }
       : null,
+    // The dataset behind that ticker, which a download can change under it.
+    series: { barCount: inputs.series.barCount, lastBarTime: inputs.series.lastBarTime },
 
     // Reaction time available, and how much history is readable when deciding.
     scrollSpeed: config.scrollSpeed,

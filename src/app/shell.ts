@@ -1,7 +1,7 @@
 import { mount, unmount } from 'svelte'
-import type { RunConfig } from '@config/index.js'
+import type { FingerprintInputs, RunConfig } from '@config/index.js'
 import { defaultConfig, describeProblems, runFingerprint, validateConfig, FINGERPRINT_VERSION } from '@config/index.js'
-import { createSourceRegistry } from '@data/index.js'
+import { BUNDLED_SOURCE_ID, createSourceRegistry } from '@data/index.js'
 import {
   createStopHost,
   createStopRegistry,
@@ -20,9 +20,12 @@ import {
   storePlugins,
 } from '@platform/pluginLoading/index.js'
 import type { PluginFile } from '@platform/pluginLoading/index.js'
-import type { ParamSpec, PluginDescriptor } from '@shared/contracts/index.js'
+import type { ParamSpec, PluginDescriptor, TickerMeta } from '@shared/contracts/index.js'
+import { isDownloadable } from '@shared/contracts/index.js'
 import { earnedUnlocks } from '@content/progression/index.js'
 import { createHaptics } from '@platform/haptics/index.js'
+import { createBrowserTransport } from '@platform/http/index.js'
+import { pickTextFiles, SERIES_FILE_ACCEPT } from '@platform/fileImport/index.js'
 import {
   createLocalStorageStore,
   loadSave,
@@ -35,6 +38,7 @@ import type { OhlcvBar } from '@shared/contracts/index.js'
 import { AppState, snapshot } from '@ui/appState.svelte.js'
 import type { AppActions } from '@ui/appState.svelte.js'
 import App from '@ui/screens/App.svelte'
+import { createDatasetCache } from './datasetCache.js'
 import { startRunSession } from './runSession.js'
 import type { RunSession } from './runSession.js'
 
@@ -68,9 +72,35 @@ export interface Shell {
 /** Minimum gap between effects-preview cues while a slider is being dragged. */
 const SFX_PREVIEW_THROTTLE_MS = 220
 
+/**
+ * Where each price provider lives under `npm run dev`. Must match the proxy table in
+ * vite.config.ts — these two lists are the same fact stated twice, and the second
+ * statement has to be here because only the composition root chooses a base URL.
+ */
+const DEV_PROXY_PATHS: Readonly<Record<string, string>> = {
+  yahoo: '/yahoo',
+  stooq: '/stooq',
+}
+
 export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement): Promise<Shell> {
   const store = createLocalStorageStore()
-  const sources = createSourceRegistry()
+  /**
+   * The downloading source's dependencies, supplied here because this is the only zone
+   * that may know about both `platform/` and `data/`.
+   *
+   * `baseUrls` is the interesting one. Yahoo sends no `Access-Control-Allow-Origin`,
+   * so a browser will not hand its response to script; in dev the Vite server proxies
+   * both providers to same-origin paths, which is the one configuration that needs
+   * nothing installed. A built bundle has no proxy and so needs a CORS extension for
+   * those hosts — see docs/data-sources.md.
+   */
+  const sources = createSourceRegistry({
+    downloads: {
+      transport: createBrowserTransport(),
+      cache: createDatasetCache(store),
+      baseUrls: import.meta.env.DEV ? DEV_PROXY_PATHS : undefined,
+    },
+  })
   const stopRegistry = createStopRegistry()
   const indicatorRegistry = createIndicatorRegistry()
   const haptics = createHaptics()
@@ -108,10 +138,43 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
    */
   let configBeforeSettings: RunConfig | undefined
   let runVisibleBarCount = 0
+  /**
+   * The dataset behind the running config's ticker, frozen at run start for the same
+   * reason `runVisibleBarCount` is: both are fingerprint inputs, and a value that
+   * moved between Start and the results screen would record the run in a different
+   * bucket from the one its personal best was read out of.
+   */
+  let runSeries: FingerprintInputs['series'] = { barCount: 0, lastBarTime: 0 }
   let endedEarly = false
 
-  const source = sources.get(state.config.data.source)
-  if (source) state.tickers = await source.listTickers()
+  state.sources = [...sources.values()].map((entry) => ({
+    id: entry.id,
+    displayName: entry.displayName,
+    downloadable: isDownloadable(entry),
+  }))
+  // Where the library can fetch from. Passed through state because `ui/` may not
+  // import `data/`, and the picker belongs beside the Download button.
+  state.providers = [...sources.values()].flatMap((entry) =>
+    isDownloadable(entry) ? [...entry.providers] : []
+  )
+
+  /**
+   * Re-read the active source's catalogue.
+   *
+   * Called on start, whenever the chosen source changes, and after every download —
+   * the downloading source's catalogue *is* its cache, so it changes under the app
+   * rather than being fixed at build time.
+   */
+  async function refreshTickers(): Promise<void> {
+    const active = state.config ? sources.get(state.config.data.source) : undefined
+    try {
+      state.tickers = active ? await active.listTickers() : []
+    } catch {
+      // A source that can't list is a source with nothing to offer, not a crash.
+      state.tickers = []
+    }
+  }
+  await refreshTickers()
 
   /**
    * Load plugin sources into the worker and publish whatever validates.
@@ -198,12 +261,32 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   // The built-ins were unreachable from the UI entirely.
   publishChoices()
 
-  const fingerprintOf = (config: RunConfig, visibleBarCount: number): string =>
-    runFingerprint(config, { visibleBarCount })
+  /**
+   * What the active source currently holds for a config's ticker.
+   *
+   * Read from the *catalogue* rather than from a loaded bar array, so the value is
+   * identical before a run and after it — `refreshPersonalBest` has no bars to look
+   * at, and a fingerprint that disagreed with itself across those two moments would
+   * show a best from one bucket and record into another.
+   */
+  function seriesOf(config: RunConfig): FingerprintInputs['series'] {
+    const meta = state.tickers.find((entry) => entry.symbol === config.data.ticker)
+    return { barCount: meta?.barCount ?? 0, lastBarTime: meta?.lastBarTime ?? 0 }
+  }
+
+  const fingerprintOf = (
+    config: RunConfig,
+    visibleBarCount: number,
+    series: FingerprintInputs['series']
+  ): string => runFingerprint(config, { visibleBarCount, series })
 
   const refreshPersonalBest = (): void => {
     if (!state.config) return
-    const key = fingerprintOf(state.config, resolveVisibleBarCount(state.config.visibleBarCount))
+    const key = fingerprintOf(
+      state.config,
+      resolveVisibleBarCount(state.config.visibleBarCount),
+      seriesOf(state.config)
+    )
     state.personalBest = save.personalBests[key]
   }
   refreshPersonalBest()
@@ -316,9 +399,14 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
 
     attractStarting = true
     try {
-      const activeSource = sources.get(wanted.data.source)
-      if (!activeSource) return
-      const bars = await activeSource.loadSeries(wanted.data.ticker, wanted.data.dateRange)
+      const bars = await attractBars(wanted)
+      /**
+       * No series to draw. Returns *without* stopping what's already playing, which
+       * is the difference between switching to an empty source and staring at a black
+       * canvas: selecting the downloading source before anything is downloaded used to
+       * tear the backdrop down and leave nothing behind it.
+       */
+      if (!bars || bars.length === 0) return
       // A run may have started while the series was loading.
       if (session) return
 
@@ -337,14 +425,48 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       // so this session's bed can start straight away.
       if (audioUnlocked) void attract.startAudio()
     } catch {
-      // A backdrop that fails to load must never block the menus. The screens are
-      // legible without it — they just sit on the page background instead.
+      // Building the session itself failed, so there is a half-made one to clear. A
+      // backdrop that fails must never block the menus — the screens are legible
+      // without it, they just sit on the page background instead.
       stopAttract()
     } finally {
       attractStarting = false
       const queued = pendingAttract
       pendingAttract = undefined
       if (queued && !session) void startAttract(queued)
+    }
+  }
+
+  /**
+   * Bars for the backdrop: the chosen source, or the bundled one if it has nothing.
+   *
+   * "The canvas is never empty" is the premise the whole title screen is built on, and
+   * the downloading source breaks it by design — its catalogue starts empty, so a
+   * player who selects it has chosen a source that cannot yet draw anything. Borrowing
+   * a bundled series keeps a world on screen until they download one.
+   *
+   * Safe to borrow precisely because attract mode records nothing: there is no
+   * fingerprint, no personal best, and no trade. It is scenery, and scenery from
+   * another ticker is still scenery. A *run* never does this — `begin` reports the
+   * missing download as an error instead.
+   */
+  async function attractBars(config: RunConfig): Promise<readonly OhlcvBar[] | undefined> {
+    const chosen = sources.get(config.data.source)
+    if (chosen) {
+      try {
+        return await chosen.loadSeries(config.data.ticker, config.data.dateRange)
+      } catch {
+        // Fall through to the bundled source below.
+      }
+    }
+    const bundled = sources.get(BUNDLED_SOURCE_ID)
+    if (!bundled) return undefined
+    try {
+      const [first] = await bundled.listTickers()
+      return first ? await bundled.loadSeries(first.symbol) : undefined
+    } catch {
+      // Nothing left to try; the menus render fine over the page background.
+      return undefined
     }
   }
 
@@ -401,13 +523,26 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       state.error = `Unknown data source: ${config.data.source}`
       return
     }
-    const bars = await activeSource.loadSeries(config.data.ticker, config.data.dateRange)
+    /**
+     * Loading is fallible, and now visibly so: with a downloading source, pressing
+     * Play on a ticker that isn't in the cache is one click away. Unguarded, that
+     * rejection escapes `void begin(...)` as an unhandled promise and the player gets
+     * a title screen that simply ignored the button.
+     */
+    let bars: readonly OhlcvBar[]
+    try {
+      bars = await activeSource.loadSeries(config.data.ticker, config.data.dateRange)
+    } catch (error) {
+      state.error = `Couldn't load ${config.data.ticker} from ${activeSource.displayName}:\n\n  ${messageOf(error)}`
+      return
+    }
 
     session?.stop()
     // The backdrop and the run must never share the canvas — or the ticker.
     stopAttract()
     running = config
     runVisibleBarCount = resolveVisibleBarCount(config.visibleBarCount)
+    runSeries = seriesOf(config)
     state.screen = 'playing'
 
     session = await startRunSession({
@@ -573,7 +708,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     const streak = controller.state.streak
     const longestStreak = Math.max(streak.longest, streak.streak)
 
-    const key = fingerprintOf(running, runVisibleBarCount)
+    const key = fingerprintOf(running, runVisibleBarCount, runSeries)
     const previous = save.personalBests[key]
     const result = {
       percentReturn: frame.hud.percentReturn,
@@ -623,6 +758,9 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     session = undefined
     state.touch = undefined
   }
+
+  /** The last source the preview was told about, so a change to it can be detected. */
+  let lastSourceId = state.config.data.source
 
   const actions: AppActions = {
     // `snapshot`, not `structuredClone`: the incoming config may still be a
@@ -728,6 +866,17 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         attract?.previewSfx()
       }
       lastMix = mix
+      if (config.data.source !== lastSourceId) {
+        // A source owns its own catalogue, so switching means a different ticker list
+        // — and possibly one that doesn't contain what the draft is holding. The
+        // settings screen corrects the draft once the new list arrives.
+        lastSourceId = config.data.source
+        void refreshTickers().then(() => {
+          refreshPersonalBest()
+          if (state.config) void startAttract(state.config)
+        })
+        return
+      }
       // Only restarts if something the backdrop can actually *show* changed.
       void startAttract(state.config)
       refreshPersonalBest()
@@ -761,6 +910,82 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         await registerPlugins(pluginFiles)
       })()
     },
+    /**
+     * Fetch a ticker into the active source's cache.
+     *
+     * Returns the meta so the settings screen can select what it just downloaded —
+     * the alternative is reaching into the screen's own draft from here, which would
+     * make `app/` responsible for a form it doesn't own.
+     */
+    downloadTicker: async (symbol, providerId) => {
+      const active = downloadableSource()
+      if (!active) return undefined
+      state.download = { busy: true, symbol }
+      try {
+        const meta = await active.download({ symbol, providerId })
+        await refreshTickers()
+        state.download = { busy: false, notice: describeSeries(meta) }
+        return meta
+      } catch (error) {
+        // Shown in the settings screen rather than thrown: a failed download is a
+        // normal outcome here — no proxy, wrong symbol, throttled provider — not a
+        // broken app.
+        state.download = { busy: false, error: messageOf(error) }
+        return undefined
+      }
+    },
+    /**
+     * Import price files the player picked.
+     *
+     * Each file is adopted independently and the outcome is reported per file: one
+     * unreadable CSV in a selection of five shouldn't cost the other four, and a
+     * silent partial success would be worse than either.
+     */
+    importSeriesFiles: async () => {
+      const active = downloadableSource()
+      if (!active) return []
+      const files = await pickTextFiles(SERIES_FILE_ACCEPT)
+      if (files.length === 0) return []
+
+      state.download = { busy: true, symbol: files[0]?.name }
+      const imported: TickerMeta[] = []
+      const failures: string[] = []
+      for (const file of files) {
+        try {
+          imported.push(await active.importFile(file))
+        } catch (error) {
+          failures.push(`${file.name}: ${messageOf(error)}`)
+        }
+      }
+      await refreshTickers()
+      state.download = {
+        busy: false,
+        notice: imported.length > 0 ? imported.map(describeSeries).join('\n') : undefined,
+        error: failures.length > 0 ? failures.join('\n\n') : undefined,
+      }
+      return imported
+    },
+    forgetTicker: async (symbol) => {
+      const active = downloadableSource()
+      if (!active) return
+      try {
+        await active.forget(symbol)
+        await refreshTickers()
+        state.download = { busy: false, notice: `Removed ${symbol}.` }
+      } catch (error) {
+        state.download = { busy: false, error: messageOf(error) }
+      }
+    },
+  }
+
+  /** What arrived, in one line: the confirmation worth reading after an import. */
+  const describeSeries = (meta: TickerMeta): string =>
+    `${meta.symbol}: ${meta.barCount} bars, ${isoDate(meta.firstBarTime)} to ${isoDate(meta.lastBarTime)}${meta.adjusted ? '' : ', not adjusted'}.`
+
+  /** The active source, if it can download at all. */
+  function downloadableSource() {
+    const active = state.config ? sources.get(state.config.data.source) : undefined
+    return active && isDownloadable(active) ? active : undefined
   }
 
   const app = mount(App, { target: uiHost, props: { state, actions } })
@@ -811,4 +1036,8 @@ function nowMs(): number {
 function isoDate(epochSeconds: number): string {
   // Bars carry epoch SECONDS; this multiplication is load-bearing.
   return new Date(epochSeconds * 1000).toISOString().slice(0, 10)
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

@@ -78,7 +78,7 @@ export function createPoleLayer({ theme, palette, barStyle }: PoleLayerOptions):
   const colours = pnlColours(palette)
   const candlePalette: CandlePalette = { pnl: colours, neutral: theme.palette.candleRange }
   const { capStyle, outline } = theme.poles
-  const wickWidthFraction = wickWidthFor(barStyle, theme)
+  const wickWidthFraction = wickWidthFor(barStyle)
 
   let lastLayoutKey = ''
 

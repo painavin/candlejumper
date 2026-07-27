@@ -41,11 +41,7 @@ export const jollyTheme: VisualTheme = {
   // Sparse on purpose: this layer crosses the character, and it must never
   // obscure poles the player is trading.
   foreground: { motif: 'grass', density: 26 },
-  // Bollinger bars, with rounded corners for the mood. `wickWidthFraction` stays a
-  // theme parameter even though both shipped themes now use the same value: it's
-  // what a future mood would reach for to ship candlesticks, and what
-  // `visuals.barStyle: 'candlestick'` overrides it to.
-  poles: { capStyle: 'round', outline: false, wickWidthFraction: 1 },
+  poles: { capStyle: 'round', outline: false },
 }
 
 export const seriousTheme: VisualTheme = {
@@ -77,7 +73,7 @@ export const seriousTheme: VisualTheme = {
   clouds: { style: 'wispy', density: 4, scale: 0.14 },
   foreground: { motif: 'railing', density: 12 },
   // A Bollinger bar: range and body the same width, square corners.
-  poles: { capStyle: 'flat', outline: true, wickWidthFraction: 1 },
+  poles: { capStyle: 'flat', outline: true },
 }
 
 export const visualThemes: readonly VisualTheme[] = [jollyTheme, seriousTheme]

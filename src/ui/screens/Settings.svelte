@@ -54,9 +54,25 @@
     abbreviation?: string
   }
 
+  /** A registered price source. `downloadable` decides whether the fetch UI appears. */
+  interface SourceOption {
+    id: string
+    displayName: string
+    downloadable: boolean
+  }
+
+  /** Somewhere the library can download from. */
+  interface ProviderOption {
+    id: string
+    displayName: string
+  }
+
   let {
     config,
+    sources,
+    providers,
     tickers,
+    download,
     stopChoices,
     indicatorChoices,
     personalBest,
@@ -66,9 +82,15 @@
     onPreview,
     onImportPlugins,
     onRemovePlugin,
+    onDownloadTicker,
+    onImportSeriesFiles,
+    onForgetTicker,
   }: {
     config: RunConfig
+    sources: SourceOption[]
+    providers: ProviderOption[]
     tickers: TickerMeta[]
+    download: { busy: boolean; symbol?: string; notice?: string; error?: string }
     stopChoices: Choice[]
     indicatorChoices: IndicatorChoice[]
     personalBest: { percentReturn: number; arcadeScore: number } | undefined
@@ -80,6 +102,9 @@
     onPreview: (config: RunConfig) => void
     onImportPlugins: (kind: 'stop' | 'indicator') => void
     onRemovePlugin: (name: string) => void
+    onDownloadTicker: (symbol: string, providerId: string) => Promise<TickerMeta | undefined>
+    onImportSeriesFiles: () => Promise<TickerMeta[]>
+    onForgetTicker: (symbol: string) => Promise<void>
   } = $props()
 
   /** Local working copy: nothing is committed until Start. */
@@ -324,6 +349,67 @@
 
   const activeTicker = $derived(tickers.find((entry) => entry.symbol === draft.data.ticker))
 
+  const seriesSummary = $derived(
+    activeTicker === undefined
+      ? ' — nothing selected'
+      : ` — ${activeTicker.symbol}, ${activeTicker.barCount} bars`
+  )
+
+  // ── Series source ──────────────────────────────────────────────────────────────
+
+  const activeSource = $derived(sources.find((entry) => entry.id === draft.data.source))
+
+  /** What to fetch, and from where. Nothing is requested until Download is pressed. */
+  let symbolInput = $state('')
+  let providerInput = $state('')
+
+  // Default to the first provider once the list arrives, and recover if the chosen one
+  // disappears — a select bound to a value that isn't among its options renders blank.
+  $effect(() => {
+    const first = providers[0]
+    if (!first) return
+    if (!providers.some((entry) => entry.id === providerInput)) providerInput = first.id
+  })
+
+  /**
+   * Keep the chosen ticker inside the chosen source's catalogue.
+   *
+   * Switching source replaces the whole list, and a `<select>` bound to a value that
+   * isn't among its options renders blank while the draft still holds the old symbol —
+   * which then fails at run start with a confusing message about a ticker the player
+   * can't see. Downloading the first ticker of an empty source lands here too.
+   */
+  $effect(() => {
+    const first = tickers[0]
+    if (!first) return
+    if (!tickers.some((entry) => entry.symbol === draft.data.ticker)) {
+      draft.data.ticker = first.symbol
+    }
+  })
+
+  async function downloadTicker(): Promise<void> {
+    const wanted = symbolInput.trim()
+    if (wanted === '') return
+    const meta = await onDownloadTicker(wanted, providerInput)
+    if (meta) adopt(meta)
+  }
+
+  async function importSeriesFiles(): Promise<void> {
+    const imported = await onImportSeriesFiles()
+    const first = imported[0]
+    if (first) adopt(first)
+  }
+
+  /** Select what just arrived: obtaining a series you then have to go and find in a
+   * dropdown is a job half done. */
+  function adopt(meta: TickerMeta): void {
+    draft.data.ticker = meta.symbol
+    // A new dataset is a different price path, so a date range narrowing the old one
+    // is meaningless against it.
+    draft.data.dateRange = undefined
+    symbolInput = ''
+  }
+
   const percent = (value: number): string =>
     `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value).toFixed(1)}%`
 </script>
@@ -371,16 +457,135 @@
 
   <div class="columns">
 
-  <section>
-    <h2>Series</h2>
-    <label>
-      Ticker
-      <select bind:value={draft.data.ticker}>
-        {#each tickers as ticker (ticker.symbol)}
-          <option value={ticker.symbol}>{ticker.displayName} · {ticker.barCount} bars</option>
-        {/each}
-      </select>
-    </label>
+  <!--
+    Series is a full-width disclosure rather than a column card, and the first thing on
+    the screen, because it owns the one decision the rest of this screen is *about*:
+    which prices you're going to trade. It also holds the widest content here — a
+    download row, a library list — which reads badly squeezed into a third of the width.
+
+    Open by default, unlike the disclosures below it: those answer "have I changed
+    anything?", which a summary line can carry, while this one is where a new player has
+    to go first.
+  -->
+  <details class="advanced" open>
+    <summary>Series{seriesSummary}</summary>
+    <div class="details-body">
+    <div class="pair">
+      <label>
+        Source
+        <select bind:value={draft.data.source}>
+          {#each sources as source (source.id)}
+            <option value={source.id}>{source.displayName}</option>
+          {/each}
+        </select>
+      </label>
+
+      <label>
+        Ticker
+        <select bind:value={draft.data.ticker} disabled={tickers.length === 0}>
+          {#each tickers as ticker (ticker.symbol)}
+            <option value={ticker.symbol}>{ticker.displayName} · {ticker.barCount} bars</option>
+          {/each}
+        </select>
+      </label>
+    </div>
+    {#if tickers.length === 0}
+      <p class="note warn">
+        {activeSource?.downloadable
+          ? 'Your library is empty — download or import a series below before starting a run.'
+          : 'This source is offering nothing to play.'}
+      </p>
+    {/if}
+
+    <!--
+      Download only appears for a source that can do it. The bundled and synthetic
+      sources have fixed catalogues, and a disabled field on them would be a control
+      that exists to be greyed out.
+    -->
+    {#if activeSource?.downloadable}
+      <div class="import">
+        <div class="add-row">
+          <input
+            type="text"
+            placeholder="Symbol, e.g. TSLA"
+            spellcheck="false"
+            autocapitalize="characters"
+            aria-label="Ticker symbol to download"
+            bind:value={symbolInput}
+            onkeydown={(event) => event.key === 'Enter' && void downloadTicker()}
+          />
+          <select class="provider" bind:value={providerInput} aria-label="Download from">
+            {#each providers as provider (provider.id)}
+              <option value={provider.id}>{provider.displayName}</option>
+            {/each}
+          </select>
+          <button
+            type="button"
+            class="add"
+            disabled={download.busy || symbolInput.trim() === ''}
+            onclick={() => void downloadTicker()}
+          >
+            {download.busy ? 'Working…' : 'Download'}
+          </button>
+        </div>
+
+        {#if download.busy}
+          <p class="note">Fetching {download.symbol ?? 'the series'}…</p>
+        {:else if download.error}
+          <p class="warn">{download.error}</p>
+        {:else if download.notice}
+          <p class="note">{download.notice}</p>
+        {/if}
+
+        <div class="import-row">
+          <button type="button" class="secondary" onclick={() => void importSeriesFiles()}>
+            Import CSV or JSON
+          </button>
+          <span class="note inline">
+            One button for both — the format is read from the file, not its name.
+          </span>
+        </div>
+
+        <p class="note">
+          Downloads and imports share one library, keyed by symbol: obtaining AAPL again
+          replaces AAPL. The provider's whole daily history is kept and never re-fetched
+          at run start, so a series replays identically. Play a shorter window with the
+          date range under Advanced.
+        </p>
+
+        {#if tickers.length > 0}
+          <ul class="plugins">
+            {#each tickers as ticker (ticker.symbol)}
+              <li>
+                <span class="pname">{ticker.symbol}</span>
+                <span class="pstatus">
+                  {ticker.barCount} bars · {dateInput(ticker.firstBarTime)} to
+                  {dateInput(ticker.lastBarTime)}
+                </span>
+                <span class="row-actions">
+                  <!-- Stages the symbol rather than fetching straight away, so the
+                       provider about to be used is visible before it happens. -->
+                  <button
+                    type="button"
+                    class="remove"
+                    onclick={() => (symbolInput = ticker.symbol)}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    class="remove"
+                    onclick={() => void onForgetTicker(ticker.symbol)}
+                  >
+                    Remove
+                  </button>
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {/if}
 
     <label>
       Scroll speed <span class="value">{draft.scrollSpeed} bars/sec</span>
@@ -389,7 +594,8 @@
     <p class="note">
       Lower is slower and easier to read — it doubles as an accessibility setting.
     </p>
-  </section>
+    </div>
+  </details>
 
   <section>
     <h2>Runner</h2>
@@ -439,17 +645,10 @@
     <label>
       Bar style
       <select bind:value={draft.visuals.barStyle}>
-        <option value="theme">Match the mood</option>
-        <option value="candlestick">Candlesticks</option>
         <option value="bollinger">Bollinger bars</option>
+        <option value="candlestick">Candlesticks</option>
       </select>
     </label>
-    <p class="note">
-      Both show the same four prices — open, high, low, close. Bollinger bars draw one
-      uniform column with the open-to-close section picked out in colour; candlesticks
-      draw a narrow wick through a wider body. Every mood ships as Bollinger bars, so
-      "Match the mood" and "Bollinger bars" currently agree.
-    </p>
 
     <label class="check">
       <input type="checkbox" bind:checked={draft.volume.enabled} />
@@ -459,10 +658,6 @@
       <input type="checkbox" bind:checked={draft.hud.showStopLevelOnChart} />
       Draw stop levels on the chart
     </label>
-    <p class="note">
-      Indicators and the volume pane don't change your personal-best bucket — turning
-      on a helpful overlay shouldn't orphan your history.
-    </p>
   </section>
 
   <section>
@@ -939,6 +1134,13 @@
   .columns > .advanced {
     grid-column: 1 / -1;
   }
+  /* Side by side while there's room, stacked when there isn't — the same `auto-fit`
+     trick as `.columns`, so no media query. */
+  .pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0 16px;
+  }
   h2 {
     margin: 26px 0 10px;
     font-size: 12.5px;
@@ -988,6 +1190,7 @@
   }
   select,
   input[type='number'],
+  input[type='text'],
   input[type='date'] {
     display: block;
     width: 100%;
@@ -1001,6 +1204,11 @@
   }
   input[type='number'] {
     font-family: ui-monospace, Menlo, monospace;
+  }
+  /* Ticker symbols read as identifiers, and the monospace makes a typo visible. */
+  input[type='text'] {
+    font-family: ui-monospace, Menlo, monospace;
+    text-transform: uppercase;
   }
   .note {
     margin: 4px 0 0;
@@ -1069,12 +1277,46 @@
   }
   .add-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
     margin-top: 10px;
   }
+  .add-row select,
+  .add-row input[type='text'] {
+    margin-top: 0;
+  }
   .add-row select {
     flex: 1;
+  }
+  /* The symbol field takes the room. */
+  .add-row input[type='text'] {
+    flex: 2 1 12ch;
+    min-width: 12ch;
+  }
+  /**
+   * `width: auto` is load-bearing: selects are `width: 100%` by default here, and a
+   * flex item whose basis is `auto` reads that width — so the provider picker demanded
+   * the whole row, and with `flex-shrink: 0` it kept it, squashing the symbol field to
+   * nothing and pushing Download off the right edge.
+   */
+  .add-row select.provider {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 100%;
+  }
+  .import-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .import-row .secondary {
+    flex: none;
+  }
+  .row-actions {
+    display: flex;
+    gap: 6px;
   }
   fieldset.palette {
     margin: 10px 0 8px;

@@ -215,7 +215,7 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 | `visuals.reducedMotion` | Damps parallax, particles, and transitions. Initialized from the OS `prefers-reduced-motion` setting | OS-derived |
 | `visuals.screenShake` | Screen shake on stop-out and large wins | on |
 | `visuals.pnlPalette` | `red-green` (the familiar trading convention) or `blue-orange` (colorblind-safe). Drives the HUD, the exit particles, the menus' up/down accents, **and the candle bodies** — a chart is the setting's most important consumer. P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `red-green` |
-| `visuals.barStyle` | `theme` (defer to the visual theme's `wickWidthFraction`), `candlestick` (narrow wick through a wide body), or `bollinger` (one uniform column, open→close picked out in colour). Both styles draw all four prices, so this is a reading preference and is **excluded from the run fingerprint**. See [game-design.md](./game-design.md#candle-geometry) | `theme` |
+| `visuals.barStyle` | `bollinger` (one uniform column, open→close picked out in colour) or `candlestick` (narrow wick through a wide body). Both draw all four prices, so this is a reading preference and is **excluded from the run fingerprint**. See [game-design.md](./game-design.md#candle-geometry) | `bollinger` |
 
 ## Character
 
@@ -242,8 +242,8 @@ anyone who wants to mix them. See
 
 | Key | Description | Default |
 |---|---|---|
-| `data.source` | Which `PriceSeriesSource` implementation to use; switchable at runtime, not a build-time choice. See [data-sources.md](./data-sources.md) | `bundled` |
-| `data.ticker` | Selected symbol, chosen from a dropdown of what the active source offers. Bundled set: `AAPL` (uptrend), `MSFT` (choppy), `NKE` (downtrend) | `AAPL` |
+| `data.source` | Which `PriceSeriesSource` implementation to use; switchable at runtime, not a build-time choice. `bundled`, `synthetic`, or `downloaded` — the library of series you've downloaded from a provider or imported from a file. See [data-sources.md](./data-sources.md) | `bundled` |
+| `data.ticker` | Selected symbol, chosen from a dropdown of what the active source offers. Bundled set: `AAPL` (uptrend), `MSFT` (choppy), `NKE` (downtrend). Under `downloaded`, the dropdown lists your library | `AAPL` |
 | `data.dateRange` | Optional sub-range (epoch seconds, inclusive); unset plays the whole series | unset |
 
 ## Controls

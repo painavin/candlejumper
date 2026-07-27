@@ -28,13 +28,15 @@ export type PnlPalette = 'blue-orange' | 'red-green'
 /**
  * How a bar is drawn. Both styles show the same four prices — the difference is
  * only how wide the high–low range is relative to the body, so this is purely a
- * preference and is excluded from the run fingerprint.
+ * reading preference and is excluded from the run fingerprint.
  *
- * `theme` defers to the active visual theme's `wickWidthFraction`, which is what
- * lets a mood ship with a house style (`jolly` candlesticks, `serious` Bollinger
- * bars) while still letting a player who prefers one override it everywhere.
+ * There used to be a third value, `theme`, which deferred to the active visual
+ * theme's own `wickWidthFraction` so a mood could ship a house style. Both shipped
+ * moods chose Bollinger bars, so the option only ever meant "the default, indirectly"
+ * — a control whose two settings did the same thing, and a per-theme number nothing
+ * else read.
  */
-export type BarStyle = 'theme' | 'candlestick' | 'bollinger'
+export type BarStyle = 'candlestick' | 'bollinger'
 
 /**
  * Defined in `shared/contracts` rather than here, because the plugin host needs
@@ -57,9 +59,8 @@ export interface IndicatorInstanceConfig {
   /**
    * Where this instance is drawn, overriding the plugin's own `paneKind`.
    *
-   * `undefined` means "whatever the plugin suggests" — the same shape as
-   * `visuals.barStyle: 'theme'`, and for the same reason: the plugin author's choice
-   * is a sensible default, not a decision the player has to be locked out of.
+   * `undefined` means "whatever the plugin suggests": the plugin author's choice is a
+   * sensible default, not a decision the player has to be locked out of.
    *
    * Legitimate because `paneKind` is documented as a *rendering hint*: the same
    * indicator is consumed as bare numbers by stop plugins, so it never depended on

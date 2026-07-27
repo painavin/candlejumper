@@ -14,6 +14,7 @@
  * as a second function here and nothing downstream changes.
  */
 
+import { pickTextFiles } from '../fileImport/files.js'
 import type { KeyValueStore } from '../persistence/store.js'
 
 export interface PluginFile {
@@ -29,37 +30,13 @@ const KEY = 'plugins'
 /**
  * Open a file picker and read what the player chose.
  *
- * A hidden `<input type="file">` rather than the File System Access API: the latter
- * isn't available in Firefox or Safari, and this needs no write access or directory
- * handles — only bytes, once.
+ * The picker itself lives in `../fileImport/`, because price-data import needs exactly
+ * the same thing and the fiddly parts — a cancelled picker fires no `change` event in
+ * most browsers — are worth having once.
  */
-export function importPluginFiles(kind: 'stop' | 'indicator'): Promise<PluginFile[]> {
-  return new Promise((resolve) => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.multiple = true
-    input.accept = '.js,.mjs,text/javascript'
-
-    // A cancelled picker fires no `change` event in most browsers, so the promise
-    // would hang forever without this. `cancel` is not universal either, which is
-    // why the resolve is idempotent below.
-    let settled = false
-    const finish = (files: PluginFile[]): void => {
-      if (settled) return
-      settled = true
-      resolve(files)
-    }
-
-    input.addEventListener('cancel', () => finish([]))
-    input.addEventListener('change', () => {
-      const chosen = [...(input.files ?? [])]
-      void Promise.all(
-        chosen.map(async (file) => ({ name: file.name, kind, source: await file.text() }))
-      ).then(finish, () => finish([]))
-    })
-
-    input.click()
-  })
+export async function importPluginFiles(kind: 'stop' | 'indicator'): Promise<PluginFile[]> {
+  const files = await pickTextFiles('.js,.mjs,text/javascript')
+  return files.map((file) => ({ name: file.name, kind, source: file.text }))
 }
 
 /**

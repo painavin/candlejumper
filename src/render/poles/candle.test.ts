@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { visualTheme } from '@content/visualThemes/index.js'
 import type { VisibleBar } from '@engine/output/index.js'
 import type { OhlcvBar } from '@shared/contracts/index.js'
 import { computeLayout } from '../stage/layout.js'
@@ -190,47 +189,31 @@ describe('wick width', () => {
 })
 
 describe('wickWidthFor', () => {
-  const jolly = visualTheme('jolly')
-  const serious = visualTheme('serious')
-
-  it('defers to the theme when the player has not chosen', () => {
-    expect(wickWidthFor('theme', jolly)).toBe(jolly.poles.wickWidthFraction)
-    expect(wickWidthFor('theme', serious)).toBe(serious.poles.wickWidthFraction)
+  it('draws Bollinger bars at the body width, which is what makes them uniform', () => {
+    expect(wickWidthFor('bollinger')).toBe(1)
   })
 
-  it('ships every mood as Bollinger bars', () => {
-    // Both shipped themes ask for the same width. `wickWidthFraction` stays theme
-    // data anyway: it's what a future mood would reach for to ship candlesticks,
-    // and keeping it means the two chart types are still one parameter apart.
-    for (const theme of [jolly, serious]) {
-      expect(wickWidthFor('theme', theme)).toBe(1)
-    }
-  })
-
-  it('overrides the theme when the player pins a style', () => {
-    for (const theme of [jolly, serious]) {
-      expect(wickWidthFor('bollinger', theme)).toBe(1)
-      expect(wickWidthFor('candlestick', theme)).toBeLessThan(1)
-      expect(wickWidthFor('candlestick', theme)).toBeGreaterThan(0)
-    }
-  })
-
-  it('gives a pinned style the same width in either mood', () => {
-    // The point of pinning: a player who reads one chart type more fluently gets it
-    // everywhere, not just in whichever mood happens to ship with it.
-    expect(wickWidthFor('candlestick', jolly)).toBe(wickWidthFor('candlestick', serious))
-    expect(wickWidthFor('bollinger', jolly)).toBe(wickWidthFor('bollinger', serious))
+  it('draws a candlestick narrower than its body, but still visible', () => {
+    expect(wickWidthFor('candlestick')).toBeLessThan(1)
+    expect(wickWidthFor('candlestick')).toBeGreaterThan(0)
   })
 
   it('resolves to a width that actually produces the intended chart', () => {
-    // Ties the setting to the geometry rather than trusting the constants: pinning
+    // Ties the setting to the geometry rather than trusting the constants: choosing
     // Bollinger must genuinely equalise the two widths.
     const bar = visible({ open: 0.4, high: 0.9, low: 0.1, close: 0.6 })
-    const bollinger = shapeOf(bar, wickWidthFor('bollinger', jolly))
+    const bollinger = shapeOf(bar, wickWidthFor('bollinger'))
     expect(bollinger.range.width).toBeCloseTo(bollinger.body.width, 6)
 
-    const candlestick = shapeOf(bar, wickWidthFor('candlestick', serious))
+    const candlestick = shapeOf(bar, wickWidthFor('candlestick'))
     expect(candlestick.range.width).toBeLessThan(candlestick.body.width)
+  })
+
+  it('depends on nothing but the setting, so a mood cannot change the chart type', () => {
+    // The visual theme used to carry its own `wickWidthFraction`, read when the setting
+    // was `theme`. Both moods chose the same value, so the indirection only ever
+    // produced the default — and this is the property that replaced it.
+    expect(wickWidthFor.length).toBe(1)
   })
 })
 

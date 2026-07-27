@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { defaultConfig } from './defaults.js'
 import { fingerprintPayload, runFingerprint } from './fingerprint.js'
 
-const CONTEXT = { visibleBarCount: 60 }
+const SERIES = { barCount: 480, lastBarTime: 1_784_899_800 }
+const CONTEXT = { visibleBarCount: 60, series: SERIES }
 
 describe('runFingerprint', () => {
   it('is stable for an unchanged config', () => {
@@ -54,8 +55,8 @@ describe('runFingerprint', () => {
     // Which is why it's frozen at run start: a mid-run rotation would otherwise
     // move the run into a different personal-best bucket.
     const config = defaultConfig()
-    expect(runFingerprint(config, { visibleBarCount: 28 })).not.toBe(
-      runFingerprint(config, { visibleBarCount: 60 })
+    expect(runFingerprint(config, { visibleBarCount: 28, series: SERIES })).not.toBe(
+      runFingerprint(config, { visibleBarCount: 60, series: SERIES })
     )
   })
 
@@ -85,8 +86,19 @@ describe('runFingerprint', () => {
     expect(runFingerprint(backwards, CONTEXT)).toBe(runFingerprint(forwards, CONTEXT))
   })
 
+  it('changes when the dataset behind the ticker changes', () => {
+    // A downloaded ticker can be refreshed, which leaves the source and symbol
+    // identical and adds bars. Without this the new dataset would compete against
+    // records set on the old one.
+    const config = defaultConfig()
+    const refreshed = { barCount: 481, lastBarTime: 1_784_986_200 }
+    expect(runFingerprint(config, { visibleBarCount: 60, series: refreshed })).not.toBe(
+      runFingerprint(config, CONTEXT)
+    )
+  })
+
   it('carries its version, so adding a key is an explicit migration', () => {
     const payload = fingerprintPayload(defaultConfig(), CONTEXT) as Record<string, unknown>
-    expect(payload.v).toBe(1)
+    expect(payload.v).toBe(2)
   })
 })

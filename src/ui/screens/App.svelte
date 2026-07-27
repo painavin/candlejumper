@@ -72,7 +72,10 @@
     <div in:fly={enter} out:fade={leave}>
       <Settings
         config={state.config}
+        sources={state.sources}
+        providers={state.providers}
         tickers={state.tickers}
+        download={state.download}
         stopChoices={state.stopChoices}
         indicatorChoices={state.indicatorChoices}
         personalBest={state.personalBest}
@@ -82,6 +85,9 @@
         onPreview={actions.preview}
         onImportPlugins={actions.importPlugins}
         onRemovePlugin={actions.removePlugin}
+        onDownloadTicker={actions.downloadTicker}
+        onImportSeriesFiles={actions.importSeriesFiles}
+        onForgetTicker={actions.forgetTicker}
       />
     </div>
   {:else if state.screen === 'paused' && state.pauseInfo}

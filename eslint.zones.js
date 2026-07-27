@@ -45,7 +45,7 @@ export const ZONE_SUBFOLDERS = {
     'scoring',
     'stops',
   ],
-  '@platform': ['haptics', 'persistence', 'pluginLoading'],
+  '@platform': ['fileImport', 'haptics', 'http', 'persistence', 'pluginLoading'],
 }
 
 /**

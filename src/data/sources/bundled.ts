@@ -18,6 +18,8 @@ const DESCRIPTIONS: Record<string, string> = {
   NKE: 'NKE — sustained downtrend',
 }
 
+export const BUNDLED_SOURCE_ID = 'bundled'
+
 export function createBundledSource(): PriceSeriesSource {
   const cache = new Map<string, OhlcvBar[]>()
 
@@ -30,7 +32,7 @@ export function createBundledSource(): PriceSeriesSource {
   }
 
   return {
-    id: 'bundled',
+    id: BUNDLED_SOURCE_ID,
     displayName: 'Bundled datasets',
 
     async listTickers(): Promise<TickerMeta[]> {

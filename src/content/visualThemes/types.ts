@@ -75,20 +75,14 @@ export interface VisualTheme {
     capStyle: 'round' | 'flat'
     outline: boolean
     /**
-     * Width of the high–low range, as a fraction of the body's width.
+     * Bar *width* is deliberately absent here.
      *
-     * **This one number is the difference between the two standard chart types**,
-     * which is why it's a parameter and not two drawing routines:
-     *
-     *   - a small fraction (~0.15) draws a **candlestick** — a narrow wick with a
-     *     wide body around it
-     *   - `1` draws a **Bollinger bar** — body and range the same width, so the
-     *     bar is one uniform column whose open→close section is simply drawn in
-     *     the direction colour
-     *
-     * Anything between is a legitimate hybrid, so this is a continuum rather than
-     * an enum with two members.
+     * A `wickWidthFraction` used to live in this block so a mood could ship its own
+     * chart type, read only when `visuals.barStyle` was `theme`. Both moods chose the
+     * same value, so the setting resolved to the default either way — and a themeable
+     * knob that never varies is a place for the two paths to drift apart rather than a
+     * feature. The width now comes from the player's `visuals.barStyle` alone; see
+     * `render/poles/candle.ts`.
      */
-    wickWidthFraction: number
   }
 }

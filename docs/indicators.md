@@ -183,7 +183,7 @@ which is enough to confirm a setup without expanding anything.
 onto the main chart or into its own pane, which is legitimate precisely because the
 contract already calls `paneKind` a rendering hint — the same indicator is consumed as
 bare numbers by stop plugins, so it never depended on having a pane at all. Unset means
-"whatever the plugin suggests", the same shape as `visuals.barStyle: 'theme'`.
+"whatever the plugin suggests".
 
 The override is **presentation only**: the arithmetic, the warm-up, and the label are
 identical either way. Otherwise "where do I draw this" would quietly become "what does

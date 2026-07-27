@@ -63,7 +63,7 @@ export function defaultConfig(): RunConfig {
       pnlPalette: 'red-green',
       // Defer to the mood: `jolly` draws candlesticks, `serious` draws Bollinger
       // bars. A player with a preference can pin either one for every theme.
-      barStyle: 'theme',
+      barStyle: 'bollinger',
     },
 
     character: { selected: 'robin' },

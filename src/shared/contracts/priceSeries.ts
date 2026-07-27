@@ -35,3 +35,97 @@ export interface PriceSeriesSource {
   /** Ordered bars, oldest first. */
   loadSeries(symbol: string, range?: DateRange): Promise<OhlcvBar[]>
 }
+
+/** A place a series can be downloaded from, as the UI needs to know it. */
+export interface SeriesProvider {
+  id: string
+  displayName: string
+}
+
+/** A file the player supplied, already read. */
+export interface TextFile {
+  name: string
+  text: string
+}
+
+/**
+ * A source whose catalogue the player fills themselves — by downloading, or by
+ * importing a file.
+ *
+ * Deliberately *not* part of `PriceSeriesSource`: the bundled and synthetic sources
+ * have a fixed catalogue, and giving them a `download` they'd have to refuse is
+ * worse than letting the UI ask whether the capability is there. Feature-detected
+ * through `isDownloadable`.
+ *
+ * The split also states the important property. `loadSeries` reads only what's
+ * already cached, so **starting a run never touches the network** — a downloaded
+ * ticker replays identically forever, which is what personal-best comparison
+ * depends on. Downloading is a separate, explicit act.
+ *
+ * `download` names its provider explicitly rather than picking one: where data comes
+ * from is the player's decision, and `providers` is what the settings screen offers
+ * them. There is no fallback between providers — see docs/data-sources.md.
+ *
+ * `download` and `importFile` land in the **same** library, keyed by symbol alone. One
+ * ticker is one dataset whatever produced it, and the newest write wins.
+ */
+export interface DownloadableSource extends PriceSeriesSource {
+  /** Where this source can fetch from. Populates the provider picker. */
+  readonly providers: readonly SeriesProvider[]
+  download(request: { symbol: string; providerId: string }): Promise<TickerMeta>
+  /** Adopt a player-supplied CSV or JSON file. */
+  importFile(file: TextFile): Promise<TickerMeta>
+  /** Drop a ticker from the library. */
+  forget(symbol: string): Promise<void>
+}
+
+export function isDownloadable(source: PriceSeriesSource): source is DownloadableSource {
+  return typeof (source as Partial<DownloadableSource>).download === 'function'
+}
+
+/**
+ * One series in the library, as it is cached.
+ *
+ * `provider` and `adjusted` are stored rather than looked up, because the library is
+ * shared: an entry outlives whichever provider or file produced it, and the claim
+ * about adjustment has to travel with the data instead of being inferred from
+ * whatever source happens to be selected now.
+ */
+export interface CachedDataset {
+  symbol: string
+  /** Provider id, or `imported` for a file. */
+  provider: string
+  /** Whether these prices are split/dividend adjusted, as claimed at write time. */
+  adjusted: boolean
+  /** Epoch milliseconds — when it was obtained, not what it covers. */
+  downloadedAtMs: number
+  bars: OhlcvBar[]
+}
+
+/**
+ * Where the library lives between sessions.
+ *
+ * **One cache, not one per provider.** A symbol names a series, and re-downloading it
+ * — from anywhere — replaces it. Keying by provider as well would let `AAPL` exist
+ * several times over with nothing on screen explaining why, and the run fingerprint
+ * already distinguishes the datasets by bar count and last bar time, so a replacement
+ * correctly starts its own personal-best bucket rather than inheriting one.
+ *
+ * A port rather than a direct dependency on `platform/persistence`, because
+ * `data/` may only import `@shared` — the same dependency inversion the stop and
+ * indicator plugin ports use. `app/` supplies the implementation.
+ *
+ * Values are `unknown` on the way out on purpose: everything persisted is
+ * untrusted on read, and validating a cached dataset is the source's job.
+ */
+export interface DatasetCache {
+  load(): Promise<Record<string, unknown>>
+  /**
+   * Replace the whole cache.
+   *
+   * Must **reject** if the write didn't stick. Storage quotas are the expected
+   * failure here, and a download that silently fails to persist would look like it
+   * worked until the next reload.
+   */
+  save(entries: Record<string, unknown>): Promise<void>
+}

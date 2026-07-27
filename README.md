@@ -154,7 +154,7 @@ src/
 ├── content/     themes and characters as parameter sets — plain data
 ├── engine/      the trading engine. No PixiJS, no Tone.js, no DOM. Ever.
 ├── generation/  procedural art as numbers, so it's snapshot-testable
-├── data/        the bundled OHLCV datasets and the source interface
+├── data/        the bundled OHLCV datasets, the source interface, downloads
 ├── plugins/     the worker sandbox, the host, and the shipped plugins
 ├── render/      PixiJS lives here and only here
 ├── audio/       Tone.js lives here and only here
