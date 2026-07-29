@@ -1,6 +1,13 @@
 import { mount, unmount } from 'svelte'
 import type { FingerprintInputs, RunConfig } from '@config/index.js'
-import { defaultConfig, describeProblems, runFingerprint, validateConfig, FINGERPRINT_VERSION } from '@config/index.js'
+import {
+  defaultConfig,
+  describeProblems,
+  resolveMotion,
+  runFingerprint,
+  validateConfig,
+  FINGERPRINT_VERSION,
+} from '@config/index.js'
 import { BUNDLED_SOURCE_ID, createSourceRegistry } from '@data/index.js'
 import {
   createStopHost,
@@ -39,6 +46,7 @@ import { AppState, snapshot } from '@ui/appState.svelte.js'
 import type { AppActions } from '@ui/appState.svelte.js'
 import App from '@ui/screens/App.svelte'
 import { createDatasetCache } from './datasetCache.js'
+import { readStoredConfig, writeStoredConfig } from './configStore.js'
 import { startRunSession } from './runSession.js'
 import type { RunSession } from './runSession.js'
 
@@ -119,8 +127,14 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
 
   let save: SaveData = await loadSave(store, FINGERPRINT_VERSION)
   const state = new AppState()
-  state.config = defaultConfig()
-  state.config.visuals.reducedMotion = prefersReducedMotion()
+  /**
+   * Defaults for now; the stored settings are read further down, **after** the plugin
+   * host has registered what the player imported. Order matters: `stops.active` and
+   * `indicators.active` name plugins by id, and validating them against a registry
+   * that hasn't loaded the sandboxed ones yet would report every imported plugin as
+   * missing on the first frame after boot.
+   */
+  state.config = resolveMotion(defaultConfig(), prefersReducedMotion())
   state.isTouch = isCoarsePointer()
   state.lifetime = save.lifetime
   state.badges = earnedUnlocks({ lifetime: save.lifetime })
@@ -260,6 +274,31 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   // rules, even though the registries had been seeded with the built-ins all along.
   // The built-ins were unreachable from the UI entirely.
   publishChoices()
+
+  /**
+   * Stored settings, applied now that the plugin registries are complete.
+   *
+   * Deliberately after `registerPlugins` — see the note on `state.config` above.
+   * `refreshTickers` runs again because the stored source is very likely not the
+   * default one, and the ticker list belongs to whichever source is selected.
+   */
+  state.config = await readStoredConfig(store, {
+    defaults: defaultConfig(),
+    systemReducedMotion: prefersReducedMotion(),
+  })
+  await refreshTickers()
+  /**
+   * A stored ticker the active source no longer offers falls back to one it does.
+   *
+   * The likely case is a downloaded series the player removed. Unlike a missing stop
+   * plugin — which must survive to be complained about, because silently disarming a
+   * risk rule is dangerous — a missing ticker has a harmless default to land on, and
+   * refusing to boot over it would be theatre.
+   */
+  if (state.tickers.length > 0 && !state.tickers.some((t) => t.symbol === state.config?.data.ticker)) {
+    state.config.data.ticker = state.tickers[0]!.symbol
+    state.config.data.dateRange = undefined
+  }
 
   /**
    * What the active source currently holds for a config's ticker.
@@ -760,7 +799,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   }
 
   /** The last source the preview was told about, so a change to it can be detected. */
-  let lastSourceId = state.config.data.source
+  let lastSourceId: string = state.config.data.source
 
   const actions: AppActions = {
     // `snapshot`, not `structuredClone`: the incoming config may still be a
@@ -804,11 +843,19 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     commitSettings: (config) => {
       // Takes effect immediately: the committed config is what the backdrop draws,
       // what Play runs, and what the personal-best bucket is keyed on.
-      state.config = snapshot(config)
+      state.config = resolveMotion(snapshot(config), prefersReducedMotion())
       configBeforeSettings = undefined
       state.screen = 'title'
       refreshPersonalBest()
       void startAttract(state.config)
+      /**
+       * Persisted **here and nowhere else**, which is what makes Cancel mean something.
+       * The screen previews live by mutating the committed config, so writing on every
+       * change would save a mood the player was only looking at. Fire-and-forget: a
+       * failed write costs a preference, and blocking the screen on storage would cost
+       * more than that.
+       */
+      void writeStoredConfig(store, state.config)
     },
     cancelSettings: () => {
       if (configBeforeSettings) state.config = configBeforeSettings
@@ -833,7 +880,9 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     preview: (config) => {
       // The settings draft, not a commitment: it drives the backdrop and the menu
       // colours, and is discarded if the player backs out without starting.
-      state.config = snapshot(config)
+      // Motion is re-resolved because the *override* is what the player changed, and
+      // every renderer reads the resolved value.
+      state.config = resolveMotion(snapshot(config), prefersReducedMotion())
       /**
        * Mix changes are applied to whatever is already playing rather than triggering
        * a restart. Restarting for a volume change would drop the music back to the

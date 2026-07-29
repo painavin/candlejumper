@@ -41,6 +41,17 @@ this — mood themes skin the world, not the P&L semantics.
   movement, particle bursts, and screen transitions. Honor the OS-level
   `prefers-reduced-motion` as the initial default rather than making
   players find the setting.
+- **The motion control has three states, not two**: follow the system,
+  reduced, full. This is what "honor the OS-level setting" costs once settings
+  are *saved* — a persisted boolean cannot distinguish "the player chose full
+  motion" from "the system said full motion last time they looked", so it would
+  silently override `prefers-reduced-motion` for anyone who opened Settings once
+  and changed something unrelated. That is the one preference whose entire
+  purpose is to be honoured without being asked, so only an explicit override is
+  stored (`visuals.motionOverride`), and the resolved value
+  (`visuals.reducedMotion`) is derived at every launch. The "follow my system
+  setting" option names what it currently resolves to, so the choice isn't a
+  mystery.
 - The foreground occlusion layer ([visuals.md](./visuals.md)) is the most
   likely motion irritant since it crosses the character — reduced motion
   should thin or disable it.

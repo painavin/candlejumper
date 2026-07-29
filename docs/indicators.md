@@ -319,8 +319,15 @@ are proven.
 
 ## Config
 
-See [config.md](./config.md#indicators--volume) for `indicators.active`,
-`indicators.plugins.loaded`, and `volume.enabled`.
+See [config.md](./config.md#indicators--volume) for `indicators.active` and
+`volume.enabled`.
+
+There is deliberately no `indicators.plugins.loaded` list. It was specified once
+as "file path on desktop, imported blob on mobile" and was never implementable: a
+browser cannot re-read a file the player picked last week, and mobile has no
+stable path either. Imported plugins persist as **source text** under their own
+storage key, so a list of references in the config would only ever have been a
+second, always-stale record of the same thing.
 
 ## Sequencing note
 

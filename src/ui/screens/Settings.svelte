@@ -132,6 +132,7 @@
       draft.visuals.worldSeed,
       draft.visuals.barStyle,
       draft.visuals.pnlPalette,
+      draft.visuals.motionOverride,
       draft.character.selected,
       draft.data.source,
       draft.data.ticker,
@@ -408,6 +409,32 @@
     // is meaningless against it.
     draft.data.dateRange = undefined
     symbolInput = ''
+  }
+
+  /**
+   * The motion control's value, from the stored *override* rather than the resolved
+   * setting — those differ precisely when the player is following the system, which is
+   * the state a checkbox cannot represent.
+   */
+  const motionChoice = $derived(
+    draft.visuals.motionOverride === undefined
+      ? 'system'
+      : draft.visuals.motionOverride
+        ? 'reduced'
+        : 'full'
+  )
+
+  /** What following the system currently gets you, so the option isn't a mystery. */
+  const systemMotionSuffix = $derived(
+    draft.visuals.motionOverride === undefined
+      ? ` (${draft.visuals.reducedMotion ? 'reduced' : 'full'})`
+      : ''
+  )
+
+  function setMotionChoice(value: string): void {
+    draft.visuals.motionOverride = value === 'system' ? undefined : value === 'reduced'
+    // `app/` re-resolves `reducedMotion` from this on preview, so nothing here has to
+    // duplicate that decision.
   }
 
   const percent = (value: number): string =>
@@ -759,9 +786,22 @@
         <option value="blue-orange">Blue / orange (colourblind-safe)</option>
       </select>
     </label>
-    <label class="check">
-      <input type="checkbox" bind:checked={draft.visuals.reducedMotion} />
-      Reduced motion
+    <!--
+      Three states rather than a checkbox. The saved value has to be able to say "I
+      haven't chosen", because a stored `false` would silently override the operating
+      system's own reduced-motion setting — the one preference whose whole purpose is
+      to be honoured without being asked again.
+    -->
+    <label>
+      Motion
+      <select
+        value={motionChoice}
+        onchange={(event) => setMotionChoice(event.currentTarget.value)}
+      >
+        <option value="system">Follow my system setting{systemMotionSuffix}</option>
+        <option value="reduced">Reduced</option>
+        <option value="full">Full</option>
+      </select>
     </label>
     <label class="check">
       <input type="checkbox" bind:checked={draft.visuals.screenShake} />
@@ -770,10 +810,6 @@
     <p class="note">
       Profit and loss always carry a sign and an arrow as well as a colour, so
       the chart reads correctly whichever palette you pick.
-    </p>
-    <p class="note">
-      None of these affect your personal-best bucket — comfort settings are
-      excluded from the run fingerprint on purpose.
     </p>
   </section>
 

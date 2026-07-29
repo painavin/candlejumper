@@ -88,6 +88,45 @@ fingerprint alongside the schema: adding a key to it later invalidates
 existing buckets, which should be an explicit migration rather than silent
 loss of a player's history.
 
+### What is stored where
+
+Four keys, all under the `candlerunner:` namespace, all JSON. Nothing else in the
+app touches web storage — no cookies, no `sessionStorage`, no IndexedDB — and
+nothing leaves the machine.
+
+| Key | Contents | Written | Size | Lost write |
+|---|---|---|---|---|
+| `save` | Personal bests by fingerprint, lifetime stats | End of a run | ~1 kB, grows per bucket | tolerated |
+| `config` | Every setting — see [config.md](./config.md#persistence) | On OK in Settings | ~2 kB | tolerated |
+| `plugins` | Imported plugin **source text**, `{name, kind, source}[]` | On import/remove | kB per plugin | tolerated |
+| `datasets` | The price library, `symbol → {symbol, provider, adjusted, downloadedAtMs, bars}` | On download/import/remove | **~800 kB per full-history ticker** | **detected** |
+
+Cookies were considered and rejected: the only thing they do that
+`localStorage` doesn't is travel to a server, and there is no server. Against
+that sits a 4 kB budget a full config gets close to, those bytes re-sent on
+every request if this is ever hosted, and odd behaviour under the custom URL
+schemes both native shells use.
+
+**"Lost write tolerated" is a per-key decision, not an oversight.**
+`createLocalStorageStore` swallows write failures by design — losing a personal
+best is bad, and failing to start the next run over it would be worse. That
+trade is wrong for `datasets`, which is a run's *input*: a download that
+silently didn't persist looks like it worked until the next reload, and then the
+series is simply gone. So that one adapter reads back and compares, and reports
+a full quota instead. Settings stay in the tolerant camp — a preference that
+doesn't survive private browsing is a shrug, and blocking the settings screen on
+storage would cost more than the problem.
+
+**Deliberately not persisted**: run and session state (a run is not resumable by
+design), the settings draft (that's what Cancel restores from), plugin
+descriptors (rebuilt from `plugins` at boot), and the two values read fresh from
+the OS every launch — `prefers-reduced-motion` and pointer coarseness.
+
+**The size risk is `datasets`**, not settings. It's a single synchronously-parsed
+value against a ~5 MB quota, so it is both the thing that will hit the ceiling
+and a main-thread parse at boot. When that binds, the fix is IndexedDB *for that
+key only*, behind the same interface, with everything else staying where it is.
+
 ## Testing
 
 Not every layer is worth the same effort here:

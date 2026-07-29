@@ -19,5 +19,12 @@ export {
 } from './defaults.js'
 export { validateConfig, describeProblems } from './validate.js'
 export type { ConfigProblem, ValidationContext } from './validate.js'
+export {
+  CONFIG_VERSION,
+  parseStoredConfig,
+  resolveMotion,
+  toStoredConfig,
+} from './storedConfig.js'
+export type { StoredConfig, ParseOptions } from './storedConfig.js'
 export { runFingerprint, fingerprintPayload, FINGERPRINT_VERSION } from './fingerprint.js'
 export type { FingerprintInputs } from './fingerprint.js'

@@ -112,9 +112,19 @@ export interface RunConfig {
   flattenHoldMs: number
 
   // ── Stops ────────────────────────────────────────────────────────────────
+  /**
+   * No `plugins.loaded` list here, deliberately.
+   *
+   * docs/config.md used to describe one — "file path on desktop, imported blob on
+   * mobile" — and it was never implementable: a browser cannot re-read a file the
+   * player picked last week, and mobile has no stable path either. Imported plugins
+   * persist as *source text* under their own storage key instead, so a list of
+   * references in the config would have been a second, always-stale record of the
+   * same thing. `active` below names plugins by id; whether one is loaded is the
+   * plugin host's business.
+   */
   stops: {
     active: StopInstanceConfig[]
-    plugins: { loaded: string[] }
   }
 
   // ── Scoring ──────────────────────────────────────────────────────────────
@@ -141,7 +151,6 @@ export interface RunConfig {
   // ── Indicators & volume ──────────────────────────────────────────────────
   indicators: {
     active: IndicatorInstanceConfig[]
-    plugins: { loaded: string[] }
   }
   volume: { enabled: boolean }
 
@@ -151,7 +160,21 @@ export interface RunConfig {
     theme: string
     /** Same theme + seed always yields an identical world. */
     worldSeed: number
+    /**
+     * Reduced motion **as resolved for this session** — the value every renderer
+     * reads. Derived at boot from `motionOverride` and the OS setting, and
+     * deliberately *not* persisted: it's an outcome, not a preference.
+     */
     reducedMotion: boolean
+    /**
+     * The player's explicit motion choice, or `undefined` to follow the OS.
+     *
+     * Three states rather than two, because a persisted boolean would silently
+     * override `prefers-reduced-motion` — which is the one setting whose whole
+     * purpose is to be respected without being asked twice. Same override-plus-
+     * default shape as `IndicatorInstanceConfig.paneKind`.
+     */
+    motionOverride?: boolean
     screenShake: boolean
     pnlPalette: PnlPalette
     barStyle: BarStyle

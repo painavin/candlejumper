@@ -24,7 +24,7 @@ const bar = (close: number, index = 0): OhlcvBar => ({
 const config = (overrides: Partial<RunConfig> = {}): RunConfig => ({
   ...defaultConfig(),
   allowShorting: true,
-  stops: { active: [], plugins: { loaded: [] } },
+  stops: { active: [] },
   ...overrides,
 })
 

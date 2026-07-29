@@ -23,7 +23,6 @@ export function defaultConfig(): RunConfig {
       // nothing to measure without one. Advisory specifically, because that's
       // the only mode where the player rather than the engine is measured.
       active: [{ typeId: 'trailing-percent', params: { percent: 8 }, advisory: true }],
-      plugins: { loaded: [] },
     },
 
     scoring: {
@@ -39,7 +38,7 @@ export function defaultConfig(): RunConfig {
 
     hud: { showStopLevelOnChart: true },
 
-    indicators: { active: [], plugins: { loaded: [] } },
+    indicators: { active: [] },
     volume: { enabled: true },
 
     background: {
@@ -55,7 +54,9 @@ export function defaultConfig(): RunConfig {
     visuals: {
       theme: 'jolly',
       worldSeed: mintSeed(),
-      reducedMotion: false, // overwritten from prefers-reduced-motion at boot
+      // Resolved at boot from `motionOverride` and prefers-reduced-motion; this is
+      // only the value before that runs.
+      reducedMotion: false,
       screenShake: true,
       // Red/green: the language traders already read. Safe as a *default* only
       // because P&L never depends on hue — every value carries a sign and an arrow

@@ -48,7 +48,6 @@ open entry presses. Sizes below `1e-6` shares snap to flat.
 | Key | Description | Default |
 |---|---|---|
 | `stops.active` | Active stop plugin instances: `{ typeId, params, advisory }`. Multiple may be active; whichever enforcing level is hit first closes the position. See [stops.md](./stops.md) | one **advisory** `trailing-percent` at 8% *(provisional)* |
-| `stops.plugins.loaded` | Loaded custom stop plugin references, same loading surface as indicator plugins | empty |
 
 Per-instance **`advisory: true`** displays the level without enforcing it —
 the player must honour it themselves, and breaches are recorded as
@@ -194,7 +193,6 @@ shown).
 | Key | Description | Default |
 |---|---|---|
 | `indicators.active` | List of active indicator **instances** (`{ typeId, params, instanceId, colour, paneKind? }`). Several of one type at different params is the normal case — SMA 20 / 50 / 200 is three entries. `colour` comes from the fixed palette in `shared/palette/`; `paneKind` overrides the plugin's own hint, and unset means "whatever the plugin suggests". Excluded from the run fingerprint. See [indicators.md](./indicators.md) | empty; `sma` and `atr` available to add |
-| `indicators.plugins.loaded` | List of loaded custom plugin references (file path on desktop, imported blob on mobile) | empty |
 | `volume.enabled` | Show/hide the volume histogram sub-pane at the bottom of the screen | on |
 
 Volume uses the same oscillator sub-pane mechanism as any other
@@ -212,7 +210,8 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 | `background.layers.<name>.speedMultiplier` | Per-layer speed relative to `scrollSpeed` — motion only, fixed across themes | see [visuals.md](./visuals.md) table |
 | `visuals.theme` | Selected visual theme **parameter set** — palette plus shape/noise params for every layer, generated at runtime (no art files). See [visuals.md](./visuals.md#visual-themes) and [procedural-assets.md](./procedural-assets.md) | `jolly` |
 | `visuals.worldSeed` | Seeds the PRNG that generates background layers. Same theme + seed always yields an identical world; surfaced so a good-looking world can be recovered | freshly minted per run via `shared/math/` `mintSeed()` |
-| `visuals.reducedMotion` | Damps parallax, particles, and transitions. Initialized from the OS `prefers-reduced-motion` setting | OS-derived |
+| `visuals.motionOverride` | The player's explicit motion choice: `true` reduced, `false` full, **unset** follow the OS. The only motion value that is saved | unset |
+| `visuals.reducedMotion` | Damps parallax, particles, and transitions. The **resolved** value every renderer reads, derived at boot from `motionOverride` and `prefers-reduced-motion`. Never persisted — it's an outcome, not a preference | OS-derived |
 | `visuals.screenShake` | Screen shake on stop-out and large wins | on |
 | `visuals.pnlPalette` | `red-green` (the familiar trading convention) or `blue-orange` (colorblind-safe). Drives the HUD, the exit particles, the menus' up/down accents, **and the candle bodies** — a chart is the setting's most important consumer. P&L is never conveyed by color alone regardless — see [accessibility.md](./accessibility.md) | `red-green` |
 | `visuals.barStyle` | `bollinger` (one uniform column, open→close picked out in colour) or `candlestick` (narrow wick through a wide body). Both draw all four prices, so this is a reading preference and is **excluded from the run fingerprint**. See [game-design.md](./game-design.md#candle-geometry) | `bollinger` |
@@ -245,6 +244,35 @@ anyone who wants to mix them. See
 | `data.source` | Which `PriceSeriesSource` implementation to use; switchable at runtime, not a build-time choice. `bundled`, `synthetic`, or `downloaded` — the library of series you've downloaded from a provider or imported from a file. See [data-sources.md](./data-sources.md) | `bundled` |
 | `data.ticker` | Selected symbol, chosen from a dropdown of what the active source offers. Bundled set: `AAPL` (uptrend), `MSFT` (choppy), `NKE` (downtrend). Under `downloaded`, the dropdown lists your library | `AAPL` |
 | `data.dateRange` | Optional sub-range (epoch seconds, inclusive); unset plays the whole series | unset |
+
+## Persistence
+
+The whole tree above is saved under `candlerunner:config` and restored at the
+next launch — see [tech-stack.md](./tech-stack.md#what-is-stored-where) for the
+full storage map. Five rules, each deliberate:
+
+- **Written on OK, and nowhere else.** The settings screen previews live by
+  mutating the committed config, so writing on every change would save a mood
+  the player was only looking at. This is what makes Cancel mean something.
+- **Versioned** (`CONFIG_VERSION`), and a mismatch falls back to defaults rather
+  than guessing at a half-migration.
+- **Permissive about missing fields, strict about wrong ones.** A file written by
+  an older build keeps everything it does carry; a field outside its domain falls
+  back on its own without taking its neighbours with it. Nothing is *clamped* —
+  a stored volume of `4` becomes the default rather than `1`, because a value
+  nothing could have written is not evidence of intent.
+- **Restored after the plugin host loads.** `stops.active` and
+  `indicators.active` name plugins by id, so reading them before the imported
+  ones registered would report every player plugin as missing.
+- **`stops.active` and `indicators.active` are never filtered on load.** A stop
+  whose plugin has gone missing survives to be complained about: `validateConfig`
+  refuses the run and names it, which is far better than silently disarming a
+  risk rule. `data.ticker` is the exception — a series that's no longer in the
+  library falls back to one that is, because there is no danger in it and a
+  sensible default exists.
+
+Two things are read fresh at every launch instead: `visuals.reducedMotion` (see
+above) and whether the device has a coarse pointer.
 
 ## Controls
 
