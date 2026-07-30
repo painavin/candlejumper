@@ -21,7 +21,7 @@ describe('progression', () => {
 
   it('gates nothing — no achievement id names a character or a theme', () => {
     // Cosmetics used to be locked behind these, which is the wrong trade for a
-    // trainer: hiding a finished runner behind a grind helps nobody learn anything.
+    // trainer: hiding a finished jumper behind a grind helps nobody learn anything.
     for (const unlock of unlocks) {
       expect(unlock.id.startsWith('badge:')).toBe(true)
     }

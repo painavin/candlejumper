@@ -1,6 +1,6 @@
 {
-  "appId": "dev.candlerunner.app",
-  "appName": "Candle Runner",
+  "appId": "dev.candlejumper.app",
+  "appName": "Candle Jumper",
   "webDir": "dist",
   "android": {
     "allowMixedContent": false

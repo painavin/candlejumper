@@ -11,7 +11,7 @@ import type { KeyValueStore } from '@platform/persistence/index.js'
  *
  * ## Its own key, not part of the save file
  *
- * `candlerunner:config`, separate from `candlerunner:save`. Four reasons, and the last
+ * `candlejumper:config`, separate from `candlejumper:save`. Four reasons, and the last
  * is the one that decided it:
  *
  *   - different lifecycles — settings change when the player presses OK, records change

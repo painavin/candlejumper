@@ -352,7 +352,7 @@ avoided writing cost basis twice, and the tests cover both.
   they knew what the game was — and the shipped defaults are a perfectly good first
   run. The button names the ticker it will play, so it isn't a mystery. This also
   retired the separate "Quick run", which Play now *is*.
-- **The settings screen previews live.** Changing mood, runner, ticker, or scroll
+- **The settings screen previews live.** Changing mood, jumper, ticker, or scroll
   speed restarts the backdrop, keyed on only the settings the backdrop can visibly
   show — reacting to the whole draft would rebuild the Pixi scene on every drag of a
   capital slider.

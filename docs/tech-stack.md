@@ -90,7 +90,7 @@ loss of a player's history.
 
 ### What is stored where
 
-Four keys, all under the `candlerunner:` namespace, all JSON. Nothing else in the
+Four keys, all under the `candlejumper:` namespace, all JSON. Nothing else in the
 app touches web storage — no cookies, no `sessionStorage`, no IndexedDB — and
 nothing leaves the machine.
 
@@ -116,6 +116,16 @@ series is simply gone. So that one adapter reads back and compares, and reports
 a full quota instead. Settings stay in the tolerant camp — a preference that
 doesn't survive private browsing is a shrug, and blocking the settings screen on
 storage would cost more than the problem.
+
+**The namespace is migrated, not assumed.** The project was called Candle Runner
+until it was renamed, and the namespace prefixes every key — so shipping the new
+name alone would orphan all four keys at once, including a price library that
+took real downloads to build. `createLocalStorageStore` therefore sweeps
+`LEGACY_NAMESPACES` on construction, moving any stragglers across and deleting
+the old keys. It never overwrites an entry that already exists under the current
+name: someone who has played since the rename has newer data, and a stale
+pre-rename blob must not clobber it. The sweep can be deleted once no install
+can still be carrying the old prefix.
 
 **Deliberately not persisted**: run and session state (a run is not resumable by
 design), the settings draft (that's what Cancel restores from), plugin

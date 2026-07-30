@@ -4,7 +4,7 @@
 
 Let players overlay technical indicators on the chart, and — beyond a
 small built-in set — load their own custom indicator code. This is our
-own plugin architecture, designed for Candle Runner specifically; it
+own plugin architecture, designed for Candle Jumper specifically; it
 isn't a port of, or a dependency on, any external library. Built-ins and
 user plugins conform to the exact same contract, so there's no
 special-casing between "official" and "user" indicators once loaded.

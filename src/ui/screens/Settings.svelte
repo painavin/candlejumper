@@ -114,7 +114,7 @@
 
   /**
    * Push the draft to `app/` whenever something *audible or visible* changes, so
-   * mood, runner, and volume all take effect while you're still deciding rather than
+   * mood, jumper, and volume all take effect while you're still deciding rather than
    * after you commit. A volume slider that needs an OK press is a broken volume
    * slider — the only way anyone sets a level is by listening while they move it.
    *
@@ -625,7 +625,7 @@
   </details>
 
   <section>
-    <h2>Runner</h2>
+    <h2>Jumper</h2>
     <div class="roster">
       {#each characters as entry (entry.id)}
         <button

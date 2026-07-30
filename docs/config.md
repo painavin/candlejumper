@@ -247,7 +247,7 @@ anyone who wants to mix them. See
 
 ## Persistence
 
-The whole tree above is saved under `candlerunner:config` and restored at the
+The whole tree above is saved under `candlejumper:config` and restored at the
 next launch — see [tech-stack.md](./tech-stack.md#what-is-stored-where) for the
 full storage map. Five rules, each deliberate:
 

@@ -8,7 +8,7 @@
    * docs/code-structure.md#the-hud-renders-in-pixijs-not-svelte.
    *
    * Layout is from docs/controls.md: buy bottom **right**, exit bottom **left**,
-   * pause top corner. Buy-on-the-right matches the runner sitting at 75% width, and
+   * pause top corner. Buy-on-the-right matches the jumper sitting at 75% width, and
    * both sit outside the plotting area — the layout reserves a control strip before
    * allocating sub-pane height, so a thumb never covers a pole being read.
    *

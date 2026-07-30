@@ -128,7 +128,7 @@ describe('the settings screen', () => {
     dispose()
   })
 
-  it('offers every runner, with none locked', () => {
+  it('offers every jumper, with none locked', () => {
     // All three were built and rendered; two used to be gated behind a grind, which
     // is the wrong trade for a trainer — a player who wants to be the bear should be
     // the bear on their first run.
@@ -215,7 +215,7 @@ describe('the title screen', () => {
     expect(state.screen).toBe('title')
 
     const { target, dispose } = titled()
-    expect(target.textContent).toContain('Candle Runner')
+    expect(target.textContent).toContain('Candle Jumper')
     expect(target.textContent).toContain('Play')
     dispose()
   })

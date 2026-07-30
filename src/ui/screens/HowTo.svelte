@@ -24,7 +24,7 @@
     <li>
       <h2>Every pole is a trading day</h2>
       <p>
-        Its height is that day's closing price. The runner stands on the newest one
+        Its height is that day's closing price. The jumper stands on the newest one
         and hops to the next as the day closes. You can never see a day you haven't
         reached — unplayed poles don't exist yet.
       </p>

@@ -94,7 +94,7 @@
     {/each}
   </ul>
   <p class="note">
-    Badges record habits worth noticing. They unlock nothing — every runner and both
+    Badges record habits worth noticing. They unlock nothing — every jumper and both
     moods are available from the first run, because hiding finished cosmetics behind
     a grind would make the game worse at what it's for.
   </p>

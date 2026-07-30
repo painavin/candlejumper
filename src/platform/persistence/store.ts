@@ -20,9 +20,62 @@ export interface KeyValueStore {
   remove(key: string): Promise<void>
 }
 
+export const STORAGE_NAMESPACE = 'candlejumper'
+
+/**
+ * Namespaces this app has used before, oldest first. The project was called Candle
+ * Runner until the rename, and the namespace prefixes every key — so without this,
+ * renaming it would orphan every save: personal bests, lifetime stats, settings,
+ * imported plugins, and the whole downloaded price library.
+ *
+ * Safe to delete once no install can still be carrying the old prefix.
+ */
+export const LEGACY_NAMESPACES = ['candlerunner']
+
+/**
+ * Move any keys left under an old namespace across to the current one, once.
+ *
+ * Never overwrites an entry that already exists under the current namespace — a
+ * player who has already played since the rename has newer data, and a stale
+ * pre-rename blob must not clobber it. The old key is removed either way, so this
+ * is idempotent and stops finding work after the first run.
+ */
+function migrateLegacyNamespaces(namespace: string): void {
+  const storage = globalThis.localStorage
+  if (!storage) return
+
+  for (const legacy of LEGACY_NAMESPACES) {
+    if (legacy === namespace) continue
+    const prefix = `${legacy}:`
+
+    try {
+      // Collected before mutating: removing entries mid-scan shifts the indices.
+      const stale: string[] = []
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index)
+        if (key?.startsWith(prefix)) stale.push(key)
+      }
+
+      for (const key of stale) {
+        const current = `${namespace}:${key.slice(prefix.length)}`
+        const value = storage.getItem(key)
+        if (value !== null && storage.getItem(current) === null) {
+          storage.setItem(current, value)
+        }
+        storage.removeItem(key)
+      }
+    } catch {
+      // Private browsing, a full quota, or storage blocked outright. The player
+      // loses history they'd have lost anyway; starting the app matters more.
+    }
+  }
+}
+
 /** Browser and both native shells' web views. Desktop/mobile adapters slot in here. */
-export function createLocalStorageStore(namespace = 'candlerunner'): KeyValueStore {
+export function createLocalStorageStore(namespace = STORAGE_NAMESPACE): KeyValueStore {
   const scoped = (key: string): string => `${namespace}:${key}`
+
+  migrateLegacyNamespaces(namespace)
 
   return {
     async load(key) {

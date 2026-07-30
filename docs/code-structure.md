@@ -22,7 +22,7 @@ Each of those is a directory boundary below, backed by an ESLint rule.
 ## Top level
 
 ```
-candlerunner/
+candlejumper/
 ├── docs/            these planning docs
 ├── public/          the web font; the only binary asset in the build
 ├── src/             everything the app is made of, data included (see below)

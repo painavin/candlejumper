@@ -1,4 +1,4 @@
-# Candle Runner
+# Candle Jumper
 
 A Flappy Bird–style side scroller where the poles are real daily stock prices
 and the only inputs are **buy** and **sell**. There is no death condition — the
@@ -103,10 +103,10 @@ whether you're on a keyboard or a touchscreen.
   it.
 - **Faint vertical lines** mark month, quarter, and year boundaries — so you can
   tell where you are in a run without the date readout.
-- **Ghosts trailing the runner** are your open units, one each, so "I'm three
+- **Ghosts trailing the jumper** are your open units, one each, so "I'm three
   deep" reads at a glance. Past five it becomes a badge.
 
-**Nothing is locked.** Every runner and both moods are available from the first
+**Nothing is locked.** Every jumper and both moods are available from the first
 run — hiding finished cosmetics behind a grind would make the game worse at what
 it's for. Badges record habits worth noticing instead, and they're earned on
 discipline rather than profit: finishing a run that traded and broke no rule

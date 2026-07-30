@@ -44,19 +44,19 @@
 
 <div class="title">
   <div class="mark">
-    <!-- The logo is four poles and a runner: drawn, not an asset, like everything
+    <!-- The logo is four poles and a jumper: drawn, not an asset, like everything
          else here. Four bars is the smallest count that reads as a chart. -->
     <svg viewBox="0 0 120 48" aria-hidden="true">
       <rect x="4" y="26" width="10" height="22" rx="3" />
       <rect x="20" y="14" width="10" height="34" rx="3" />
       <rect x="36" y="20" width="10" height="28" rx="3" />
       <rect x="52" y="6" width="10" height="42" rx="3" class="lead" />
-      <circle cx="80" cy="14" r="9" class="runner" />
-      <path d="M92 20 L104 14 L92 8 Z" class="runner" />
+      <circle cx="80" cy="14" r="9" class="jumper" />
+      <path d="M92 20 L104 14 L92 8 Z" class="jumper" />
     </svg>
   </div>
 
-  <h1>Candle Runner</h1>
+  <h1>Candle Jumper</h1>
   <p class="tagline">Two buttons. Real prices. No way to die — only to trade badly.</p>
 
   <div class="actions">
@@ -101,7 +101,7 @@
   .mark :global(.lead) {
     fill: var(--accent);
   }
-  .mark :global(.runner) {
+  .mark :global(.jumper) {
     fill: var(--ink);
   }
   h1 {

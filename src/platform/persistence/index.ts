@@ -1,4 +1,9 @@
-export { createLocalStorageStore, createMemoryStore } from './store.js'
+export {
+  createLocalStorageStore,
+  createMemoryStore,
+  STORAGE_NAMESPACE,
+  LEGACY_NAMESPACES,
+} from './store.js'
 export type { KeyValueStore } from './store.js'
 export {
   loadSave,

@@ -1,6 +1,6 @@
-# Candle Runner — Planning Docs
+# Candle Jumper — Planning Docs
 
-Candle Runner is a Flappy Bird–style side scroller with a twist: the poles
+Candle Jumper is a Flappy Bird–style side scroller with a twist: the poles
 are driven by real daily stock prices, and the only inputs are **buy** and
 **sell**. There's no death condition — the game is a trading-habit trainer
 disguised as an arcade runner. The player scales in and out of a position
