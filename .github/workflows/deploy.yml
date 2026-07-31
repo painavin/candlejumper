@@ -75,15 +75,22 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_GREEN_COAST_06BF76110 }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
-          # Identical to the values Azure generates — `app_location` is the source
-          # root, `output_location` the compiled output, and the action joins them.
-          # Only `skip_app_build` differs, so if a deploy ever misbehaves the
-          # difference from Azure's known-good config is one line.
-          app_location: '/'
-          output_location: dist
+          # The build already happened above, so `app_location` is the finished
+          # output and `output_location` stays empty.
+          #
+          # This is not the pairing Azure's generated workflow uses — that one has
+          # `/` and `dist` because Oryx builds for it, and `output_location` means
+          # "where Oryx will leave the result". With the build skipped there is no
+          # Oryx step to leave anything anywhere, so the artifact path has to be
+          # `app_location` itself.
+          #
+          # `skip_api_build` is deliberately absent: the `v1` *tag* the runner
+          # resolves predates that input, and passing it earns an "Unexpected
+          # input(s)" warning. It's also moot while `api_location` is empty.
+          app_location: dist
+          output_location: ''
           api_location: ''
           skip_app_build: true
-          skip_api_build: true
 
   close-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
