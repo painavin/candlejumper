@@ -1,0 +1,100 @@
+# Publish to Azure Static Web Apps.
+#
+# Replaces the workflow Azure generates when you link the repo. Two differences,
+# both deliberate:
+#
+#   - **The build happens here, not in Oryx.** Azure's default runs
+#     `npm install && npm run build` inside its own container, on whatever Node
+#     version that image happens to default to — the single most likely cause of a
+#     deploy that fails for reasons the repo can't reproduce. `setup-node` pins it.
+#   - **`npm run check` gates the deploy.** `npm run build` only typechecks, so the
+#     generated workflow would happily publish a commit that fails every test.
+#     Nothing reaches the site unless tsc, svelte-check, eslint and all 646 tests
+#     pass.
+#
+# The deployment token is created by Azure, not by hand: the repo secret
+# `AZURE_STATIC_WEB_APPS_API_TOKEN_GREEN_COAST_06BF76110`, named after the
+# generated hostname green-coast-06bf76110.azurestaticapps.net.
+#
+# It cannot be renamed to something tidier — GitHub secrets can't be read back,
+# so the value would have to be re-copied from the portal under Manage deployment
+# token. If the app is ever recreated the hostname changes and both references
+# below must be updated: a mismatch passes an empty token and fails at the publish
+# step, having already run the whole suite.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Every PR gets its own preview URL, and closing it tears the environment down.
+  # Free on the SWA free tier; the `closed` type is what triggers the cleanup job.
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+# A second push while the first is still deploying should supersede it rather than
+# race it to the same site.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # The deploy action comments the preview URL on the pull request.
+  pull-requests: write
+
+jobs:
+  build:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    name: Check, build, publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # 22 rather than the 20.20 used locally: Node 20 reached end of life in
+      # April 2026. Vite 8 needs 20.19+, so both satisfy it — this is about not
+      # standing up a new deploy on an unsupported runtime.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # tsc --noEmit, svelte-check, eslint, and the full vitest suite.
+      - run: npm run check
+
+      # `vite build` directly, not `npm run build`: that script re-runs the
+      # typecheck `npm run check` just finished.
+      - run: npx vite build
+
+      - name: Publish
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_GREEN_COAST_06BF76110 }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          # Identical to the values Azure generates — `app_location` is the source
+          # root, `output_location` the compiled output, and the action joins them.
+          # Only `skip_app_build` differs, so if a deploy ever misbehaves the
+          # difference from Azure's known-good config is one line.
+          app_location: '/'
+          output_location: dist
+          api_location: ''
+          skip_app_build: true
+          skip_api_build: true
+
+  close-preview:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    name: Tear down preview environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_GREEN_COAST_06BF76110 }}
+          action: close
+          # Irrelevant to a teardown, but the action declares it required — Azure's
+          # own generated template omits it and merely gets away with it.
+          app_location: '/'
