@@ -9,6 +9,9 @@ realized P&L and on whether you honoured your own risk rules, not on survival.
 Everything runs in the browser. No server, no API, no art or audio files —
 every visual and every sound is generated at runtime.
 
+**Playing now at <https://www.candlejumper.com>** — deployed from `main` on every
+push (see [deploying](#deploying)).
+
 ## Requirements
 
 - **Node 20.19+** or **22.12+** (Vite 8 requires one of those)
@@ -127,23 +130,49 @@ worth interrupting a run for. A dead *indicator* just draws nothing.
 
 ## Deploying
 
-The build output is entirely static, so any static host works. For Azure Static
-Web Apps:
+Live at **<https://www.candlejumper.com>**, on Azure Static Web Apps' free tier.
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) publishes every
+push to `main`, and gives each pull request its own preview URL.
 
-| Setting | Value |
-|---|---|
-| `app_location` | `/` |
-| `output_location` | `dist` |
-| `api_location` | *(empty — there is no API)* |
+The build output is entirely static, so any static host works. Two ways to wire
+one up, and the difference matters:
 
-Two things worth knowing:
+| | Host builds it | Build in CI *(what this repo does)* |
+|---|---|---|
+| `app_location` | `/` | `dist` |
+| `output_location` | `dist` | *(empty)* |
+| `api_location` | *(empty — there is no API)* | *(empty)* |
+| `skip_app_build` | — | `true` |
 
-- Pin the Node version (`engines` in `package.json`, or your workflow's platform
-  version). A build platform defaulting to an older Node is the most likely
-  cause of a failed deploy.
-- Personal bests live in `localStorage`, so they're per-browser and don't sync
-  across devices. That's the intended scope, but on a public URL it means a
-  visitor's history disappears if they clear site data.
+With the host building, `output_location` is where its build system will leave
+the result. With the build already done, there is no build step to leave anything
+anywhere, so the artifact path is `app_location` itself.
+
+Building in CI is worth the extra lines: it pins the Node version, and it means
+`npm run check` gates the deploy. `npm run build` only typechecks, so a
+host-built deploy will happily publish a commit that fails every test.
+
+Four things that will bite you:
+
+- **Check what registry your lockfile points at.** If `npm config get registry`
+  names an internal mirror, every `resolved` URL in `package-lock.json` points
+  there too, and `npm ci` fails on any runner that can't reach it. Nothing local
+  catches this — `npm ci` passes on the machine that can. `.npmrc` pins the public
+  registry, but an `npm_config_registry` environment variable outranks it, so
+  check the env too.
+- **Pin the Node version** — `engines` here, or your workflow's platform version.
+  A build platform defaulting to an older Node is the most likely cause of a
+  failed deploy.
+- **Downloading a ticker doesn't work on a plain static host.** The dev server
+  proxies the price APIs to dodge CORS; a built bundle has no proxy, so visitors
+  need a CORS extension unless the host can rewrite to an external origin. See
+  [data-sources.md](./docs/data-sources.md#cors-is-the-whole-difficulty). Bundled
+  datasets and CSV/JSON import work everywhere.
+- **`localStorage` is per-origin**, so nothing follows you from `localhost:5173`
+  to the deployed site — personal bests, settings, and the downloaded price
+  library all start empty there. Within an origin it's also per-browser and
+  doesn't sync across devices, which is the intended scope, but on a public URL
+  it means a visitor's history disappears if they clear site data.
 
 ## Project layout
 
