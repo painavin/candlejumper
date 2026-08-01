@@ -35,6 +35,7 @@ function frame(index: number, direction: 'flat' | 'long', unrealized = 0, units 
       totalPnl: 0,
       percentReturn: 0,
       buyingPower: 5000,
+      scrollSpeed: 2,
       stoppedOutThisBar: false,
       streak: { meter: 'live', streak: 0, multiplier: 1, arcadeScore: 0, maxMultiplier: 5 },
     },

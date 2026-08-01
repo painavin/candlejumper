@@ -32,8 +32,20 @@ describe('runFingerprint', () => {
     expect(runFingerprint(comfortable, CONTEXT)).toBe(runFingerprint(base, CONTEXT))
   })
 
+  it('ignores scroll speed, which the player can change mid-run', () => {
+    // It used to be a bucket key, and on difficulty grounds it had the best claim of
+    // anything on the list. It came out when the arrow keys made it adjustable while
+    // playing: a bucket key has to identify a run, and a value that can change nine times
+    // before the first trade identifies nothing. Speed is also the accessibility control,
+    // so filing a run by it would penalise slowing down to think.
+    const slow = defaultConfig()
+    const fast = defaultConfig()
+    slow.scrollSpeed = 0.5
+    fast.scrollSpeed = 10
+    expect(runFingerprint(fast, CONTEXT)).toBe(runFingerprint(slow, CONTEXT))
+  })
+
   it.each([
-    ['scrollSpeed', (c: ReturnType<typeof defaultConfig>) => (c.scrollSpeed = 8)],
     ['allowShorting', (c: ReturnType<typeof defaultConfig>) => (c.allowShorting = true)],
     ['entrySize', (c: ReturnType<typeof defaultConfig>) => (c.entrySize = 0.5)],
     ['startingCapital', (c: ReturnType<typeof defaultConfig>) => (c.startingCapital = 50_000)],
@@ -97,9 +109,15 @@ describe('runFingerprint', () => {
     )
   })
 
-  it('carries its version, so adding a key is an explicit migration', () => {
+  it('carries its version, so changing the key set is an explicit migration', () => {
+    // Pinned to a literal rather than to the exported constant on purpose: this test's job
+    // is to make a version change deliberate, and reading the constant would let one slide
+    // through green. At 3 because `scrollSpeed` left the payload — removing a key changes
+    // every hash regardless, and the bump is what makes `loadSave` clear the old buckets
+    // instead of stranding them in the save file.
     const payload = fingerprintPayload(defaultConfig(), CONTEXT) as Record<string, unknown>
-    expect(payload.v).toBe(2)
+    expect(payload.v).toBe(3)
+    expect('scrollSpeed' in payload).toBe(false)
   })
 })
 

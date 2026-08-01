@@ -82,8 +82,14 @@ read as broken.
   whether a line will actually save them. Label lines with the owning
   plugin when more than one is active
   ([stops.md](./stops.md#multiple-active-stops)).
-- **Session info**: ticker/symbol, current in-series date, and progress
-  through the series.
+- **Session info**: ticker/symbol, current in-series date, progress
+  through the series, and the scroll speed in force. Speed is here because
+  the player can change it mid-run
+  ([controls.md](./controls.md#scroll-speed-while-playing)) and a control
+  with no readout leaves them guessing what they're on. It's read off the
+  frame rather than from config, or it would keep showing the speed the run
+  started at. A transient toast was the alternative and is worse: you can't
+  check your current speed by pressing nothing.
 
 ### Panels
 
@@ -94,7 +100,7 @@ scene, and are grouped into three:
 |---|---|---|
 | Primary (top left) | P&L headline over the position line | One reading — "what am I holding and what is it doing". Two plates would imply they answer different questions. |
 | Streak | Multiplier, arcade score, pips | Measures rule compliance, not money, so it's deliberately not inside the P&L plate. |
-| Context (top right) | Buying power, ticker/date/progress | Read occasionally rather than continuously, so it lives at the opposite edge and stays out of the way. |
+| Context (top right) | Buying power, ticker/date/progress/speed | Read occasionally rather than continuously, so it lives at the opposite edge and stays out of the way. Speed joins the note row rather than getting a plate of its own — it's checked, not watched. |
 
 The axis gutter and each indicator sub-pane get the same treatment, so the
 whole HUD reads as one instrument cluster rather than the top band alone.

@@ -215,6 +215,15 @@ export function createTopHudLayer({
           ? Math.round(((frame.currentIndex - frame.firstIndex + 1) / playable) * 100)
           : 0
       const notes = [ticker, date, `${progress}%`]
+      // Read off the frame, so it is the speed the clock is actually running at rather
+      // than the one the run was configured with — the player can change it mid-run.
+      // Trimmed rather than padded: 2 reads better than 2.0, and 0.5 needs the decimal.
+      //
+      // Abbreviated in portrait, where this plate is right-aligned and grows leftward
+      // toward the primary one — the same reason `capital` is hidden there. `b/s` still
+      // reads as a rate next to a date and a percentage; a bare `2` would not.
+      const speed = Number(hud.scrollSpeed.toFixed(1))
+      notes.push(portrait ? `${speed} b/s` : `${speed} bars/sec`)
       if (frame.phase === 'paused') notes.push('PAUSED')
       if (frame.phase === 'finished') notes.push('END OF DATA')
       if (frame.droppedBars > 0) notes.push(`${frame.droppedBars} skipped`)

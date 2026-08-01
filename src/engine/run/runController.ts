@@ -28,6 +28,8 @@ import { initialStreak } from '../scoring/streak.js'
 import type { StopEngine } from '../stops/port.js'
 import { createNoStops } from '../stops/port.js'
 import { createNoIndicators } from '../indicators/feed.js'
+import { steppedSpeed } from './speed.js'
+import type { SpeedDirection } from './speed.js'
 import type { IndicatorFeed, IndicatorSeries } from '../indicators/feed.js'
 import { createPlayback } from './playback.js'
 import type { Playback } from './playback.js'
@@ -52,6 +54,18 @@ export interface RunController {
   pause(): void
   resume(): void
   readonly isPaused: boolean
+  /**
+   * Step the scroll speed one rung up or down, and report the speed now in force.
+   *
+   * Mid-run and deliberately: reaction time is the lever a player reaches for when a run
+   * gets away from them, and making them open the settings screen to find it means
+   * abandoning the run. It is **not** part of the run fingerprint — see the note in
+   * `config/fingerprint.ts` — so using it costs nothing on the record.
+   *
+   * Ignored while paused. Retiming a frozen run would take effect invisibly on resume,
+   * and the pause screen has nothing that would show it.
+   */
+  changeSpeed(direction: SpeedDirection): number
   /** "End run" from the pause menu: force-close at the current bar and record. */
   endRun(): void
   readonly summary: Summary
@@ -215,6 +229,46 @@ export function createRunController({
     }
   }
 
+  /**
+   * Overlay values as unit heights, with everything off the chart taken out.
+   *
+   * The chart's bounds come from the visible **bars**, so an overlay is free to sit
+   * outside them — a 50-bar average in a strong run is below the window's low for as long
+   * as the run keeps going. Passing those through the clamped conversion pinned them to
+   * exactly 0, which drew a flat line along the chart floor: a line asserting a price it
+   * never had, on top of the ground line, reading as a rendering fault rather than as
+   * data.
+   *
+   * Two different answers, because the two kinds of output mean different things:
+   *
+   * - A **mark** off the chart is dropped outright. Its whole content is *this bar, this
+   *   price*, and a dot held at the edge names a price that isn't its own.
+   * - A **line** drops its off-chart run but keeps the point where it crosses the edge,
+   *   clamped. So it runs off the bottom and stops, which is the thing that happened;
+   *   ending it at the last in-range bar instead would look identical to an indicator
+   *   that hadn't warmed up yet.
+   */
+  function unitsFor(
+    values: readonly (number | null)[],
+    draw: Exclude<IndicatorDrawStyle, 'none'>
+  ): (number | null)[] {
+    const raw = values.map((value) =>
+      value === null ? null : playback.unclampedUnitOf(value)
+    )
+    const onChart = (index: number): boolean => {
+      const unit = raw[index]
+      return unit !== undefined && unit !== null && unit >= 0 && unit <= 1
+    }
+    return raw.map((unit, index) => {
+      if (unit === null) return null
+      if (onChart(index)) return unit
+      if (draw === 'dots') return null
+      // The crossing: kept only when a neighbour is on the chart, so a run that is off
+      // the chart from end to end draws nothing at all rather than a stub at each edge.
+      return onChart(index - 1) || onChart(index + 1) ? Math.min(1, Math.max(0, unit)) : null
+    })
+  }
+
   function overlaysFor(chart: ChartFrame): OverlayLine[] {
     const lines: OverlayLine[] = []
     for (const series of indicators.series) {
@@ -231,7 +285,7 @@ export function createRunController({
           label: series.outputs.length > 1 ? `${series.displayName} ${output}` : series.displayName,
           output,
           // Through the *same* normalizer the poles used, so the line sits on them.
-          units: values.map((value) => (value === null ? null : playback.unitOf(value))),
+          units: unitsFor(values, style.draw),
         })
       }
     }
@@ -348,6 +402,7 @@ export function createRunController({
           arcadeScore: state.streak.arcadeScore,
           maxMultiplier: config.scoring.maxMultiplier,
         },
+        scrollSpeed: playback.scrollSpeed,
         stoppedOutThisBar: lastEvents.some((event) => event.kind === 'stoppedOut'),
       },
       stopLines: stopLines(),
@@ -393,6 +448,12 @@ export function createRunController({
 
     get isPaused() {
       return playback.isPaused
+    },
+
+    changeSpeed(direction) {
+      if (playback.isPaused) return playback.scrollSpeed
+      playback.setScrollSpeed(steppedSpeed(playback.scrollSpeed, direction))
+      return playback.scrollSpeed
     },
 
     endRun() {

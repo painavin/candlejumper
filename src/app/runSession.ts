@@ -302,6 +302,9 @@ export async function startRunSession({
         press,
         flattenHoldMs: config.flattenHoldMs,
         onPause,
+        // Straight through: the controller owns the ladder and refuses while paused, so
+        // there is nothing for this layer to decide.
+        onSpeed: (direction) => void controller.changeSpeed(direction),
         isInputBlocked: () => controller.isInputBlocked(),
       })
 

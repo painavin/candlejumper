@@ -77,16 +77,15 @@ game." Concretely:
   **Run fingerprint** — two runs only share a personal-best bucket if
   their fingerprints match. Percent return makes scores comparable *across
   tickers*, but it doesn't make them comparable across *difficulty*: the
-  same ticker at `scrollSpeed: 0.5` with shorting enabled is a completely
-  different challenge from `scrollSpeed: 8` long-only, and pooling them
-  makes the personal best meaningless.
+  same ticker with shorting enabled is a completely different challenge
+  from the same ticker long-only, and pooling them makes the personal best
+  meaningless.
 
   Included in the fingerprint (changing any of these starts a new bucket):
 
   | Key | Why |
   |---|---|
   | `data.source`, `data.ticker`, `data.dateRange` | Different price path entirely |
-  | `scrollSpeed` | Reaction time available — the single biggest difficulty lever |
   | `visibleBarCount` | How much history is readable when deciding |
   | `allowShorting` | Doubles the available strategies |
   | `startingCapital`, `entrySize` | Determine position granularity and how many units a full deployment takes |
@@ -94,10 +93,32 @@ game." Concretely:
   | `scoring.streakEnabled`, `scoring.maxMultiplier` | Change the achievable `arcadeScore` for the same trading |
   | `priceTransform`, `normalizationMode` | Change what patterns are legible on screen |
 
+  **`scrollSpeed` is deliberately not in that list, and used to be.** On
+  difficulty grounds it had the best claim of anything on it — reaction
+  time is the single biggest lever the player has. It came out when speed
+  became adjustable mid-run with the arrow keys
+  ([controls.md](./controls.md#scroll-speed-while-playing)): a bucket key
+  has to *identify* a run, and a value the player can change nine times
+  before the first trade identifies nothing. Hashing whatever it happened
+  to be at the start would file runs under a number describing one moment
+  of them.
+
+  The alternatives were to record the slowest speed used, or to disqualify
+  any run that changed speed. Both were rejected for the same reason:
+  speed is also the accessibility control
+  ([accessibility.md](./accessibility.md)), and a trainer that penalises
+  you for slowing down to think is training the wrong thing. So speed sits
+  with the theme and the palette rather than with `allowShorting` —
+  **score tracking ignores it entirely**. Removing the key changed every
+  hash, so `FINGERPRINT_VERSION` moved to 3 and existing buckets were
+  cleared explicitly rather than stranded; lifetime totals aren't keyed by
+  challenge and survive.
+
   Deliberately **excluded** — cosmetic or accessibility settings that don't
   change the challenge, so a player is never penalized for making the game
   comfortable: `visuals.*` (theme, seed, reduced motion, shake, palette),
-  `audio.*`, `character.selected`, `indicators.*` and `volume.enabled`
+  `audio.*`, `character.selected`, `scrollSpeed`, `indicators.*` and
+  `volume.enabled`
   (analysis aids the player chooses; excluding them keeps someone from
   gaming the leaderboard by hiding indicators, and more importantly means
   turning on a helpful indicator doesn't orphan their history),
@@ -355,9 +376,12 @@ Rejected alternatives, for the record:
   cheapest "this is a real game" signals available.
 - **Speed ramp over a run**: endless runners almost always accelerate.
   Tension here: `scrollSpeed` is a player config
-  ([config.md](./config.md)), so a ramp should be an *optional* mode
-  layered on the configured base speed, not a replacement for it —
-  a trainer whose speed drifts unpredictably is worse for learning.
+  ([config.md](./config.md)) *and* now a live control
+  ([controls.md](./controls.md#scroll-speed-while-playing)), so a ramp
+  should be an *optional* mode layered on the configured base speed, not a
+  replacement for it — a trainer whose speed drifts unpredictably is worse
+  for learning, and it would also have to decide what happens when the
+  player overrides it mid-ramp.
 
 ## New: world-alive touches
 

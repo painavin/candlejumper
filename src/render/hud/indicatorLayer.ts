@@ -80,13 +80,36 @@ const DASH = { on: 9, off: 6 }
  */
 const CONTEXT_ALPHA = 0.5
 
+/*
+ * ## Never call `fill()` or `stroke()` without having queued geometry first
+ *
+ * Pixi's `GraphicsContext` reuses the *previous* instruction's path when nothing has
+ * been added since it: `fill()` checks `_tick === 0 && last.action === 'stroke'` and
+ * takes that stroke's path, and `stroke()` does the mirror image. That's a deliberate
+ * convenience — `graphics.rect(…).fill(red).stroke(black)` outlines the shape it just
+ * filled, which is exactly what `poleLayer`'s outlined themes rely on.
+ *
+ * It is a trap for the loops below, where **every output paints into one `Graphics`**.
+ * An output with nothing in the current window queues no geometry, so its `fill()`
+ * reached back and filled the *previous* output's polyline in its own colour: a level
+ * line came out as a solid wedge in another output's hue, spanning the chart. The mirror
+ * case is subtler and just as wrong — a line output with no values in the window strokes
+ * an outline around the previous output's dots.
+ *
+ * So every paint call here is guarded on a count of what was queued, which is the exact
+ * condition because it is what `_tick` counts. An output with nothing to draw draws
+ * *nothing*, which is also the cheaper answer.
+ */
+
 /** Stroke a polyline as dashes. The walk itself lives in `dash.ts`, where it's tested. */
 function strokeDashed(graphics: Graphics, points: readonly Point[], colour: number): void {
+  let queued = 0
   for (const segment of dashSegments(points, DASH)) {
     graphics.moveTo(segment.from.x, segment.from.y)
     graphics.lineTo(segment.to.x, segment.to.y)
+    queued++
   }
-  graphics.stroke({ width: 1.6, color: colour, alpha: 0.95 })
+  if (queued > 0) graphics.stroke({ width: 1.6, color: colour, alpha: 0.95 })
 }
 
 export interface IndicatorLayerOptions {
@@ -224,12 +247,14 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
           // No path at all: a sparse output's points are individually meaningful, and
           // joining them would draw a trend across the bars in between.
           const lift = line.offsetPx ?? 0
+          let marks = 0
           line.units.forEach((unit, offset) => {
             if (unit === null) return
             const y = layout.groundY - unit * layout.chartHeight - lift
             overlays.circle(xOf(offset), y, dotRadius)
+            marks++
           })
-          overlays.fill({ color: colour, alpha: 0.95 })
+          if (marks > 0) overlays.fill({ color: colour, alpha: 0.95 })
           continue
         }
 
@@ -253,6 +278,7 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
         }
 
         let drawing = false
+        let queued = 0
         line.units.forEach((unit, offset) => {
           if (unit === null) {
             drawing = false
@@ -263,8 +289,9 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
           if (drawing) overlays.lineTo(x, y)
           else overlays.moveTo(x, y)
           drawing = true
+          queued++
         })
-        overlays.stroke({ width: 1.6, color: colour, alpha: 0.95 })
+        if (queued > 0) overlays.stroke({ width: 1.6, color: colour, alpha: 0.95 })
       }
 
       drawLegend(frame.overlays, layout)
@@ -338,11 +365,13 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
 
           if (series.draw === 'dots') {
             const lift = series.offsetPx ?? 0
+            let marks = 0
             series.units.forEach((unit, offset) => {
               if (unit === null) return
               panes.circle(xOf(offset), top + height - unit * height - lift, dotRadius)
+              marks++
             })
-            panes.fill({ color: colour, alpha: 0.95 })
+            if (marks > 0) panes.fill({ color: colour, alpha: 0.95 })
             continue
           }
 
@@ -365,13 +394,15 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
             continue
           }
 
+          let queued = 0
           for (const segment of runs) {
             segment.forEach((point, index) => {
               if (index === 0) panes.moveTo(point.x, point.y)
               else panes.lineTo(point.x, point.y)
+              queued++
             })
           }
-          panes.stroke({ width: 1.4, color: colour, alpha: 0.95 })
+          if (queued > 0) panes.stroke({ width: 1.4, color: colour, alpha: 0.95 })
         }
 
         let title = titles[paneIndex]

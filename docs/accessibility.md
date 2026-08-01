@@ -99,4 +99,10 @@ this — mood themes skin the world, not the P&L semantics.
   exists partly for this reason — more bars means thinner, less legible
   poles.
 - `scrollSpeed` is configurable down to 0.5 bars/sec, which doubles as an
-  accessibility affordance for players who need more time to react.
+  accessibility affordance for players who need more time to react. It is
+  also on the keyboard **during** a run — `←`/`A` and `→`/`D`, see
+  [controls.md](./controls.md#scroll-speed-while-playing) — because an
+  affordance you can only reach by leaving the run and opening a settings
+  screen is one you don't reach when you actually need it. It is excluded
+  from the run fingerprint for the same reason: nobody should trade record
+  eligibility for reaction time.

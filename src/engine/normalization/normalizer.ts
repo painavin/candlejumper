@@ -46,6 +46,20 @@ export interface Normalizer {
   readonly bounds: Bounds
   /** 0 at the bottom of the chart, 1 at the top. Clamped. */
   unit(price: number): number
+  /**
+   * The same conversion **without** the clamp, so below 0 and above 1 are readable.
+   *
+   * The clamp on `unit()` is right for a pole: a bar whose high runs past the padded
+   * bounds still has to draw as a bar, and squashing it to the edge is the honest
+   * rendering of "taller than the view". It is wrong for anything that is only a
+   * *level*. A moving average below the window's low clamps to exactly 0 for every bar
+   * it's out of range, which draws a flat line along the chart floor — a line asserting
+   * a price it never had, sitting on the ground line where it reads as a glitch.
+   *
+   * So callers that need to tell "off the chart" from "at the edge of the chart" ask for
+   * this instead and decide for themselves. See `overlaysFor` in `runController.ts`.
+   */
+  unclampedUnit(price: number): number
 }
 
 /**
@@ -173,6 +187,12 @@ export function createNormalizer(config: RunConfig): Normalizer {
       const span = live.max - live.min
       if (span <= 0) return 0.5
       return clamp((valueOf(price) - live.min) / span, 0, 1)
+    },
+
+    unclampedUnit(price) {
+      const span = live.max - live.min
+      if (span <= 0) return 0.5
+      return (valueOf(price) - live.min) / span
     },
   }
 }

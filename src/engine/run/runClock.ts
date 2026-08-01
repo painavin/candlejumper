@@ -25,6 +25,22 @@ export interface RunClock {
   readonly growth: number
   /** Seconds one bar occupies. */
   readonly barDuration: number
+  /** Bars per second. Changes mid-run when the player asks for it. */
+  readonly scrollSpeed: number
+  /**
+   * Retime the run without disturbing the bar in progress.
+   *
+   * The phase is **preserved**, not the accumulator: a bar 70% formed stays 70% formed at
+   * the new speed. Keeping the accumulator instead would make the same number of seconds
+   * mean a different fraction of a bar, so every speed change would jerk the growing bar
+   * and the character's hop, and speeding up mid-bar could push the accumulator past a
+   * whole bar and resolve one instantly.
+   *
+   * Out-of-range and non-finite values are ignored rather than clamped. The only caller
+   * steps through `SPEED_STEPS`, which is already the clamp, so anything else arriving
+   * here is a bug and quietly rounding it would hide it.
+   */
+  setScrollSpeed(barsPerSecond: number): void
   reset(): void
   /** Bars dropped by the catch-up clamp, for reporting rather than silence. */
   readonly droppedBars: number
@@ -38,19 +54,35 @@ export interface RunClockOptions {
 }
 
 export function createRunClock({ scrollSpeed, growthFraction }: RunClockOptions): RunClock {
-  const barDuration = 1 / scrollSpeed
+  let speed = scrollSpeed
+  let barDuration = 1 / speed
   /**
    * Sixty frames of `1/60` sum to 0.9999999999999999, so an exact `>=` defers a
    * bar by a whole frame at every integer-second boundary. The tolerance is
    * nine orders of magnitude below a bar, far too small to shift timing, and it
    * removes a class of "why did that bar take two frames" jitter.
    */
-  const epsilon = barDuration * 1e-9
+  let epsilon = barDuration * 1e-9
   let accumulator = 0
   let dropped = 0
 
   return {
-    barDuration,
+    get barDuration() {
+      return barDuration
+    },
+
+    get scrollSpeed() {
+      return speed
+    },
+
+    setScrollSpeed(barsPerSecond) {
+      if (!Number.isFinite(barsPerSecond) || barsPerSecond <= 0) return
+      const phase = accumulator / barDuration
+      speed = barsPerSecond
+      barDuration = 1 / speed
+      epsilon = barDuration * 1e-9
+      accumulator = phase * barDuration
+    },
 
     advance(dt) {
       if (!Number.isFinite(dt) || dt <= 0) return 0

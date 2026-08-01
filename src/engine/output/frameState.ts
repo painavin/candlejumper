@@ -141,6 +141,14 @@ export interface HudState {
   percentReturn: number
   buyingPower: number
   streak: StreakView
+  /**
+   * Bars per second currently in force.
+   *
+   * On the frame rather than read from config by the HUD, because the player can change it
+   * mid-run: a renderer reading the *configured* speed would keep displaying the number the
+   * run started at. Same reason `direction` is here — one source, so nothing can disagree.
+   */
+  scrollSpeed: number
   /** Whether the run was stopped out this bar, for the distinct feedback path. */
   stoppedOutThisBar: boolean
 }
@@ -188,7 +196,15 @@ export interface OverlayLine {
   draw: Exclude<IndicatorDrawStyle, 'none'>
   /** Pixels to lift a mark above its value. Plugin-declared; only used by `dots`. */
   offsetPx?: number
-  /** One per visible bar, oldest first. `null` where the indicator was warming up. */
+  /**
+   * One per visible bar, oldest first. `null` is a gap: either the indicator was warming
+   * up, or its value is **off the chart**.
+   *
+   * The chart's bounds come from the bars, so a level can sit outside them; clamping it to
+   * the edge instead would draw a flat line along the chart floor at a price the indicator
+   * never had. A line keeps the point where it crosses the edge so it visibly leaves,
+   * whereas a mark off the chart is dropped — see `unitsFor` in `runController.ts`.
+   */
   units: readonly (number | null)[]
 }
 

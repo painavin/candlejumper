@@ -18,12 +18,39 @@ import { createHoldGesture } from './holdGesture.js'
 const BUY_KEYS = new Set(['ArrowUp', 'KeyW'])
 const SELL_KEYS = new Set(['ArrowDown', 'KeyS'])
 const PAUSE_KEYS = new Set(['Escape', 'KeyP'])
+/**
+ * Left and right change the scroll speed — the one control that isn't a trade.
+ *
+ * They fall out of up-is-buy: the vertical axis is already the position and the
+ * horizontal axis is the one the chart moves along, so left and right meaning "slower"
+ * and "faster" reads as pulling the world toward you or pushing it away. Nothing on the
+ * horizontal axis was bound, so no existing muscle memory moves.
+ */
+const SLOWER_KEYS = new Set(['ArrowLeft', 'KeyA'])
+const FASTER_KEYS = new Set(['ArrowRight', 'KeyD'])
+
+/**
+ * Which way a speed press goes.
+ *
+ * Declared here rather than imported from `engine/run/speed.ts`, where the ladder lives:
+ * this zone may reach `@shared` and `@engine/pipeline` and nothing else, and widening that
+ * for one string union would be the wrong trade. The two unions are checked against each
+ * other structurally at the wiring site in `app/runSession.ts`, so renaming a direction in
+ * the engine fails the build rather than diverging quietly.
+ */
+export type SpeedDirection = 'faster' | 'slower'
 
 export interface KeyboardOptions {
   /** Where a resolved action goes. The run controller decides whether to keep it. */
   press(action: TradeAction): void
   flattenHoldMs: number
   onPause(): void
+  /**
+   * One rung faster or slower. Not a `TradeAction`, deliberately: it moves no money, so
+   * routing it through the input buffer would put a view control in the queue that decides
+   * which bar a fill lands on.
+   */
+  onSpeed(direction: SpeedDirection): void
   /** Presses are dropped, not queued, while this returns true. */
   isInputBlocked(): boolean
   target?: EventTarget
@@ -37,6 +64,7 @@ export function attachKeyboard({
   press,
   flattenHoldMs,
   onPause,
+  onSpeed,
   isInputBlocked,
   target = globalThis.window,
 }: KeyboardOptions): InputBinding {
@@ -56,6 +84,22 @@ export function attachKeyboard({
 
   const onKeyDown = (event: Event): void => {
     const key = event as KeyboardEvent
+
+    // Speed is handled before the auto-repeat guard and before the block check, because
+    // neither reason for those applies to it: it moves no money, so a held key can't drain
+    // buying power, and holding it to ramp the speed is the natural gesture. The ladder's
+    // ends are the clamp, so a key left down settles at 0.5 or 10 rather than running away.
+    if (SLOWER_KEYS.has(key.code)) {
+      key.preventDefault()
+      onSpeed('slower')
+      return
+    }
+    if (FASTER_KEYS.has(key.code)) {
+      key.preventDefault()
+      onSpeed('faster')
+      return
+    }
+
     // One action per press, no auto-repeat: holding a key must never drain buying
     // power by repeating an entry. Position sizing should not be a function of how
     // long a finger rested on a button.

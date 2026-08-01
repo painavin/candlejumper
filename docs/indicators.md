@@ -342,6 +342,46 @@ of the way, so its exact y is arbitrary and moving it costs nothing; a stop leve
 a few pixels up would be a lie about where the stop is. Pixels rather than price, since
 a price offset would buy different clearance on every ticker.
 
+#### When a value is off the chart
+
+The chart's price bounds come from the visible **bars'** highs and lows, padded 8% — an
+overlay is never consulted, because a 200-bar average far below price would squash every
+candle into a band and flatten the hop. So an overlay is free to sit outside the window,
+and in a strong run a 50-bar average does exactly that for as long as the run continues.
+
+Those values are **gaps**, not points at the edge. Mapping them through the clamped
+conversion pinned them to exactly 0, which drew a flat line along the chart floor — a
+level asserting a price it never had, sitting on the ground line, reading as a rendering
+fault rather than as data. Two answers, because the two kinds of output claim different
+things:
+
+- A **mark** off the chart is dropped outright. Its whole content is *this bar, this
+  price*, and a dot held at the edge names a price that isn't its own.
+- A **line** drops its off-chart run but keeps the point where it crosses the edge,
+  clamped, so it visibly runs off the bottom and stops. Ending it at the last in-range bar
+  instead would look identical to an indicator that hadn't warmed up yet.
+
+A line that is off the chart for the whole window therefore draws nothing at all, rather
+than a stub at each edge. Stop lines are the deliberate exception and stay clamped: they
+carry their real price as a label, so a line held at the edge still tells you where your
+stop is, and one that vanished would be the worse failure.
+
+#### One trap for whoever adds the next draw mode
+
+Every output paints into the **same** `Graphics`, and Pixi reuses the previous
+instruction's path when no geometry has been queued since it — `graphics.rect().fill()
+.stroke()` outlining the shape it just filled is the same behaviour, used on purpose in
+`poleLayer`. So a `fill()` or `stroke()` reached for with nothing queued does not draw
+nothing: it repaints the *previous output's* path in this output's colour. A sparse mark
+that happened to fire nowhere in the visible window filled the level line above it,
+turning a thin line into a solid wedge across the chart in the mark's colour.
+
+Every paint call in `render/hud/indicatorLayer.ts` is therefore guarded on a count of
+what it queued, and `indicatorLayer.test.ts` asserts the property directly: an output
+with no values in the window contributes no instruction in its own colour. It reads Pixi's
+private instruction list, which is the point rather than a compromise — the defect lives
+in that list, and a screenshot check would say something looked wrong without saying why.
+
 ### The player has the final say
 
 Every field above is a **default**. The settings row lists one line per output —

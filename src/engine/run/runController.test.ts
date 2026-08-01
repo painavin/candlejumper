@@ -34,6 +34,56 @@ const controllerOf = (bars: readonly OhlcvBar[], showVolume = true, indicators?:
 /** One bar at the default 2 bars/sec. */
 const BAR = 0.5
 
+describe('changing speed mid-run', () => {
+  const run = () =>
+    createRunController({
+      bars: [bar(100, 110), bar(110, 105), bar(105, 108), bar(108, 112)],
+      config: defaultConfig(),
+      visibleBarCount: 5,
+      showVolume: false,
+    })
+
+  it('steps a rung at a time and reports what it landed on', () => {
+    const controller = run()
+    controller.advance(0)
+    // The default is 2 bars/sec.
+    expect(controller.changeSpeed('faster')).toBe(3)
+    expect(controller.changeSpeed('faster')).toBe(4)
+    expect(controller.changeSpeed('slower')).toBe(3)
+  })
+
+  it('puts the live speed on the frame, not the configured one', () => {
+    // The HUD reads it from here, so a run that has been sped up must not keep displaying
+    // the number it started at.
+    const controller = run()
+    controller.advance(0)
+    expect(controller.frame.hud.scrollSpeed).toBe(2)
+    controller.changeSpeed('faster')
+    expect(controller.advance(0).hud.scrollSpeed).toBe(3)
+  })
+
+  it('refuses while paused', () => {
+    // It would take effect invisibly on resume, and the pause screen shows no speed.
+    const controller = run()
+    controller.advance(0)
+    controller.pause()
+    expect(controller.changeSpeed('faster')).toBe(2)
+    controller.resume()
+    expect(controller.changeSpeed('faster')).toBe(3)
+  })
+
+  it('trades nothing and scores nothing', () => {
+    // A speed press is a view control. If it could reach the input buffer it would be a
+    // trade in the queue that decides which bar a fill lands on.
+    const controller = run()
+    controller.advance(0)
+    controller.changeSpeed('faster')
+    controller.changeSpeed('slower')
+    expect(controller.state.stats.stats.closeEvents).toBe(0)
+    expect(controller.state.position.shares).toBe(0)
+  })
+})
+
 describe('the volume pane', () => {
   it('reports a direction per point, aligned with the bars', () => {
     // The alignment is what the renderer relies on to colour bar N's volume like bar
@@ -340,5 +390,90 @@ describe('overlay lines', () => {
     )
     controller.advance(0)
     expect(controller.frame.overlays.find((line) => line.output === 'mark')?.offsetPx).toBe(10)
+  })
+})
+
+describe('an overlay whose value is off the chart', () => {
+  /**
+   * A feed that reports a scripted value per bar, so a level can be put outside the
+   * chart's bounds on purpose.
+   *
+   * The bounds come from the *bars*: four bars at 100 give roughly 98.8 to 101.2 once
+   * padded, so 50 is far below the chart and 100 sits in the middle of it.
+   */
+  const scriptedFeed = (
+    values: readonly number[],
+    draw: 'line' | 'dots' | 'dash'
+  ): IndicatorFeed => {
+    let next = 0
+    const series: IndicatorSeries = {
+      instanceId: 'i1',
+      displayName: 'FAKE',
+      colour: 0x112233,
+      paneKind: 'overlay',
+      outputs: ['level'],
+      styles: { level: { draw } },
+      history: { level: [] },
+    }
+    return {
+      observeBar() {
+        series.history.level?.push(values[next++] ?? Number.NaN)
+      },
+      reset() {},
+      series: [series],
+    }
+  }
+
+  const flat = [bar(100, 100), bar(100, 100), bar(100, 100), bar(100, 100)]
+
+  /** Runs the whole window so every scripted value lands on a bar. */
+  const unitsOf = (values: readonly number[], draw: 'line' | 'dots' | 'dash') => {
+    const controller = createRunController({
+      bars: flat,
+      config: defaultConfig(),
+      visibleBarCount: 5,
+      showVolume: false,
+      indicators: scriptedFeed(values, draw),
+    })
+    for (let i = 0; i < flat.length; i++) controller.advance(BAR)
+    return controller.frame.overlays[0]?.units ?? []
+  }
+
+  it('is a gap rather than a flat line along the chart floor', () => {
+    // The defect this exists for: the clamped conversion pinned every out-of-range value
+    // to exactly 0, drawing a level at a price it never had, on top of the ground line.
+    const units = unitsOf([50, 50, 50, 100], 'line')
+    expect(units[0]).toBeNull()
+    expect(units[1]).toBeNull()
+    expect(units[3]).toBeCloseTo(0.5, 1)
+  })
+
+  it('keeps the crossing point, so the line leaves the chart instead of stopping short', () => {
+    // The bar before the one that re-enters is held at the edge. Without it, "below the
+    // chart" and "not warmed up yet" would look identical.
+    const units = unitsOf([50, 50, 50, 100], 'line')
+    expect(units[2]).toBe(0)
+  })
+
+  it('draws nothing at all when the whole window is off the chart', () => {
+    // No neighbour is ever on the chart, so there is no crossing to keep — and a stub
+    // pinned at each edge would be the original defect in miniature.
+    expect(unitsOf([50, 50, 50, 50], 'line')).toEqual([null, null, null, null])
+  })
+
+  it('drops an off-chart mark outright, with no point at the edge', () => {
+    // A dot's entire content is "this bar, this price". One held at the edge names a
+    // price that is not its own, which a line's crossing point does not claim.
+    const units = unitsOf([50, 50, 50, 100], 'dots')
+    expect(units.slice(0, 3)).toEqual([null, null, null])
+    expect(units[3]).toBeCloseTo(0.5, 1)
+  })
+
+  it('applies above the chart as well as below', () => {
+    const units = unitsOf([100, 500, 500, 500], 'line')
+    expect(units[0]).toBeCloseTo(0.5, 1)
+    expect(units[1]).toBe(1)
+    expect(units[2]).toBeNull()
+    expect(units[3]).toBeNull()
   })
 })

@@ -54,12 +54,24 @@
             <th>Pause</th>
             <td>{isTouch ? 'Pause icon, top corner' : 'Esc or P'}</td>
           </tr>
+          {#if !isTouch}
+            <tr>
+              <th>Slower / faster</th>
+              <td>← or A / → or D</td>
+            </tr>
+          {/if}
         </tbody>
       </table>
       <p class="note">
         Buy four more times and you're fully deployed. Every sell closes exactly one
         of those units, so four entries always take four exits to get flat.
       </p>
+      {#if !isTouch}
+        <p class="note">
+          Change speed whenever you like — mid-trade is fine, and it never affects your
+          record. Slowing down to think is the point of a trainer.
+        </p>
+      {/if}
     </li>
 
     <li>

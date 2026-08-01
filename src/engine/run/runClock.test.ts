@@ -101,4 +101,61 @@ describe('createRunClock', () => {
     expect(c.phase).toBe(0)
     expect(c.droppedBars).toBe(0)
   })
+
+  describe('retiming mid-run', () => {
+    it('retimes the bars that follow', () => {
+      const c = clock(2)
+      c.setScrollSpeed(4)
+      expect(c.scrollSpeed).toBe(4)
+      expect(c.barDuration).toBeCloseTo(0.25, 9)
+    })
+
+    it('preserves the phase, so the bar in progress does not jump', () => {
+      // The property that matters: the growing bar and the character's hop are both driven
+      // by phase, so a bar 60% formed has to stay 60% formed. Keeping the *accumulator*
+      // instead would make the same elapsed seconds mean a different fraction of a bar.
+      const c = clock(2)
+      c.advance(0.3)
+      expect(c.phase).toBeCloseTo(0.6, 6)
+      c.setScrollSpeed(8)
+      expect(c.phase).toBeCloseTo(0.6, 6)
+    })
+
+    it('does not resolve a bar just because the speed went up', () => {
+      // With the accumulator kept as-is, 0.3s at 8 bars/sec is past two whole bars, so
+      // speeding up mid-bar would complete one instantly and apply buffered presses to it.
+      const c = clock(2)
+      c.advance(0.3)
+      c.setScrollSpeed(8)
+      expect(c.advance(0.001)).toBe(0)
+    })
+
+    it('completes the next bar on the new timing, not the old', () => {
+      const c = clock(2)
+      c.setScrollSpeed(4)
+      let completed = 0
+      for (let i = 0; i < 60; i++) completed += c.advance(1 / 60)
+      expect(completed).toBe(4)
+    })
+
+    it('keeps the epsilon proportional, so a slow speed still lands on time', () => {
+      // The tolerance is a fraction of a bar; left at the old bar's size it would be
+      // meaningless after a large change. 30 frames at 1/60 is exactly one bar at 2/sec.
+      const c = clock(10)
+      c.setScrollSpeed(2)
+      let completed = 0
+      for (let i = 0; i < 30; i++) completed += c.advance(1 / 60)
+      expect(completed).toBe(1)
+    })
+
+    it('ignores a speed that is not a usable number', () => {
+      // The only caller steps through `SPEED_STEPS`, which is already the clamp, so
+      // anything else is a bug — and quietly rounding it would hide the bug.
+      const c = clock(2)
+      for (const bad of [0, -4, Number.NaN, Number.POSITIVE_INFINITY]) {
+        c.setScrollSpeed(bad)
+        expect(c.scrollSpeed).toBe(2)
+      }
+    })
+  })
 })

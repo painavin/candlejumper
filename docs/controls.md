@@ -2,7 +2,8 @@
 
 ## Bindings
 
-Two actions, matching the original two-button concept.
+Two *trading* actions, matching the original two-button concept. Everything else on the
+keyboard moves no money.
 
 | Action | Desktop | Mobile |
 |---|---|---|
@@ -10,6 +11,7 @@ Two actions, matching the original two-button concept.
 | Sell (exit/scale out, or enter short when `allowShorting` is on) | `↓` or `S` | Thumb button, bottom **left** |
 | **Flatten** (close everything now) | **Hold** `↓`/`S` ~400ms | **Hold** the sell button |
 | Pause | `Esc` or `P` | Pause icon, top corner |
+| Slower / faster | `←`/`A` and `→`/`D` | — |
 
 Up-is-buy is the mapping worth keeping deliberately: it matches the
 character jumping *up* onto poles for a long, and going *down/under* for a
@@ -18,9 +20,49 @@ short (see
 direction, the price direction, and the character's position all agree.
 Arrow keys and WASD are both live so the player can use either hand.
 
+Left and right fall out of the same logic: the vertical axis is the position, and the
+horizontal axis is the one the chart travels along, so slower and faster read as pulling the
+world toward you or pushing it away. Nothing on the horizontal axis was bound, so no
+existing muscle memory moves.
+
 Rejected: `B`/`S` mnemonic keys (clearer to learn, but awkward for
 repeated scaling in, which is a core mechanic here), and `Space`/`Shift`
 (fine for a primary action, but the secondary one is undiscoverable).
+
+## Scroll speed while playing
+
+`scrollSpeed` is the biggest difficulty lever there is — it's the reaction time available —
+and it's also the accessibility control ([accessibility.md](./accessibility.md)). Reaching
+it through the settings screen means abandoning the run, which is exactly the wrong cost for
+the thing a player wants when a run gets away from them. So it's on the keyboard.
+
+- **A ladder, not an increment**: 0.5, 1, 2, 3, 4, 5, 6, 8, 10 bars/sec. The settings slider
+  moves in half-bar steps, which is nineteen presses end to end. The rungs are close
+  together at the bottom because that's where the difference is: 0.5 → 1 halves the reaction
+  time, while 8 → 10 is a refinement. A speed the slider produced off the ladder — 2.5, 7.5
+  — moves to the next rung *in the direction asked for*.
+- **The ends are the clamp**, matching `validateConfig`'s 0.5–10 exactly. A press at the
+  limit does nothing rather than wrapping to the other extreme, and the keyboard is never a
+  way to reach a speed a config file would be refused for.
+- **Auto-repeat is allowed here**, unlike the trade keys: holding `→` to ramp up is the
+  natural gesture and there's no economic consequence, because a held key settles at 10.
+- **It works while trade input is blocked.** The block exists so a panicked double-tap
+  during the stopped-out transient can't re-enter the position; slowing down is exactly what
+  a player wants at that moment.
+- **Ignored while paused**, because it would take effect invisibly on resume and the pause
+  screen shows no speed.
+- **The bar in progress is preserved.** Retiming keeps the *phase*, not the accumulator, so a
+  bar 60% formed stays 60% formed. Keeping the accumulator would jerk the growing bar and
+  the hop, and speeding up mid-bar could resolve a bar instantly — applying buffered presses
+  to a bar they were never aimed at, which is the same corruption the stall rules exist to
+  prevent.
+- **It is not part of the run fingerprint**, so using it costs nothing on the record. See
+  [game-feel.md](./game-feel.md) for why that key was removed rather than made stricter.
+- **Run-scoped**: the change lasts the run and doesn't write back to settings.
+
+The speed in force shows in the top HUD's context plate next to the ticker and date, read
+off the frame rather than from config — otherwise the readout would keep displaying the
+speed the run started at.
 
 ## Flatten (close everything)
 
@@ -147,7 +189,8 @@ a different door.
   drain buying power by repeating an entry — position sizing should never be
   a function of how long a finger rested on a button. Holding the *exit* key
   is the one gesture with a meaning, and it fires exactly once (see
-  [Flatten](#flatten-close-everything)).
+  [Flatten](#flatten-close-everything)). The speed keys are outside this rule
+  because they move no money — see [above](#scroll-speed-while-playing).
 - Presses are **buffered during a bar and applied at step 3 of the tick
   pipeline** ([game-design.md](./game-design.md#tick-pipeline)), in press
   order, at that bar's completed close. Multiple presses in one bar all
@@ -156,7 +199,9 @@ a different door.
   Stopped-out lasts exactly one bar — long enough to read the feedback,
   short enough not to feel like a lockout — and presses during it are
   dropped rather than queued, so a panicked double-tap doesn't immediately
-  re-enter a position the player was just stopped out of.
+  re-enter a position the player was just stopped out of. The speed keys are
+  exempt: they're not a position change, and the transient is a moment a player
+  may well want to slow down for.
 - Denied actions (sell while flat with shorting off, entry with no buying
   power) fire the `actionDenied` cue in
   [audio.md](./audio.md#channel-3--event-stingers-one-shots) and

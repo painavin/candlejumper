@@ -26,10 +26,21 @@ export interface Playback {
   advance(dt: number): ChartFrame
   /** Price → 0..1 chart height, so stop levels can be drawn on the same scale. */
   unitOf(price: number): number
+  /**
+   * As `unitOf`, unclamped: below 0 or above 1 means the price is off the chart.
+   *
+   * For levels that should stop being drawn rather than pile up against an edge — see
+   * `Normalizer.unclampedUnit`.
+   */
+  unclampedUnitOf(price: number): number
   /** The current snapshot without advancing — for paused frames. */
   readonly frame: ChartFrame
   /** Fires once per completed bar, after the cursor moves. Step 2 hangs the tick pipeline here. */
   onBarClosed(listener: (bar: OhlcvBar, index: number) => void): void
+  /** Bars per second currently in force, which the player can change mid-run. */
+  readonly scrollSpeed: number
+  /** Retime the run, preserving the bar in progress. See `RunClock.setScrollSpeed`. */
+  setScrollSpeed(barsPerSecond: number): void
   pause(): void
   resume(): void
   readonly isPaused: boolean
@@ -172,9 +183,18 @@ export function createPlayback({
     },
 
     unitOf: (price) => normalizer.unit(price),
+    unclampedUnitOf: (price) => normalizer.unclampedUnit(price),
 
     onBarClosed(listener) {
       listeners.push(listener)
+    },
+
+    get scrollSpeed() {
+      return clock.scrollSpeed
+    },
+
+    setScrollSpeed(barsPerSecond) {
+      clock.setScrollSpeed(barsPerSecond)
     },
 
     pause() {
