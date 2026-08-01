@@ -68,6 +68,13 @@ describe('round trip', () => {
         colour: 0xffd166,
         paneKind: 'overlay',
       },
+      {
+        typeId: 'gapup-breakout-atr-pullback',
+        params: { breakoutLength: 20 },
+        instanceId: 'gbap-1',
+        colour: 0x9dd6a0,
+        outputs: { breakout: { draw: 'none' }, stop: { draw: 'dash', colour: 0xff9ec4 } },
+      },
     ]
 
     expect(roundTrip(changed)).toEqual(changed)
@@ -271,6 +278,52 @@ describe('configured stops and indicators', () => {
     )
     expect(parsed.indicators.active[0]?.paneKind).toBe('oscillator')
     expect(parsed.indicators.active[1]?.paneKind).toBeUndefined()
+  })
+
+  it('keeps per-output style overrides, and drops the parts that are corrupt', () => {
+    const parsed = parseStoredConfig(
+      stored({
+        indicators: {
+          active: [
+            {
+              typeId: 'a',
+              instanceId: 'a-1',
+              colour: 1,
+              outputs: {
+                good: { draw: 'dots', colour: 0x4fd6c8 },
+                badDraw: { draw: 'squiggle', colour: 0x112233 },
+                badColour: { draw: 'dash', colour: -1 },
+                empty: { draw: 'wrong', colour: 'red' },
+                notAnObject: 'dots',
+              },
+            },
+          ],
+        },
+      }),
+      options
+    )
+
+    const outputs = parsed.indicators.active[0]?.outputs
+    expect(outputs?.good).toEqual({ draw: 'dots', colour: 0x4fd6c8 })
+    // Field by field, not entry by entry: one bad half shouldn't cost the good half,
+    // and what's left still resolves against the plugin's own default.
+    expect(outputs?.badDraw).toEqual({ colour: 0x112233 })
+    expect(outputs?.badColour).toEqual({ draw: 'dash' })
+    // Nothing survived, so no entry — absent already means "use the plugin's default".
+    expect(outputs?.empty).toBeUndefined()
+    expect(outputs?.notAnObject).toBeUndefined()
+  })
+
+  it('omits the override map entirely when nothing in it survives', () => {
+    const parsed = parseStoredConfig(
+      stored({
+        indicators: {
+          active: [{ typeId: 'a', instanceId: 'a-1', colour: 1, outputs: { x: { draw: 5 } } }],
+        },
+      }),
+      options
+    )
+    expect(parsed.indicators.active[0]?.outputs).toBeUndefined()
   })
 
   it('falls back to the default list when the stored one is not a list', () => {

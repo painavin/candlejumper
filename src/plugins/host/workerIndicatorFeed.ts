@@ -4,6 +4,7 @@ import { DEFAULT_INDICATOR_COLOUR } from '@shared/palette/index.js'
 import type { IndicatorFeed, IndicatorSeries } from '@engine/indicators/feed.js'
 import type { PluginWorkerClient } from './workerClient.js'
 import type { DisplayedIndicatorSpec } from './indicatorFeed.js'
+import { resolveOutputStyles } from './indicatorFeed.js'
 
 /**
  * Displayed indicators from sandboxed plugins.
@@ -70,12 +71,14 @@ export async function createWorkerIndicatorFeed({
             displayName: descriptor.displayName,
             abbreviation: descriptor.abbreviation,
             params: descriptor.params as ParamSpec[],
+            labelParams: descriptor.labelParams,
           },
           spec.params
         ),
         colour: spec.colour ?? DEFAULT_INDICATOR_COLOUR,
         paneKind: spec.paneKind ?? descriptor.paneKind ?? 'overlay',
         outputs,
+        styles: resolveOutputStyles(outputs, descriptor.outputStyles, spec.outputs),
         fixedRange: descriptor.fixedRange,
         history: Object.fromEntries(outputs.map((output) => [output, [] as number[]])),
       },
@@ -93,7 +96,17 @@ export async function createWorkerIndicatorFeed({
         }
 
         void client
-          .send({ type: 'indicatorBar', instanceId: slot.workerInstanceId, bar, isLastBar })
+          .send({
+            type: 'indicatorBar',
+            instanceId: slot.workerInstanceId,
+            bar,
+            isLastBar,
+            // Empty: a sandboxed indicator's own dependencies aren't resolved yet,
+            // the same gap sandboxed stops have. A composite loaded from a file
+            // therefore draws nothing rather than wrong numbers, because a missing
+            // dependency reads as NaN — see docs/indicators.md#composing-indicators.
+            indicators: {},
+          })
           .then((response) => {
             if (response.type !== 'outputs') return
             for (const output of slot.outputs) {

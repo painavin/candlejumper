@@ -29,13 +29,26 @@
     RunConfig,
     StopInstanceConfig,
   } from '@config/index.js'
-  import type { BarInterval, ParamSpec, TickerMeta } from '@shared/contracts/index.js'
+  import type {
+    BarInterval,
+    IndicatorDrawStyle,
+    IndicatorOutputStyle,
+    ParamSpec,
+    TickerMeta,
+  } from '@shared/contracts/index.js'
   import { DEFAULT_INTERVAL, instanceLabel, intervalName } from '@shared/contracts/index.js'
   import { mintSeed } from '@shared/math/index.js'
   import { audioThemes } from '@content/audioThemes/index.js'
   import { visualThemes } from '@content/visualThemes/index.js'
   import { characters } from '@content/characters/index.js'
-  import { INDICATOR_COLOURS, nextIndicatorColour } from '@shared/palette/index.js'
+  import {
+    INDICATOR_COLOURS,
+    colourFromHex,
+    colourToHex,
+    describeColourRisk,
+    nextIndicatorColour,
+  } from '@shared/palette/index.js'
+  import { pnlColours } from '@content/pnlColours.js'
   import { untrack } from 'svelte'
   import { snapshot } from '../appState.svelte.js'
   import ParamControl from '../controls/ParamControl.svelte'
@@ -52,6 +65,11 @@
     paneKind: 'overlay' | 'oscillator'
     /** Short form for the legend, e.g. `SMA`. Falls back to `displayName`. */
     abbreviation?: string
+    /** Which params the label narrows to. Unset means all — see `instanceLabel`. */
+    labelParams?: string[]
+    /** Named outputs, and the plugin's suggested style for each. */
+    outputs: string[]
+    outputStyles?: Record<string, IndicatorOutputStyle>
   }
 
   /** A registered price source. `downloadable` decides whether the fetch UI appears. */
@@ -192,8 +210,11 @@
 
   const indicatorColours = INDICATOR_COLOURS
 
-  /** `0xffd166` → `#ffd166`, for a style attribute. */
-  const cssColour = (value: number): string => `#${value.toString(16).padStart(6, '0')}`
+  /**
+   * The P&L pair the player is actually looking at, so a colour warning is measured
+   * against the palette in use rather than the default one.
+   */
+  const activePnl = $derived(pnlColours(draft.visuals.pnlPalette))
 
   const instancesOf = (id: string): IndicatorInstanceConfig[] =>
     draft.indicators.active.filter((active) => active.typeId === id)
@@ -265,6 +286,88 @@
   function setPaneKind(active: IndicatorInstanceConfig, value: string): void {
     active.paneKind = value === 'overlay' || value === 'oscillator' ? value : undefined
   }
+
+  /**
+   * How one output of an instance will be drawn: the player's override, then the
+   * plugin's suggestion, then a plain line in the instance's colour.
+   *
+   * The *same* precedence `plugins/host/indicatorFeed.ts` applies when it builds the
+   * series — stated twice, unavoidably, because this side has no feed to ask. What
+   * makes that survivable is that the row is showing the resolved value, so a
+   * disagreement would be visible here rather than only on the chart.
+   */
+  function outputStyle(
+    choice: IndicatorChoice,
+    active: IndicatorInstanceConfig,
+    output: string
+  ): { draw: IndicatorDrawStyle; colour: number } {
+    const declared = choice.outputStyles?.[output]
+    const chosen = active.outputs?.[output]
+    return {
+      draw: chosen?.draw ?? declared?.draw ?? 'line',
+      colour: chosen?.colour ?? declared?.colour ?? active.colour,
+    }
+  }
+
+  /**
+   * Record an override for one output.
+   *
+   * Sparse on purpose: an entry appears only once the player has changed something, so
+   * an indicator that later improves its own defaults improves them for anyone who
+   * never touched that output. The map is created lazily for the same reason — an empty
+   * one would persist as noise in every saved config.
+   */
+  function setOutputStyle(
+    active: IndicatorInstanceConfig,
+    output: string,
+    patch: { draw?: IndicatorDrawStyle; colour?: number }
+  ): void {
+    const outputs = { ...(active.outputs ?? {}) }
+    outputs[output] = { ...outputs[output], ...patch }
+    active.outputs = outputs
+  }
+
+  /** Drop every override for one output, back to whatever the plugin says. */
+  function resetOutputStyle(active: IndicatorInstanceConfig, output: string): void {
+    if (!active.outputs?.[output]) return
+    const outputs = { ...active.outputs }
+    delete outputs[output]
+    // Deleted rather than left as `{}`: absent *is* "use the plugin's default", and two
+    // representations of one state is how a stale empty object outlives its purpose.
+    active.outputs = Object.keys(outputs).length > 0 ? outputs : undefined
+  }
+
+  const hasOutputOverride = (active: IndicatorInstanceConfig, output: string): boolean =>
+    active.outputs?.[output] !== undefined
+
+  /**
+   * The swatch beside an instance's name: the colour of the first output actually drawn.
+   *
+   * Not the instance's base colour, which after per-output overrides may not appear on
+   * the chart at all — the swatch exists to connect a collapsed row to a line the
+   * player can see.
+   */
+  function summaryColour(
+    choice: IndicatorChoice | undefined,
+    active: IndicatorInstanceConfig
+  ): number {
+    if (!choice) return active.colour
+    for (const output of choice.outputs) {
+      const style = outputStyle(choice, active, output)
+      if (style.draw !== 'none') return style.colour
+    }
+    return active.colour
+  }
+
+  const DRAW_CHOICES: readonly { value: IndicatorDrawStyle; label: string }[] = [
+    { value: 'line', label: 'Line' },
+    { value: 'dash', label: 'Dashed' },
+    { value: 'dots', label: 'Dots' },
+    // Last, and named for what the player wants rather than for the enum: this is the
+    // hide control, and there is deliberately no separate checkbox that could contradict
+    // it.
+    { value: 'none', label: "Don't draw" },
+  ]
 
   /**
    * How many panes are configured beyond what this viewport can show.
@@ -983,7 +1086,8 @@
         {@const choice = choiceFor(instance.typeId)}
         <details class="instance">
           <summary>
-            <span class="swatch" style={`background: ${cssColour(instance.colour)}`}></span>
+            <span class="swatch" style={`background: ${colourToHex(summaryColour(choice, instance))}`}
+            ></span>
             <strong>{choice ? labelFor(choice, instance) : instance.typeId}</strong>
             <span class="note inline">
               {paneOf(instance) === 'overlay' ? 'on chart' : 'own pane'}
@@ -992,19 +1096,31 @@
             {#if !choice}<span class="note inline">plugin missing</span>{/if}
           </summary>
           <div class="instance-body">
-            {#if choice}
-              {#each choice.params as spec (spec.key)}
-                <ParamControl
-                  {spec}
-                  value={instance.params[spec.key] ?? (spec.default as number)}
-                  onChange={(next) => (instance.params[spec.key] = next)}
-                />
-              {/each}
-            {/if}
+            <!--
+              One table per instance: params, where it's drawn, then a row per output.
+              A single grid rather than one per group, because two grids size their
+              columns independently — the params' boxes and the outputs' dropdowns would
+              each line up within their own group and not with each other. Boxes that
+              size to their own label read as unrelated controls, and nothing can be
+              compared by scanning a column. `ParamControl` contributes cells rather than
+              a row of its own; see `inGrid` there.
+            -->
+            <div class="instance-grid">
+              {#if choice}
+                {#each choice.params as spec (spec.key)}
+                  <ParamControl
+                    inGrid
+                    {spec}
+                    value={instance.params[spec.key] ?? (spec.default as number)}
+                    onChange={(next) => (instance.params[spec.key] = next)}
+                  />
+                {/each}
+              {/if}
 
-            <label>
-              Draw it
+              <span class="row-label">Draw it</span>
               <select
+                class="pane"
+                aria-label="Where to draw this indicator"
                 value={instance.paneKind ?? ''}
                 onchange={(event) => setPaneKind(instance, event.currentTarget.value)}
               >
@@ -1016,29 +1132,107 @@
                 <option value="overlay">On the main chart</option>
                 <option value="oscillator">In its own pane</option>
               </select>
-            </label>
-            {#if paneOf(instance) === 'overlay' && choice?.paneKind === 'oscillator'}
-              <p class="note warn">
-                On the main chart this is drawn on the <em>price</em> scale, so values
-                that aren't prices will sit squashed against the bottom.
-              </p>
-            {/if}
+              {#if paneOf(instance) === 'overlay' && choice?.paneKind === 'oscillator'}
+                <p class="note warn full">
+                  On the main chart this is drawn on the <em>price</em> scale, so values
+                  that aren't prices will sit squashed against the bottom.
+                </p>
+              {/if}
 
-            <fieldset class="palette">
-              <legend>Line colour</legend>
-              {#each indicatorColours as colour (colour.value)}
-                <button
-                  type="button"
-                  class="chip"
-                  class:selected={instance.colour === colour.value}
-                  style={`background: ${cssColour(colour.value)}`}
-                  title={colour.name}
-                  aria-label={colour.name}
-                  aria-pressed={instance.colour === colour.value}
-                  onclick={() => (instance.colour = colour.value)}
-                ></button>
-              {/each}
-            </fieldset>
+              <!--
+                One row per output, which is what the chart actually draws.
+                A single instance colour could not describe a five-output composite: the
+                player had no way to see that three of its outputs are marks, nor to turn
+                one off. The style select doubles as the hide control — "Don't draw" is a
+                drawing style, and a separate visibility checkbox could contradict it.
+
+                Colour is a named select rather than a bare picker because the names are
+                what a screen reader can say and a colourblind player can act on;
+                "Custom…" reveals the picker for what eight names can't express.
+              -->
+              {#if choice && choice.outputs.length > 0}
+                <span class="group-label full">Outputs</span>
+                {#each choice.outputs as output (output)}
+                  {@const style = outputStyle(choice, instance, output)}
+                  <span class="output-name" class:hidden={style.draw === 'none'}>{output}</span>
+                  <select
+                    class="draw"
+                    aria-label={`How to draw ${output}`}
+                    value={style.draw}
+                    onchange={(event) =>
+                      setOutputStyle(instance, output, {
+                        draw: event.currentTarget.value as IndicatorDrawStyle,
+                      })}
+                  >
+                    {#each DRAW_CHOICES as option (option.value)}
+                      <option value={option.value}>{option.label}</option>
+                    {/each}
+                  </select>
+
+                  <span class="colour-cell">
+                    <select
+                      class="colour"
+                      aria-label={`Colour for ${output}`}
+                      value={indicatorColours.some((colour) => colour.value === style.colour)
+                        ? String(style.colour)
+                        : 'custom'}
+                      disabled={style.draw === 'none'}
+                      onchange={(event) => {
+                        const value = event.currentTarget.value
+                        // "Custom…" stores the colour it is currently showing, so opening
+                        // the picker never changes the chart on its own.
+                        setOutputStyle(instance, output, {
+                          colour: value === 'custom' ? style.colour : Number(value),
+                        })
+                      }}
+                    >
+                      {#each indicatorColours as colour (colour.value)}
+                        <option value={String(colour.value)}>{colour.name}</option>
+                      {/each}
+                      <option value="custom">Custom…</option>
+                    </select>
+                    <input
+                      type="color"
+                      class="output-colour"
+                      aria-label={`Custom colour for ${output}`}
+                      value={colourToHex(style.colour)}
+                      disabled={style.draw === 'none'}
+                      oninput={(event) => {
+                        const parsed = colourFromHex(event.currentTarget.value)
+                        // Keeps the previous colour rather than falling back to a
+                        // default: a value this can't read is half-typed, not a choice.
+                        if (parsed !== undefined) {
+                          setOutputStyle(instance, output, { colour: parsed })
+                        }
+                      }}
+                    />
+                  </span>
+
+                  <span class="reset-cell">
+                    {#if hasOutputOverride(instance, output)}
+                      <button
+                        type="button"
+                        class="reset"
+                        title={`Back to the ${choice.displayName} default`}
+                        onclick={() => resetOutputStyle(instance, output)}
+                      >
+                        Reset
+                      </button>
+                    {/if}
+                  </span>
+
+                  {#if style.draw !== 'none' && describeColourRisk(style.colour, activePnl)}
+                    <!--
+                      Reported, never blocked. These are the two failure modes the fixed
+                      palette existed to prevent, and a warning respects a deliberate
+                      choice where a refusal wouldn't.
+                    -->
+                    <p class="note warn full">{describeColourRisk(style.colour, activePnl)}</p>
+                  {/if}
+                {/each}
+              {/if}
+            </div>
+
             <button
               type="button"
               class="remove"
@@ -1449,30 +1643,124 @@
     display: flex;
     gap: 6px;
   }
-  fieldset.palette {
-    margin: 10px 0 8px;
-    padding: 0;
-    border: 0;
+  /**
+   * The instance table: label, control, then the style and colour a drawn output adds.
+   *
+   * Used twice per instance — once for the params, once for the outputs — with the same
+   * column definitions, so a box and a dropdown two groups apart still line up. The
+   * columns take their content's width rather than stretching, because a row of controls
+   * spanning the whole panel reads as separate widgets rather than one labelled thing.
+   */
+  .instance-grid {
+    display: grid;
+    grid-template-columns: max-content max-content max-content max-content max-content;
+    justify-content: start;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 10px 0;
+    font-size: 13.5px;
   }
-  fieldset.palette legend {
-    padding: 0 0 5px;
+  /* Column 1 on every row, which is also what starts a new row: auto-placement moves
+     down when the explicit column sits behind the cursor. */
+  .output-name,
+  .row-label {
+    grid-column: 1;
+  }
+  /* A group heading is a row of its own, so it can't be mistaken for a column header. */
+  .group-label {
+    grid-column: 1 / -1;
+    margin-top: 4px;
     font-size: 12px;
     color: var(--dim);
   }
-  button.chip {
-    /* 26px rather than a hairline swatch: this is a touch target on a phone. */
+  .output-name {
+    grid-column: 1;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 13px;
+  }
+  /* Dimmed rather than removed: a row that vanished would leave no way back. */
+  .output-name.hidden {
+    color: var(--dim);
+    text-decoration: line-through;
+  }
+  .colour-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .reset-cell {
+    /* Present even when empty, so one row having a Reset can't shift the others. */
+    min-width: 6ch;
+  }
+  /* Spans the grid, because a warning belongs to the row above it, not to a column. */
+  .instance-grid .note.full {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  /**
+   * `width: auto` and the margin reset are load-bearing, for the reason already
+   * documented on `.add-row select` below: every select in this screen is
+   * `display: block; width: 100%` so that a full-width labelled field lines up. A grid
+   * item inherits that width and blows its column out to the whole panel, which turned
+   * each output into four stacked full-width controls.
+   */
+  .instance-grid select {
+    display: inline-block;
+    width: auto;
+    margin-top: 0;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  /* An output's style sits in the same column as a param's box, so every control in the
+     instance starts at the same x — the column is as wide as the wider of the two, and
+     the box simply doesn't fill it. Putting it one column further right (where a param's
+     unit and range live) lined the outputs up with each other but not with the params
+     above them, which is the thing worth having. */
+  .instance-grid select.draw {
+    grid-column: 2;
+    min-width: 11ch;
+  }
+  /* Then colour lands in the unit-and-range column, and its swatch beside it. */
+  .instance-grid select.colour {
+    min-width: 12ch;
+  }
+  /* Spans the control and meta columns: "Default (on chart)" is a sentence, not a value,
+     and squeezing it into the box column would clip it. */
+  .instance-grid select.pane {
+    grid-column: 2 / 4;
+    min-width: 22ch;
+  }
+  input[type='color'].output-colour {
+    /* 26px stays a touch target on a phone. The padding reset is for Chrome, which
+       otherwise insets the swatch inside the control. */
     width: 26px;
     height: 26px;
-    margin: 0 6px 0 0;
     padding: 0;
-    border: 2px solid transparent;
+    margin-top: 0;
+    border: 2px solid var(--edge);
     border-radius: 50%;
+    background: none;
     cursor: pointer;
   }
-  button.chip.selected {
-    /* Ring plus inset gap, so the selection survives being the same hue as the ring. */
-    border-color: var(--ink);
-    box-shadow: 0 0 0 2px var(--panel-solid) inset;
+  input[type='color'].output-colour:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+  input[type='color'].output-colour::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  input[type='color'].output-colour::-webkit-color-swatch {
+    border: 0;
+    border-radius: 50%;
+  }
+  button.reset {
+    padding: 3px 8px;
+    font-size: 11.5px;
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--dim);
+    cursor: pointer;
   }
   button.add {
     padding: 5px 12px;

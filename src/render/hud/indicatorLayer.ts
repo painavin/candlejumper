@@ -8,6 +8,8 @@ import { AXIS_WIDTH } from './axisLayer.js'
 import { PANEL_GAP, PANEL_MARGIN, PANEL_PADDING, drawPanel } from './hudPanel.js'
 import { histogramColour } from '../poles/candleColour.js'
 import type { CandlePalette } from '../poles/candleColour.js'
+import type { Point } from './dash.js'
+import { dashSegments } from './dash.js'
 
 /**
  * Overlay indicator lines, and the oscillator/volume sub-panes.
@@ -51,6 +53,33 @@ const LABEL_INSET = 9
  * worse than one labelled line, so this isn't decoration.
  */
 const SWATCH = { width: 16, height: 3, gap: 6, rowHeight: 17 }
+
+/**
+ * Marker radius for a `dots` output, as a fraction of the bar width.
+ *
+ * Tied to bar width rather than fixed, so a mark stays proportionate to the bar it
+ * belongs to at any zoom — and floored, because below about a pixel and a half a dot
+ * stops registering as a mark at all and just dirties the line of the chart.
+ */
+const DOT = { fraction: 0.3, min: 1.6, max: 4.5 }
+
+/**
+ * Dash and gap length for a `dash` output, in pixels.
+ *
+ * The same pair the stop-line layer uses, deliberately: a dashed line already means
+ * "shown but not enforced" on this chart, and a second dash rhythm would read as a
+ * different kind of thing rather than the same idea applied to an indicator.
+ */
+const DASH = { on: 9, off: 6 }
+
+/** Stroke a polyline as dashes. The walk itself lives in `dash.ts`, where it's tested. */
+function strokeDashed(graphics: Graphics, points: readonly Point[], colour: number): void {
+  for (const segment of dashSegments(points, DASH)) {
+    graphics.moveTo(segment.from.x, segment.from.y)
+    graphics.lineTo(segment.to.x, segment.to.y)
+  }
+  graphics.stroke({ width: 1.6, color: colour, alpha: 0.95 })
+}
 
 export interface IndicatorLayerOptions {
   theme: VisualTheme
@@ -136,9 +165,24 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
       const label = legendLabelFor(index)
       label.visible = true
       label.position.set(box.x + pad + SWATCH.width + SWATCH.gap, rowY + 6)
-      legendPlate
-        .rect(box.x + pad, rowY + 6 - SWATCH.height / 2, SWATCH.width, SWATCH.height)
-        .fill({ color: colour, alpha: 0.95 })
+      // A swatch shaped like what's actually on the chart: a bar for a line, a mark
+      // for dots, two short bars for a dash. Showing a solid bar for all three would
+      // be a small lie in the one place the player looks to decode the chart.
+      if (line.draw === 'dots') {
+        legendPlate
+          .circle(box.x + pad + SWATCH.width / 2, rowY + 6, DOT.max / 2 + 0.5)
+          .fill({ color: colour, alpha: 0.95 })
+      } else if (line.draw === 'dash') {
+        const segment = (SWATCH.width - 3) / 2
+        legendPlate
+          .rect(box.x + pad, rowY + 6 - SWATCH.height / 2, segment, SWATCH.height)
+          .rect(box.x + pad + segment + 3, rowY + 6 - SWATCH.height / 2, segment, SWATCH.height)
+          .fill({ color: colour, alpha: 0.95 })
+      } else {
+        legendPlate
+          .rect(box.x + pad, rowY + 6 - SWATCH.height / 2, SWATCH.width, SWATCH.height)
+          .fill({ color: colour, alpha: 0.95 })
+      }
     })
 
     for (let i = lines.length; i < legendLabels.length; i++) {
@@ -161,10 +205,45 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
         return layout.characterX - (age + frame.barPhase) * layout.barWidth
       }
 
+      const dotRadius = Math.min(DOT.max, Math.max(DOT.min, layout.barWidth * DOT.fraction))
+
       for (const line of frame.overlays) {
-        // The instance's own colour, chosen by the player. Not derived from its index
-        // here: removing one indicator would then recolour every line below it.
+        // The colour this output resolved to — its own, or the instance's. Not derived
+        // from its index here: removing one indicator would then recolour the rest.
         const colour = line.colour
+
+        if (line.draw === 'dots') {
+          // No path at all: a sparse output's points are individually meaningful, and
+          // joining them would draw a trend across the bars in between.
+          const lift = line.offsetPx ?? 0
+          line.units.forEach((unit, offset) => {
+            if (unit === null) return
+            const y = layout.groundY - unit * layout.chartHeight - lift
+            overlays.circle(xOf(offset), y, dotRadius)
+          })
+          overlays.fill({ color: colour, alpha: 0.95 })
+          continue
+        }
+
+        if (line.draw === 'dash') {
+          // Dashes break at a gap the same way a solid line does, so each run of
+          // consecutive values is dashed on its own.
+          let run: Point[] = []
+          const flush = (): void => {
+            if (run.length > 1) strokeDashed(overlays, run, colour)
+            run = []
+          }
+          line.units.forEach((unit, offset) => {
+            if (unit === null) {
+              flush()
+              return
+            }
+            run.push({ x: xOf(offset), y: layout.groundY - unit * layout.chartHeight })
+          })
+          flush()
+          continue
+        }
+
         let drawing = false
         line.units.forEach((unit, offset) => {
           if (unit === null) {
@@ -238,18 +317,41 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
             continue
           }
 
-          let drawing = false
+          if (series.draw === 'dots') {
+            const lift = series.offsetPx ?? 0
+            series.units.forEach((unit, offset) => {
+              if (unit === null) return
+              panes.circle(xOf(offset), top + height - unit * height - lift, dotRadius)
+            })
+            panes.fill({ color: colour, alpha: 0.95 })
+            continue
+          }
+
+          const runs: Point[][] = []
+          let run: Point[] = []
           series.units.forEach((unit, offset) => {
             if (unit === null) {
-              drawing = false
+              if (run.length > 0) runs.push(run)
+              run = []
               return
             }
-            const x = xOf(offset)
-            const y = top + height - unit * height
-            if (drawing) panes.lineTo(x, y)
-            else panes.moveTo(x, y)
-            drawing = true
+            run.push({ x: xOf(offset), y: top + height - unit * height })
           })
+          if (run.length > 0) runs.push(run)
+
+          if (series.draw === 'dash') {
+            for (const segment of runs) {
+              if (segment.length > 1) strokeDashed(panes, segment, colour)
+            }
+            continue
+          }
+
+          for (const segment of runs) {
+            segment.forEach((point, index) => {
+              if (index === 0) panes.moveTo(point.x, point.y)
+              else panes.lineTo(point.x, point.y)
+            })
+          }
           panes.stroke({ width: 1.4, color: colour, alpha: 0.95 })
         }
 

@@ -240,10 +240,13 @@ of swapping an implementation.
 It also settles where indicator-consuming stops live
 ([stops.md](./stops.md#using-indicators-inside-a-stop-plugin)). The third
 argument of `StopInstance.onBar` exists from step 4, where the host passes
-`{}` because neither built-in declares a `requires()`. Step 8 adds
+`{}` because the two percent stops declare no `requires()`. Step 8 adds
 dependency resolution to `plugins/host/` and starts filling it — so the
 signature never changes, and the mechanism costs nothing until there's an
-indicator registry to draw on.
+indicator registry to draw on. `IndicatorInstance.onBar` gained the same third
+argument for the same reason once indicators could be composed of other
+indicators, and one resolver in `plugins/host/indicatorTree.ts` serves both:
+a stop's dependencies and a displayed composite's are the same tree.
 
 Note which side of the boundary the wiring sits on: **`engine/` never learns
 that stops can use indicators.** It asks the port for a level and gets a

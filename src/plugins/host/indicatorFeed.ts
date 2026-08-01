@@ -1,7 +1,8 @@
-import type { IndicatorPlugin, OhlcvBar } from '@shared/contracts/index.js'
+import type { IndicatorOutputStyle, IndicatorPlugin, OhlcvBar } from '@shared/contracts/index.js'
 import { instanceLabel } from '@shared/contracts/index.js'
 import { DEFAULT_INDICATOR_COLOUR } from '@shared/palette/index.js'
-import type { IndicatorFeed, IndicatorSeries } from '@engine/indicators/feed.js'
+import type { IndicatorFeed, IndicatorSeries, ResolvedOutputStyle } from '@engine/indicators/feed.js'
+import { feedIndicatorNode, resetIndicatorNode, resolveIndicatorTree } from './indicatorTree.js'
 
 /**
  * The host-side implementation of the displayed-indicator port.
@@ -12,21 +13,58 @@ import type { IndicatorFeed, IndicatorSeries } from '@engine/indicators/feed.js'
  * things worth far more: toggling a pane can never change risk management, and the
  * run fingerprint stays honest, since `indicators.*` is excluded from it while
  * `stops.active` is included.
+ *
+ * A displayed indicator may itself be built from others via `requires()`, so each
+ * slot is a *tree* resolved by `indicatorTree.ts`. Only the root's outputs are
+ * drawn: a composite's inputs are its own business, and drawing them would put lines
+ * on the chart the player never asked for.
  */
 
 export interface DisplayedIndicatorSpec {
   instanceId: string
   typeId: string
   params: Record<string, number>
-  /** Player-chosen line colour. Optional so a caller without one still works. */
+  /** Player-chosen base colour. Optional so a caller without one still works. */
   colour?: number
   /** Player's pane override. Unset falls back to the plugin's own `paneKind`. */
   paneKind?: 'overlay' | 'oscillator'
+  /** Player's per-output overrides, layered over the plugin's own defaults. */
+  outputs?: Readonly<Record<string, IndicatorOutputStyle>>
 }
 
 export interface IndicatorFeedOptions {
   active: readonly DisplayedIndicatorSpec[]
   registry: ReadonlyMap<string, IndicatorPlugin>
+}
+
+/**
+ * The style each output is actually drawn with: player override, then the plugin's
+ * suggestion, then a plain line in the instance's colour.
+ *
+ * Resolved once here, where both halves are in scope, rather than at the renderer —
+ * `render/` may not reach the plugin registry, and resolving it twice is how an
+ * overlay and a legend end up disagreeing. `colour` stays possibly-undefined because
+ * "the instance's colour" is a real answer that only the engine can apply, once it
+ * knows which instance the series belongs to.
+ */
+export function resolveOutputStyles(
+  outputs: readonly string[],
+  plugin: Readonly<Record<string, IndicatorOutputStyle>> | undefined,
+  player: Readonly<Record<string, IndicatorOutputStyle>> | undefined
+): Record<string, ResolvedOutputStyle> {
+  const resolved: Record<string, ResolvedOutputStyle> = {}
+  for (const output of outputs) {
+    const declared = plugin?.[output]
+    const chosen = player?.[output]
+    resolved[output] = {
+      draw: chosen?.draw ?? declared?.draw ?? 'line',
+      colour: chosen?.colour ?? declared?.colour,
+      // Not overridable: an offset is the plugin saying "this mark flags a bar rather
+      // than naming a price", which is a fact about the output, not a preference.
+      offsetPx: declared?.offsetPx,
+    }
+  }
+  return resolved
 }
 
 export function createIndicatorFeed({ active, registry }: IndicatorFeedOptions): IndicatorFeed {
@@ -44,10 +82,12 @@ export function createIndicatorFeed({ active, registry }: IndicatorFeedOptions):
       // The player's choice wins, falling back to the plugin's suggestion.
       paneKind: spec.paneKind ?? plugin.paneKind,
       outputs: plugin.outputs,
+      styles: resolveOutputStyles(plugin.outputs, plugin.outputStyles, spec.outputs),
       fixedRange: plugin.fixedRange,
       history: Object.fromEntries(plugin.outputs.map((output) => [output, [] as number[]])),
     }
-    return { spec, plugin, instance: plugin.createInstance(spec.params), series }
+    const node = resolveIndicatorTree({ indicatorId: spec.typeId, params: spec.params }, registry)
+    return { spec, plugin, node, series }
   })
 
   return {
@@ -55,19 +95,18 @@ export function createIndicatorFeed({ active, registry }: IndicatorFeedOptions):
       for (const slot of slots) {
         // Incremental, one value per bar, rather than a full recompute of the series
         // every frame — that's what keeps cost bounded as a run gets longer.
-        const outputs = slot.instance.onBar(bar, isLastBar)
+        const outputs = feedIndicatorNode(slot.node, bar, isLastBar)
         for (const output of slot.plugin.outputs) {
-          const value = outputs[output]
-          // A plugin returning nothing for a declared output gets NaN, which reads
-          // as "warming up" downstream rather than as zero.
-          slot.series.history[output]?.push(typeof value === 'number' ? value : Number.NaN)
+          // `feedIndicatorNode` has already substituted NaN for anything the plugin
+          // didn't return, which reads as "warming up" downstream rather than as zero.
+          slot.series.history[output]?.push(outputs[output] ?? Number.NaN)
         }
       }
     },
 
     reset() {
       for (const slot of slots) {
-        slot.instance.reset()
+        resetIndicatorNode(slot.node)
         for (const output of slot.plugin.outputs) slot.series.history[output] = []
       }
     },

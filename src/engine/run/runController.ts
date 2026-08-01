@@ -1,5 +1,5 @@
 import type { RunConfig } from '@config/index.js'
-import type { OhlcvBar } from '@shared/contracts/index.js'
+import type { IndicatorDrawStyle, OhlcvBar } from '@shared/contracts/index.js'
 import type {
   ChartFrame,
   FrameState,
@@ -152,15 +152,39 @@ export function createRunController({
     return out
   }
 
+  /**
+   * How one output is drawn, with the instance's colour filled in.
+   *
+   * The host has already layered the player's overrides onto the plugin's defaults;
+   * what's left is the one substitution only this side can make — an output with no
+   * colour of its own takes the instance's. `null` means the player set it to `none`,
+   * and the caller drops the output entirely rather than drawing an invisible line and
+   * listing it in the legend.
+   */
+  function styleOf(
+    series: IndicatorSeries,
+    output: string
+  ): { colour: number; draw: Exclude<IndicatorDrawStyle, 'none'>; offsetPx?: number } | null {
+    const style = series.styles?.[output]
+    if (style?.draw === 'none') return null
+    return {
+      colour: style?.colour ?? series.colour,
+      draw: style?.draw ?? 'line',
+      offsetPx: style?.offsetPx,
+    }
+  }
+
   function overlaysFor(chart: ChartFrame): OverlayLine[] {
     const lines: OverlayLine[] = []
     for (const series of indicators.series) {
       if (series.paneKind !== 'overlay') continue
       for (const output of series.outputs) {
+        const style = styleOf(series, output)
+        if (!style) continue
         const values = windowOf(series.history[output] ?? [], chart)
         lines.push({
           instanceId: series.instanceId,
-          colour: series.colour,
+          ...style,
           // `displayName` is already per-instance, built from the plugin's params by
           // the feed — see `instanceLabel`.
           label: series.outputs.length > 1 ? `${series.displayName} ${output}` : series.displayName,
@@ -175,10 +199,13 @@ export function createRunController({
 
   /** Normalize within the pane: an oscillator has its own scale, not the price one. */
   function paneFor(series: IndicatorSeries, chart: ChartFrame): SubPane {
-    const windows = series.outputs.map((output) => ({
-      output,
-      values: windowOf(series.history[output] ?? [], chart),
-    }))
+    // Hidden outputs are dropped before the bounds are measured, so setting one to
+    // `none` also stops it stretching the pane's scale — an invisible outlier squashing
+    // everything else into a band would be worse than drawing it.
+    const windows = series.outputs.flatMap((output) => {
+      const style = styleOf(series, output)
+      return style ? [{ output, style, values: windowOf(series.history[output] ?? [], chart) }] : []
+    })
 
     let min = series.fixedRange?.[0] ?? Number.POSITIVE_INFINITY
     let max = series.fixedRange?.[1] ?? Number.NEGATIVE_INFINITY
@@ -202,7 +229,7 @@ export function createRunController({
       title: series.displayName,
       series: windows.map((entry) => ({
         output: entry.output,
-        colour: series.colour,
+        ...entry.style,
         units: entry.values.map((value) => (value === null ? null : (value - min) / span)),
       })),
       min,
@@ -228,6 +255,7 @@ export function createRunController({
           // Never actually used: `directions` is present, so the renderer colours every
           // bar individually. Kept as the fallback for a bar with no direction.
           colour: DEFAULT_INDICATOR_COLOUR,
+          draw: 'line',
           units: chart.bars.map((visible) => visible.bar.v / span),
           // Volume is the one pane whose points correspond one-for-one with price
           // bars, so each can be coloured like the candle above it. That reads as

@@ -1,4 +1,4 @@
-import type { OhlcvBar } from '@shared/contracts/index.js'
+import type { IndicatorDrawStyle, OhlcvBar } from '@shared/contracts/index.js'
 
 /**
  * The port displayed indicators answer through.
@@ -22,7 +22,7 @@ export interface IndicatorSeries {
   instanceId: string
   displayName: string
   /**
-   * Line colour for every output of this instance.
+   * The instance's colour, used by every output that doesn't name its own.
    *
    * Carried through the engine rather than chosen by the renderer, because it's a
    * player setting: `render/` may not read config, and deriving it from list position
@@ -33,6 +33,16 @@ export interface IndicatorSeries {
   paneKind: 'overlay' | 'oscillator'
   /** Named output series, in declaration order. */
   outputs: string[]
+  /**
+   * How each output is drawn, already resolved by the host from the plugin's defaults
+   * and the player's overrides — keyed by output name, one entry per output.
+   *
+   * Resolved before it gets here on purpose: `render/` may not reach the plugin
+   * registry, and a second resolution is how a line and its legend entry end up
+   * disagreeing. `colour` may still be absent, meaning "the instance's colour".
+   */
+  styles?: Readonly<Record<string, ResolvedOutputStyle>>
+
   /** Fixed y-range for oscillators that have one, e.g. [0, 100] for RSI. */
   fixedRange?: [number, number]
   /**
@@ -40,6 +50,15 @@ export interface IndicatorSeries {
    * up, which the renderer skips rather than drawing a line to zero.
    */
   history: Record<string, number[]>
+}
+
+/** A style with the defaults already applied. Only `colour` may still be absent. */
+export interface ResolvedOutputStyle {
+  draw: IndicatorDrawStyle
+  /** Absent means "the instance's colour" — the engine applies that. */
+  colour?: number
+  /** Pixels to lift a mark above its value; plugin-declared, never a player choice. */
+  offsetPx?: number
 }
 
 export interface IndicatorFeed {

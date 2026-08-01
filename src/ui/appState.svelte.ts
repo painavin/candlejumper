@@ -1,5 +1,11 @@
 import type { RunConfig } from '@config/index.js'
-import type { BarInterval, ParamSpec, TickerMeta, TouchHandlers } from '@shared/contracts/index.js'
+import type {
+  BarInterval,
+  IndicatorOutputStyle,
+  ParamSpec,
+  TickerMeta,
+  TouchHandlers,
+} from '@shared/contracts/index.js'
 import type { LifetimeStats } from '@platform/persistence/index.js'
 import type { Summary } from '@engine/scoring/stats.js'
 
@@ -46,8 +52,25 @@ export interface IndicatorChoice {
   displayName: string
   /** Short form for chart legends, e.g. `SMA`. Falls back to `displayName`. */
   abbreviation?: string
+  /**
+   * Which params appear in an instance's label. Unset means all of them.
+   *
+   * Carried here so the settings row and the chart legend narrow *identically* — they
+   * label the same instance, and a header reading `GBAP 20 4 7 2 5` beside a legend
+   * reading `GBAP 20 2` is worse than either alone.
+   */
+  labelParams?: string[]
   paneKind: 'overlay' | 'oscillator'
   params: ParamSpec[]
+  /**
+   * Named outputs, and how the plugin suggests drawing each.
+   *
+   * The settings screen lists one row per output so a player can see and change what
+   * is actually on the chart. Without these it can only offer a single colour for the
+   * whole instance, which says nothing about a five-output composite.
+   */
+  outputs: string[]
+  outputStyles?: Record<string, IndicatorOutputStyle>
   sandboxed?: boolean
 }
 

@@ -7,7 +7,7 @@
  * duration; there is no mid-run editing path anywhere.
  */
 
-import type { StopInstanceSpec } from '@shared/contracts/index.js'
+import type { IndicatorOutputStyle, StopInstanceSpec } from '@shared/contracts/index.js'
 
 export type CostBasisMethod = 'weighted-average' | 'fifo'
 export type PriceTransform = 'none' | 'log10'
@@ -49,13 +49,26 @@ export interface IndicatorInstanceConfig {
   params: Record<string, number>
   instanceId: string
   /**
-   * Line colour, from the fixed palette in `content/indicatorPalette.ts`.
+   * The instance's base colour.
    *
    * Per *instance*, not derived from the instance's position in the list — otherwise
    * removing one indicator recolours every line below it, and a player who learned
-   * "the amber one is the 200" has to relearn it.
+   * "the teal one is the 200" has to relearn it.
+   *
+   * With several outputs this is the fallback rather than the whole story: each output
+   * resolves to its own override, then the plugin's suggestion, then this.
    */
   colour: number
+  /**
+   * Per-output style overrides, keyed by output name.
+   *
+   * Sparse on purpose — an entry exists only where the player changed something, so a
+   * plugin that later improves its own defaults improves them for everyone who never
+   * touched that output. `draw: 'none'` is how an output is hidden; there is no
+   * separate visibility flag, because "don't draw it" is a drawing style and a second
+   * mechanism could contradict the first.
+   */
+  outputs?: Record<string, IndicatorOutputStyle>
   /**
    * Where this instance is drawn, overriding the plugin's own `paneKind`.
    *

@@ -63,7 +63,28 @@ Notes that matter for implementation:
   names, so there's one representation end to end.
 - `ParamSpec` is intentionally sufficient to **render a settings control
   without any per-plugin UI code** — that's the whole point of declaring
-  min/max/step/unit rather than leaving validation to the plugin.
+  min/max/step/unit rather than leaving validation to the plugin. `min` and `max`
+  are *required* for `int`/`float`/`percent` and enforced by the plugin validator,
+  which is what lets the control trust them without inventing defaults.
+- **Numeric params render as typed fields, not sliders.** These are exact
+  quantities — a length of 200, a factor of 2.5 — and dragging across a 2–200 range
+  is a pixel-hunt that lands wherever the pointer happened to be. The sliders worth
+  keeping are volume and scroll speed, where the number is meaningless and the feel
+  is the point.
+
+  A text field can hold something invalid, which a slider can't, so three rules
+  apply. It **commits on blur or Enter, never per keystroke** — with `min: 2`,
+  clamping as you type turns `20` into `2` the moment the first key lands, and that
+  single rule is what makes a bounded field usable. Out-of-range values **clamp**,
+  which is deliberately the opposite of the persistence rule in
+  [config.md](./config.md#persistence): that reads *stored* data where an impossible
+  value is evidence of corruption, whereas a person typing 500 into a field capped
+  at 200 is expressing intent. Unparseable input **reverts** to the previous value.
+- **`labelParams` narrows an instance label.** Appending every param stops scaling
+  around four: a five-param indicator labels itself `GBAP 20 3 7 2 5`, which is a
+  row of digits rather than a legend. Naming the one or two a player distinguishes
+  instances by keeps the legend readable while the settings row still shows all of
+  them. Unset means all, so `MACD 12 26 9` is unaffected.
 
 ## TypeScript indicator contract
 
@@ -76,6 +97,15 @@ interface IndicatorPlugin {
   paneKind: 'overlay' | 'oscillator'
   outputs: string[]              // named output series, e.g. ['macd', 'signal', 'histogram']
   params: ParamSpec[]
+  /** Which params appear in the legend label. Unset means all of them. */
+  labelParams?: string[]
+  /** Other indicators this one is built from. Omit if none. */
+  requires?(params: Record<string, number>): IndicatorRequest[]
+  /** How each output is drawn, by default — the player can override both fields. */
+  outputStyles?: Record<
+    string,
+    { draw?: 'none' | 'line' | 'dots' | 'dash'; colour?: number; offsetPx?: number }
+  >
   /** Fixed y-range for oscillator panes that have one (e.g. [0, 100] for RSI). */
   fixedRange?: [number, number]
   createInstance(params: Record<string, number>): IndicatorInstance
@@ -88,8 +118,16 @@ interface IndicatorInstance {
    * Return NaN for bars where the indicator isn't yet warmed up
    * (e.g. an SMA(20) before 20 bars exist) — the renderer skips NaN
    * rather than drawing a line to zero.
+   *
+   * `indicators` holds this bar's values from whatever `requires()` asked
+   * for, keyed by request key then output name. Empty for an indicator
+   * that requires nothing, which can simply omit the parameter.
    */
-  onBar(bar: OhlcvBar, isLastBar: boolean): Record<string, number>
+  onBar(
+    bar: OhlcvBar,
+    isLastBar: boolean,
+    indicators: Record<string, Record<string, number>>
+  ): Record<string, number>
 }
 ```
 
@@ -122,19 +160,37 @@ Three things this needs beyond the list itself:
   Moving Average 200" is unreadable at the size a legend has to be. Every
   declared param is appended in declaration order, so MACD(12, 26, 9) labels
   itself without knowing the function exists.
-- **Each instance carries its own line colour**, chosen by the player from the
-  fixed palette in `shared/palette/`. Per instance rather than derived from list
-  position: otherwise removing one indicator recolours every line below it, and a
-  player who learned "the amber one is the 200" has to relearn it. A new instance
-  is assigned the first unused palette colour — deterministic, wrapping when
-  there are more instances than colours, and reusing a freed colour rather than
-  marching on.
+- **Each instance carries a base colour**, and each of its *outputs* resolves a
+  colour of its own from it. Per instance rather than derived from list position:
+  otherwise removing one indicator recolours every line below it, and a player who
+  learned "the teal one is the 200" has to relearn it. A new instance is assigned
+  the first unused palette colour — deterministic, wrapping when there are more
+  instances than colours, and reusing a freed colour rather than marching on.
 
-  The palette is **fixed rather than a free colour picker**. An arbitrary hex
-  value lets a player choose something that vanishes into the sky, or a red that
-  reads as a losing bar — the two things a chart overlay must never do. Every
-  entry is named, because a swatch alone conveys nothing to a screen reader and
-  "the third orange square" isn't a choice a colourblind player can make.
+  Colour is chosen **per output**, from a named list plus a free picker. This is a
+  revision of an earlier decision to offer a fixed list only, and of a later one to
+  offer a single picker per instance. The original reasoning still holds: an
+  arbitrary hex lets a player choose something that vanishes into the sky, or a red
+  that reads as a losing bar. What neither earlier design survived is an indicator
+  with several outputs at once — one control for a five-output composite can't say
+  which of them it is colouring, and the settings row then describes a chart the
+  player isn't looking at.
+
+  The names come first, in a select, because each is sayable — a swatch alone
+  conveys nothing to a screen reader, and "the third orange square" isn't a choice a
+  colourblind player can make. "Custom…" reveals the picker for what eight names
+  can't express, and stores the colour it was already showing, so opening it never
+  changes the chart on its own. `describeColourRisk` reports the two original
+  failure modes rather than preventing them, per output: a warning respects a
+  deliberate choice where a refusal wouldn't, and it's measured against the P&L pair
+  the player has actually selected.
+
+  **Two presets fail that check.** `Sky` is byte-identical to `blue-orange`'s up
+  colour and `Orange` to its down colour, so both warn when the colourblind-safe
+  palette is selected — which is the setting where mistaking a line for a bar
+  matters most. The test that was meant to catch this skipped exact matches before
+  measuring distance, so it passed while asserting the opposite. Now asserted as a
+  known defect; fixing it means changing two shipped colours.
 - **The chart draws a legend once more than one overlay is active.** Three
   overlays in three colours are otherwise indistinguishable, and three unlabelled
   lines is worse than one labelled line — which makes the legend part of the
@@ -201,6 +257,109 @@ settings screen says so — a control that accepts input and discards it silentl
 worse than one that refuses. The count uses the *resolved* pane kind, so moving an
 indicator onto the main chart clears the warning, which makes it one of the ways to
 fix it rather than a dead end.
+
+## Composing indicators
+
+An indicator may be built from other indicators, declared exactly the way a stop
+declares them:
+
+```ts
+requires(params) {
+  return [
+    { key: 'breakout', indicatorId: 'breakout', params: { length: params.breakoutLength } },
+    { key: 'atr',      indicatorId: 'atr',      params: { length: params.atrLength } },
+  ]
+}
+```
+
+The host resolves that once, before the first bar, and hands the values to `onBar` as
+its third argument. The alternative was inlining each part — fewer lines for the first
+composite, then a second and third copy of the same formula for every later one, each
+free to be subtly wrong on its own. Sharing bar-level maths is already the precedent
+here, and an ATR that disagrees with the ATR a stop is using would be the worst kind of
+bug: invisible, and about risk.
+
+Four rules make it safe:
+
+- **Depth-first, within the same bar.** Every dependency sees a bar before the
+  indicator that asked for it, so a composite reads *this* bar's values rather than
+  last bar's. An off-by-one bar in a breakout signal is not a rounding error; it's a
+  different signal.
+- **Nobody shares an instance.** Each request gets its own, the same rule a
+  stop-owned indicator already follows — otherwise toggling a chart overlay could move
+  a live stop level.
+- **Cycles are refused at resolution time**, naming the whole path. This is the one
+  hazard the feature introduces: while only stops could declare `requires()`, the graph
+  was acyclic by construction. Two branches may both use `atr`; a single *path* may not
+  revisit an id. Chains deeper than eight are refused too — a cost worth rejecting where
+  the message can name the chain rather than at frame time where it just feels slow.
+- **A warming dependency propagates as `NaN`, never as a number.** A composite that
+  substitutes zero for an input that isn't ready reports a signal it hasn't measured.
+
+Only the root's outputs are drawn. A composite's inputs are its own business, and
+drawing them would put lines on the chart the player never asked for — including,
+for a price-scale overlay, an ATR sitting flat near zero underneath the bars.
+
+**Not yet true for sandboxed plugins.** A composite loaded from a file has its
+`requires()` reported in its descriptor but not resolved, so it receives empty values
+and — following the rule above — draws nothing. This is the same gap sandboxed *stops*
+have, and the reason both are gaps is that resolution has to happen where the registry
+lives. Built-in composites go through the in-process host and are unaffected.
+
+## Drawing several outputs of one instance
+
+An instance's outputs are not all the same kind of thing, so each one carries a draw
+style — the plugin's suggestion, which the player can override:
+
+```ts
+outputStyles: {
+  breakout: { draw: 'dots', colour: 0x4fd6c8, offsetPx: 10 },
+  retrace:  { draw: 'dash' },
+  stop:     { draw: 'dots' },
+}
+```
+
+`draw` is one of:
+
+| Mode | Reads as | For |
+|---|---|---|
+| `line` | joins consecutive values | a continuous level. The default |
+| `dash` | a broken line | a level that's context rather than something acted on |
+| `dots` | one mark per bar that has a value | an event on a scattered handful of bars |
+| `none` | computed, not drawn | an output that exists for a *stop* to consume |
+
+A sparse output drawn as a line would join four marks out of two hundred bars with
+three long diagonals across unrelated price action, reading as a trend nothing
+measured. The legend swatch follows the same style — a bar, two short bars, or a mark —
+so the one place a player looks to decode the chart doesn't imply every output is a
+line.
+
+`offsetPx` lifts a mark clear of the candle, and is **only** for marks that flag a bar
+rather than name a price. A breakout mark is drawn at the bar's high because that's out
+of the way, so its exact y is arbitrary and moving it costs nothing; a stop level drawn
+a few pixels up would be a lie about where the stop is. Pixels rather than price, since
+a price offset would buy different clearance on every ticker.
+
+### The player has the final say
+
+Every field above is a **default**. The settings row lists one line per output —
+`stop | [Dots ▾] | [Teal ▾]` — writing overrides into
+`indicators.active[].outputs` ([config.md](./config.md#indicators--volume)). Three
+rules keep that honest:
+
+- **Overrides are sparse.** An entry appears only where the player changed something, so
+  a plugin that later improves its own defaults improves them for everyone who never
+  touched that output.
+- **`none` is the hide control.** There's deliberately no separate visibility flag: "not
+  drawn" is a drawing style, and a second mechanism for one state is how the two end up
+  contradicting each other. A hidden output is dropped from the legend too, and from a
+  pane's own min/max — an invisible outlier stretching the scale would squash everything
+  else into a band.
+- **Colour resolves override → plugin → instance.** The plugin sets a colour only where
+  the output's meaning fixes it; anything it leaves alone inherits the instance's base
+  colour, which is what stops a five-output composite ignoring the player's choice
+  entirely. Resolution happens once, in `plugins/host/indicatorFeed.ts`, because a
+  second resolution is how a line and its legend entry come out different colours.
 
 ## Two consumers: the chart, and stop plugins
 
@@ -293,29 +452,46 @@ native capabilities a plain browser tab wouldn't.
   sandbox. Mobile (Capacitor) more likely needs an in-app file-import
   flow, since arbitrary filesystem browsing is more restricted there.
 
-## Initial built-in indicator
+## Built-in indicators
 
-Ship with exactly one built-in to start, proving the contract end-to-end
-before investing in more content:
+The set that ships. It started as exactly one — a moving average, to prove the contract
+end to end before investing in content — and each addition since has been made to
+unlock something rather than to lengthen a catalogue:
 
-| Indicator | Pane | Outputs |
-|---|---|---|
-| Simple Moving Average | overlay | 1 (single line — average close over the last `length` bars) |
+| Indicator | Pane | Outputs | Built for |
+|---|---|---|---|
+| Simple Moving Average | overlay | `sma` | proving the contract end to end |
+| Average True Range | oscillator | `atr` | the first indicator with a *second* customer: an ATR stop and a chandelier stop both need it, so it unlocks two stop strategies rather than one line |
+| Price Breakout | overlay | `level`, `signal` | the input to a family of breakout signals; usable alone, since the level is the resistance a trader is watching |
+| Gap-up Breakout ATR Pullback | overlay | `breakout`, `gapup`, `retrace`, `stop`, `retraceHit` | the first *composite* — five params, four sparse-or-continuous outputs, and built from two other indicators |
 
-More indicators (banded overlays, bounded oscillators, multi-output
-indicators like a convergence/divergence-style pair with a histogram) are
-natural next additions — each is just a new plugin against the contract
-above, no engine changes required. Which ones to build next is left open;
-prioritize by what players actually ask for once the core game is
-playable, rather than front-loading a large indicator catalog before the
-mechanics are proven.
+Notes on the last two, since they're the ones with decisions in them:
 
-One exception to "prioritize by demand": **ATR is the first indicator with a
-second customer.** An ATR/volatility stop and a chandelier stop both need it
-([stops.md](./stops.md#built-in-stop-plugins)), so building ATR unlocks two
-stop strategies rather than one chart line. Worth knowing when picking the
-second indicator, though still not a reason to build it before the mechanics
-are proven.
+- **Breakout measures closing prices, not highs.** A single intrabar spike prints a
+  high nobody traded at for more than a moment; a high-based window puts the level
+  somewhere the market never accepted and then refuses to signal until price exceeds
+  it. Warm-up matters here more than usual: without it, bar one is trivially the
+  highest close so far and every early bar marks a breakout.
+- **The composite's gap rule reads the bars' own timestamps.** A gap can only form
+  while the market is shut, so a bar is gappable only when it's separated from the
+  previous one by an overnight-or-longer break (twelve hours to five days). One rule,
+  three right answers: daily bars always qualify, intraday bars qualify only for the
+  first bar of a session — which is exactly where an intraday gap lives — and weekly or
+  monthly bars never do, because the difference between two monthly closes is a
+  quarter's return, not a gap.
+- **It deviates from the strategy it was ported from, deliberately.** The original ran
+  two trades in parallel with a second retrace/stop pair at a wider ATR factor; one
+  signal a player can read beats two that differ by a multiplier they can't see, and the
+  second pair's interactions with the first were bookkeeping rather than strategy.
+  Scanner-only outputs (volatility ratio, position risk) are dropped too — nothing here
+  sorts anything. `retraceHit` is *kept*, and is the signal the indicator is named for:
+  the bar whose low first reaches the tolerated level is the entry it exists to find.
+
+More indicators (banded overlays, bounded oscillators, multi-output indicators like a
+convergence/divergence-style pair with a histogram) are natural next additions — each is
+just a new plugin against the contract above, no engine changes required. Prioritize by
+what players actually ask for once the core game is playable, rather than front-loading
+a large catalogue before the mechanics are proven.
 
 ## Config
 

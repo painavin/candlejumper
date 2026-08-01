@@ -1,4 +1,4 @@
-import type { OhlcvBar } from '@shared/contracts/index.js'
+import type { IndicatorDrawStyle, OhlcvBar } from '@shared/contracts/index.js'
 import type { PositionEvent } from './events.js'
 
 /**
@@ -157,8 +157,20 @@ export interface OverlayLine {
    */
   label: string
   output: string
-  /** Player-chosen line colour, so the legend and the line cannot disagree. */
+  /** The colour this output resolved to: its own override, or the instance's. */
   colour: number
+  /**
+   * `line` joins consecutive values, `dots` marks each bar that has one, `dash` is a
+   * broken line. An output the player set to `none` never reaches here at all.
+   *
+   * Resolved upstream rather than in the renderer because it comes from the plugin and
+   * the player's settings, neither of which `render/` may read. A sparse output — a
+   * breakout mark on four bars out of two hundred — drawn as a line would join those
+   * four points across everything between them.
+   */
+  draw: Exclude<IndicatorDrawStyle, 'none'>
+  /** Pixels to lift a mark above its value. Plugin-declared; only used by `dots`. */
+  offsetPx?: number
   /** One per visible bar, oldest first. `null` where the indicator was warming up. */
   units: readonly (number | null)[]
 }
@@ -171,6 +183,9 @@ export interface SubPane {
   series: readonly {
     output: string
     colour: number
+    /** As `OverlayLine.draw`: a pane can hold a sparse output too. */
+    draw: Exclude<IndicatorDrawStyle, 'none'>
+    offsetPx?: number
     units: readonly (number | null)[]
     /**
      * Per-point direction, aligned index-for-index with `units`.

@@ -86,7 +86,11 @@ function handle(request: WorkerRequest): void {
 
       case 'requires': {
         const entry = plugins.get(request.pluginId)
-        if (!entry || entry.kind !== 'stop') throw new Error(`unknown stop: ${request.pluginId}`)
+        if (!entry) throw new Error(`unknown plugin: ${request.pluginId}`)
+        // Both kinds declare it: an indicator can be built from other indicators, so
+        // gating this on `kind === 'stop'` would report "needs nothing" for a
+        // composite. The worker doesn't judge what the requests mean — the host owns
+        // resolution, and this side only reports what the plugin asked for.
         const requires = (entry.plugin as StopPlugin).requires
         post({
           type: 'requires',
@@ -116,7 +120,9 @@ function handle(request: WorkerRequest): void {
         post({
           type: 'outputs',
           id: request.id,
-          outputs: instance.onBar(request.bar, request.isLastBar),
+          // Third argument mirrors the stop path above. Empty today, for the reason
+          // documented on the request type — but passed, so the contract holds.
+          outputs: instance.onBar(request.bar, request.isLastBar, request.indicators),
         })
         return
       }

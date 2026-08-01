@@ -197,10 +197,11 @@ assets) and drawdown-reactive bed voicing; day/night as an orthogonal
 lighting variant within a theme; FIFO cost basis (config option,
 unimplemented); a post-run review/replay mode that would allow the
 full-series normalization modes; theme-specific character variants;
-rebindable controls; indicators beyond Simple Moving Average; stop
-strategies beyond `fixed-percent` and `trailing-percent` — time-based and
-break-even need only position state, while ATR and chandelier stops depend on
-step 8's indicator-consuming mechanism
+rebindable controls; indicators beyond the four that ship
+([indicators.md](./indicators.md#built-in-indicators)); stop
+strategies beyond the four that ship — time-based and
+break-even need only position state, while a chandelier stop reuses the
+indicator-consuming mechanism the ATR and pullback stops already run on
 ([stops.md](./stops.md#built-in-stop-plugins)); margin interest and forced
 liquidation on shorts; shorting exposed in the UI (`allowShorting` ships off,
 engine supports it).

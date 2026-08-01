@@ -104,29 +104,79 @@ describe('validatePluginModule', () => {
     )
     expect(result.problems.join()).toMatch(/fixedRange/)
   })
+
+  const styled = (outputStyles: unknown, outputs: string[] = ['a', 'b']) =>
+    validatePluginModule(
+      {
+        id: 'x',
+        displayName: 'X',
+        paneKind: 'overlay',
+        outputs,
+        params: [],
+        createInstance: () => ({}),
+        outputStyles,
+      },
+      'indicator'
+    )
+
+  it('accepts output styles naming declared outputs', () => {
+    expect(styled({ a: { draw: 'dots', colour: 0x4fd6c8 }, b: { draw: 'line' } }).ok).toBe(true)
+  })
+
+  it('rejects an output style for an output that does not exist', () => {
+    // The symptom of a typo here is an output silently drawn as a line, which reads as
+    // the style feature not working rather than as a misspelling.
+    expect(styled({ typo: { draw: 'dots' } }).problems.join()).toMatch(
+      /outputStyles\.typo: not a declared output/
+    )
+  })
+
+  it('rejects an unknown draw mode and an out-of-range colour', () => {
+    expect(styled({ a: { draw: 'squiggle' } }).problems.join()).toMatch(/draw must be/)
+    expect(styled({ b: { colour: 0x1ffffff } }).problems.join()).toMatch(/24-bit/)
+    expect(styled({ b: { colour: 1.5 } }).problems.join()).toMatch(/24-bit/)
+  })
+
+  it('rejects a non-function requires on an indicator', () => {
+    // Indicators declare it now too, so the check that already existed for stops has
+    // to exist for both — a truthy non-function would throw at run start.
+    const result = validatePluginModule(
+      {
+        id: 'x',
+        displayName: 'X',
+        paneKind: 'overlay',
+        outputs: ['a'],
+        params: [],
+        createInstance: () => ({}),
+        requires: ['atr'],
+      },
+      'indicator'
+    )
+    expect(result.problems.join()).toMatch(/indicator: requires must be a function/)
+  })
 })
 
 describe('simple moving average', () => {
   it('returns NaN until it is warmed up', () => {
     const instance = smaIndicator.createInstance({ length: 3 })
-    expect(instance.onBar(bar(10), false).sma).toBeNaN()
-    expect(instance.onBar(bar(20), false).sma).toBeNaN()
-    expect(instance.onBar(bar(30), false).sma).toBe(20)
+    expect(instance.onBar(bar(10), false, {}).sma).toBeNaN()
+    expect(instance.onBar(bar(20), false, {}).sma).toBeNaN()
+    expect(instance.onBar(bar(30), false, {}).sma).toBe(20)
   })
 
   it('matches a known-good reference value', () => {
     const instance = smaIndicator.createInstance({ length: 4 })
-    for (const close of [1, 2, 3]) instance.onBar(bar(close), false)
-    expect(instance.onBar(bar(4), false).sma).toBe(2.5)
-    expect(instance.onBar(bar(5), false).sma).toBe(3.5)
+    for (const close of [1, 2, 3]) instance.onBar(bar(close), false, {})
+    expect(instance.onBar(bar(4), false, {}).sma).toBe(2.5)
+    expect(instance.onBar(bar(5), false, {}).sma).toBe(3.5)
   })
 
   it('re-warms after reset', () => {
     const instance = smaIndicator.createInstance({ length: 2 })
-    instance.onBar(bar(10), false)
-    instance.onBar(bar(20), false)
+    instance.onBar(bar(10), false, {})
+    instance.onBar(bar(20), false, {})
     instance.reset()
-    expect(instance.onBar(bar(50), false).sma).toBeNaN()
+    expect(instance.onBar(bar(50), false, {}).sma).toBeNaN()
   })
 })
 
@@ -292,9 +342,9 @@ describe('instanceLabel', () => {
 describe('average true range', () => {
   it('returns NaN until warmed up, then a positive range', () => {
     const instance = atrIndicator.createInstance({ length: 3 })
-    expect(instance.onBar(bar(100, 102, 98), false).atr).toBeNaN()
-    instance.onBar(bar(101, 103, 99), false)
-    const warmed = instance.onBar(bar(102, 104, 100), false).atr
+    expect(instance.onBar(bar(100, 102, 98), false, {}).atr).toBeNaN()
+    instance.onBar(bar(101, 103, 99), false, {})
+    const warmed = instance.onBar(bar(102, 104, 100), false, {}).atr
     expect(Number.isFinite(warmed)).toBe(true)
     expect(warmed).toBeGreaterThan(0)
   })
@@ -406,5 +456,78 @@ describe('indicator-consuming stops', () => {
     const levels = engine.levels.map((level) => level.level)
     expect(levels).toHaveLength(2)
     expect(levels[0]).not.toBeCloseTo(levels[1] as number, 6)
+  })
+})
+
+describe('instanceLabel with labelParams', () => {
+  const SPECS = [
+    { key: 'breakoutLength', displayName: 'Breakout length', type: 'int' as const, default: 20, min: 2, max: 200 },
+    { key: 'gapupPercent', displayName: 'Gap up', type: 'percent' as const, default: 3, min: 0.5, max: 25 },
+    { key: 'atrLength', displayName: 'ATR length', type: 'int' as const, default: 7, min: 2, max: 100 },
+    { key: 'atrFactor', displayName: 'ATR factor', type: 'float' as const, default: 2, min: 0.5, max: 10 },
+    { key: 'atrTolerancePercent', displayName: 'Tolerance', type: 'percent' as const, default: 5, min: 0, max: 50 },
+  ]
+  const params = {
+    breakoutLength: 20,
+    gapupPercent: 3,
+    atrLength: 7,
+    atrFactor: 2,
+    atrTolerancePercent: 5,
+  }
+
+  it('appends every param when unset, which is what MACD wants', () => {
+    expect(instanceLabel({ displayName: 'X', abbreviation: 'GBAP', params: SPECS }, params)).toBe(
+      'GBAP 20 3 7 2 5'
+    )
+  })
+
+  it('narrows to the params that identify an instance', () => {
+    // The reason it exists: the label above is a row of digits, not a legend.
+    const label = instanceLabel(
+      {
+        displayName: 'X',
+        abbreviation: 'GBAP',
+        params: SPECS,
+        labelParams: ['breakoutLength', 'atrFactor'],
+      },
+      params
+    )
+    expect(label).toBe('GBAP 20 2')
+  })
+
+  it('follows declaration order, not the order named', () => {
+    // Otherwise two instances differing only in which key was listed first would label
+    // themselves inconsistently between the legend and the settings row.
+    const label = instanceLabel(
+      {
+        displayName: 'X',
+        abbreviation: 'GBAP',
+        params: SPECS,
+        labelParams: ['atrFactor', 'breakoutLength'],
+      },
+      params
+    )
+    expect(label).toBe('GBAP 20 2')
+  })
+
+  it('ignores a key that names no param, rather than printing a question mark', () => {
+    const label = instanceLabel(
+      { displayName: 'X', abbreviation: 'GBAP', params: SPECS, labelParams: ['nope', 'atrLength'] },
+      params
+    )
+    expect(label).toBe('GBAP 7')
+  })
+
+  it('falls back to the bare name when it selects nothing', () => {
+    const label = instanceLabel(
+      { displayName: 'X', abbreviation: 'GBAP', params: SPECS, labelParams: [] },
+      params
+    )
+    expect(label).toBe('GBAP')
+  })
+
+  it('leaves an existing single-param plugin untouched', () => {
+    const sma = [{ key: 'length', displayName: 'Length', type: 'int' as const, default: 20, min: 2, max: 200 }]
+    expect(instanceLabel({ displayName: 'Simple Moving Average', abbreviation: 'SMA', params: sma }, { length: 50 })).toBe('SMA 50')
   })
 })

@@ -1,5 +1,4 @@
 import type {
-  IndicatorInstance,
   IndicatorPlugin,
   IndicatorValues,
   OhlcvBar,
@@ -10,6 +9,8 @@ import type {
 } from '@shared/contracts/index.js'
 import type { ActiveStopLevel, StopEngine, StopEvaluation, StopTrigger } from '@engine/stops/port.js'
 import { usableLevel } from '@engine/stops/port.js'
+import type { IndicatorNode } from './indicatorTree.js'
+import { feedIndicatorNode, resetIndicatorNode, resolveIndicatorTree } from './indicatorTree.js'
 
 /**
  * The in-process stop host: one of the two implementations of the port
@@ -49,9 +50,11 @@ export interface StopHostOptions {
 interface Dependency {
   /** The local name this stop reads its values under. */
   key: string
-  instance: IndicatorInstance
-  /** Latest outputs, refreshed every bar of the run. */
-  latest: Record<string, number>
+  /**
+   * The indicator, plus anything *it* was built from — a stop can now ask for a
+   * composite indicator, and the whole branch is fed as one unit.
+   */
+  node: IndicatorNode
 }
 
 interface Slot {
@@ -95,18 +98,19 @@ export function createStopHost({
     // committed. Each request gets its **own** instance — if a stop shared one with
     // a displayed indicator, hiding an overlay could alter or kill the stop driving
     // the player's exits, which is the fail-open-on-risk outcome the docs call the
-    // worst available.
+    // worst available. An indicator that requires others resolves recursively, with
+    // the cycle and depth guards living in `indicatorTree.ts`.
     const dependencies: Dependency[] = (plugin.requires?.(params) ?? []).map((request) => {
-      const indicator = indicators.get(request.indicatorId)
-      if (!indicator) {
+      try {
+        return { key: request.key, node: resolveIndicatorTree(request, indicators) }
+      } catch (error) {
+        // Named for the stop, not just the indicator: "atr is not registered" leaves
+        // the player hunting for who wanted it, and the answer is what they'd act on.
+        const reason = error instanceof Error ? error.message : String(error)
         throw new Error(
-          `Stop "${plugin.id}" needs indicator "${request.indicatorId}", which is not registered`
+          `Stop "${plugin.id}" needs indicator "${request.indicatorId}": ${reason}`,
+          { cause: error }
         )
-      }
-      return {
-        key: request.key,
-        instance: indicator.createInstance(request.params),
-        latest: {},
       }
     })
 
@@ -160,8 +164,7 @@ export function createStopHost({
       // most exposed.
       for (const slot of slots) {
         for (const dependency of slot.dependencies) {
-          const values = guard(slot, () => dependency.instance.onBar(bar, false))
-          if (values) dependency.latest = values
+          guard(slot, () => feedIndicatorNode(dependency.node, bar, false))
         }
       }
     },
@@ -197,7 +200,7 @@ export function createStopHost({
     computeLevels(bar: OhlcvBar, position: PositionState) {
       for (const slot of slots) {
         const values: IndicatorValues = {}
-        for (const dependency of slot.dependencies) values[dependency.key] = dependency.latest
+        for (const dependency of slot.dependencies) values[dependency.key] = dependency.node.latest
         const returned = guard(slot, () => slot.instance.onBar(bar, position, values))
         if (slot.disabled) continue
         // Belt and braces against NaN during warm-up: a non-finite level is a
@@ -236,8 +239,7 @@ export function createStopHost({
         guard(slot, () => slot.instance.reset())
         slot.level = null
         for (const dependency of slot.dependencies) {
-          guard(slot, () => dependency.instance.reset())
-          dependency.latest = {}
+          guard(slot, () => resetIndicatorNode(dependency.node))
         }
       }
     },

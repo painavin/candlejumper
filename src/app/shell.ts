@@ -250,8 +250,11 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         id: plugin.id,
         displayName: plugin.displayName,
         abbreviation: plugin.abbreviation,
+        labelParams: plugin.labelParams,
         paneKind: plugin.paneKind,
         params: plugin.params,
+        outputs: plugin.outputs,
+        outputStyles: plugin.outputStyles,
       })),
       ...[...sandboxed.values()]
         .filter((descriptor) => descriptor.kind === 'indicator')
@@ -259,8 +262,11 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
           id: descriptor.id,
           displayName: descriptor.displayName,
           abbreviation: descriptor.abbreviation,
+          labelParams: descriptor.labelParams,
           paneKind: descriptor.paneKind ?? 'overlay',
           params: descriptor.params as ParamSpec[],
+          outputs: descriptor.outputs ?? [],
+          outputStyles: descriptor.outputStyles,
           sandboxed: true,
         })),
     ]
@@ -683,6 +689,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
           params: active.params,
           colour: active.colour,
           paneKind: active.paneKind,
+          outputs: active.outputs,
         })),
         descriptors: sandboxed,
         client: pluginWorker,
@@ -699,6 +706,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         params: active.params,
         colour: active.colour,
         paneKind: active.paneKind,
+        outputs: active.outputs,
       })),
       registry: indicatorRegistry,
     })

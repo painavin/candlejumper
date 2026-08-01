@@ -1,9 +1,13 @@
+import type { IndicatorDrawStyle, IndicatorOutputStyle } from '@shared/contracts/index.js'
 import type {
   BackgroundLayerName,
   IndicatorInstanceConfig,
   RunConfig,
   StopInstanceConfig,
 } from './types.js'
+
+/** Every accepted draw style, for validating what came out of storage. */
+const DRAW_STYLES: readonly IndicatorDrawStyle[] = ['none', 'line', 'dots', 'dash']
 
 /**
  * The persisted settings shape, and the untrusted read back out of it.
@@ -246,6 +250,42 @@ function params(value: unknown): Record<string, number> {
 }
 
 /**
+ * Per-output style overrides.
+ *
+ * Entries are dropped rather than corrected, and the map is omitted when nothing
+ * survives: an absent override means "use the plugin's default", which is the right
+ * answer for a corrupt entry too. Output *names* aren't checked against a registry
+ * here for the same reason a missing plugin id survives — this reads storage, and
+ * an override for an output that no longer exists costs nothing but is worth keeping
+ * in case the plugin comes back.
+ */
+function outputStyles(value: unknown): Record<string, IndicatorOutputStyle> | undefined {
+  const source = record(value)
+  if (!source) return undefined
+  const out: Record<string, IndicatorOutputStyle> = {}
+  for (const [output, entry] of Object.entries(source)) {
+    const style = record(entry)
+    if (!style) continue
+    const resolved: IndicatorOutputStyle = {}
+    if (DRAW_STYLES.includes(style.draw as IndicatorDrawStyle)) {
+      resolved.draw = style.draw as IndicatorDrawStyle
+    }
+    // Rejected rather than clamped, the persistence rule throughout this file: a
+    // colour outside 24 bits is evidence of corruption, not of intent.
+    if (
+      typeof style.colour === 'number' &&
+      Number.isInteger(style.colour) &&
+      style.colour >= 0 &&
+      style.colour <= 0xffffff
+    ) {
+      resolved.colour = style.colour
+    }
+    if (resolved.draw !== undefined || resolved.colour !== undefined) out[output] = resolved
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/**
  * Configured stops, shape-checked but **not** registry-checked. See the note at the
  * top: a stop whose plugin is missing has to survive to be complained about.
  *
@@ -280,6 +320,7 @@ function indicators(
         // engine's series output — so one is synthesised rather than left blank.
         instanceId: text(active?.instanceId, `${typeId}-${index + 1}`),
         colour: int(active?.colour, 0xffffff, 0, 0xffffff),
+        outputs: outputStyles(active?.outputs),
         paneKind: paneKind === 'overlay' || paneKind === 'oscillator' ? paneKind : undefined,
       },
     ]

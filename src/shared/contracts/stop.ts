@@ -1,5 +1,13 @@
 import type { OhlcvBar } from './bar.js'
+import type { IndicatorRequest, IndicatorValues } from './indicator.js'
 import type { ParamSpec, ParamValues } from './params.js'
+
+/**
+ * `IndicatorRequest` and `IndicatorValues` live with the indicators now that both
+ * kinds of plugin declare `requires()`. Re-exported here because they were a stop
+ * concept first and `stops.md` documents them as part of this contract.
+ */
+export type { IndicatorRequest, IndicatorValues }
 
 /**
  * A stop strategy. Handed the position state after each bar closes, it returns
@@ -38,14 +46,6 @@ export interface StopInstanceSpec {
   advisory: boolean
 }
 
-export interface IndicatorRequest {
-  /** Local name this stop reads its values under. */
-  key: string
-  /** Any id in the registry — built-in or user-loaded. */
-  indicatorId: string
-  params: ParamValues
-}
-
 export interface StopInstance {
   /**
    * Called on entry. Does NOT reset the stop's indicators — those are owned by
@@ -65,9 +65,6 @@ export interface StopInstance {
    */
   onBar(bar: OhlcvBar, position: PositionState, indicators: IndicatorValues): number | null
 }
-
-/** This bar's indicator outputs, keyed by request key, then by output name. */
-export type IndicatorValues = Record<string, Record<string, number>>
 
 /** What a stop plugin knows about the open position. */
 export interface PositionState {

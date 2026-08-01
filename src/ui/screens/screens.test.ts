@@ -58,8 +58,12 @@ function render(configure: (state: AppState) => void = () => {}) {
   state.indicatorChoices = [...createIndicatorRegistry().values()].map((plugin) => ({
     id: plugin.id,
     displayName: plugin.displayName,
+    abbreviation: plugin.abbreviation,
+    labelParams: plugin.labelParams,
     paneKind: plugin.paneKind,
     params: plugin.params,
+    outputs: plugin.outputs,
+    outputStyles: plugin.outputStyles,
   }))
   state.stopChoices = [...createStopRegistry().values()].map((plugin) => ({
     id: plugin.id,
@@ -112,6 +116,67 @@ describe('the settings screen', () => {
     const { target, dispose } = render()
     expect(target.textContent).toContain('Trailing percent')
     expect(target.textContent).toContain('Fixed percent from entry')
+    dispose()
+  })
+
+  /** One configured composite, which is the case a single colour control can't describe. */
+  const withComposite = (state: AppState): void => {
+    // `render` has already set it; the check is for the optional type, not a real case.
+    if (!state.config) return
+    state.config.indicators.active = [
+      {
+        typeId: 'gapup-breakout-atr-pullback',
+        params: { breakoutLength: 20, gapupPercent: 4, atrLength: 7, atrFactor: 2 },
+        instanceId: 'gbap-1',
+        colour: 0xffd166,
+      },
+    ]
+  }
+
+  it('names an instance the way the chart legend will', () => {
+    // The defect this test exists for: the settings header read `GBAP 20 4 7 2 5` while
+    // the legend read `GBAP 20 2`, because the choice descriptor dropped `labelParams`.
+    // Two names for one series is worse than either name alone.
+    const { target, dispose } = render(withComposite)
+    expect(target.textContent).toContain('GBAP 20 2')
+    expect(target.textContent).not.toContain('GBAP 20 4 7 2 5')
+    dispose()
+  })
+
+  it('lists every output of an instance with its own style control', () => {
+    const { target, dispose } = render(withComposite)
+    const labels = [...target.querySelectorAll('select')].map((select) =>
+      select.getAttribute('aria-label')
+    )
+    for (const output of ['breakout', 'gapup', 'retrace', 'stop', 'retraceHit']) {
+      expect(labels).toContain(`How to draw ${output}`)
+      expect(labels).toContain(`Colour for ${output}`)
+    }
+    dispose()
+  })
+
+  it('shows the plugin\'s own default in each output\'s style control', () => {
+    // Read from the plugin rather than assumed: a row that showed "Line" for everything
+    // would describe a chart the player isn't looking at.
+    const { target, dispose } = render(withComposite)
+    const styleOf = (output: string) =>
+      target.querySelector<HTMLSelectElement>(`select[aria-label="How to draw ${output}"]`)?.value
+    expect(styleOf('breakout')).toBe('dots')
+    expect(styleOf('stop')).toBe('dots')
+    expect(styleOf('retrace')).toBe('dash')
+    dispose()
+  })
+
+  it('offers "Don\'t draw" as the way to hide one output', () => {
+    // Deliberately not a separate visibility checkbox: two mechanisms for one state is
+    // how they end up contradicting each other.
+    const { target, dispose } = render(withComposite)
+    const options = [
+      ...(target.querySelectorAll<HTMLOptionElement>(
+        'select[aria-label="How to draw stop"] option'
+      ) ?? []),
+    ].map((option) => option.value)
+    expect(options).toEqual(['line', 'dash', 'dots', 'none'])
     dispose()
   })
 

@@ -192,7 +192,7 @@ shown).
 
 | Key | Description | Default |
 |---|---|---|
-| `indicators.active` | List of active indicator **instances** (`{ typeId, params, instanceId, colour, paneKind? }`). Several of one type at different params is the normal case — SMA 20 / 50 / 200 is three entries. `colour` comes from the fixed palette in `shared/palette/`; `paneKind` overrides the plugin's own hint, and unset means "whatever the plugin suggests". Excluded from the run fingerprint. See [indicators.md](./indicators.md) | empty; `sma` and `atr` available to add |
+| `indicators.active` | List of active indicator **instances** (`{ typeId, params, instanceId, colour, paneKind?, outputs? }`). Several of one type at different params is the normal case — SMA 20 / 50 / 200 is three entries. `colour` is the instance's base colour, from the named palette in `shared/palette/`; `paneKind` overrides the plugin's own hint, and unset means "whatever the plugin suggests". `outputs` holds per-output style overrides keyed by output name (`{ draw?, colour? }`, where `draw` is `none | line | dots | dash` and `none` is how an output is hidden) — sparse on purpose, so an untouched output keeps following the plugin's own default. Excluded from the run fingerprint. See [indicators.md](./indicators.md) | empty; four indicators available to add |
 | `volume.enabled` | Show/hide the volume histogram sub-pane at the bottom of the screen | on |
 
 Volume uses the same oscillator sub-pane mechanism as any other

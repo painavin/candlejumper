@@ -46,7 +46,13 @@ interface IndicatorRequest {
   indicatorId: string        // any id in the registry — built-in or user-loaded
   params: Record<string, number>
 }
+```
 
+`IndicatorRequest` and `IndicatorValues` are declared with the indicators, since
+[indicators declare `requires()` too](./indicators.md#composing-indicators) — one
+definition for both kinds of plugin, not two that could drift.
+
+```ts
 interface StopInstance {
   reset(): void
   /**
@@ -96,7 +102,10 @@ below enforceable rather than left to each plugin author.
 
 - A stop's `requires()` is resolved **once, at run start**, from the params
   the player committed. The host creates one indicator instance per request
-  and stores it against that stop instance.
+  and stores it against that stop instance. A requested indicator that is
+  itself built from others resolves recursively, so a stop may ask for a
+  composite without knowing it is one — see
+  [indicators.md](./indicators.md#composing-indicators).
 - **Stop-owned indicators are fed every bar from the first bar of the run,
   not just while a position is open.** This is the non-obvious rule: only
   the *stop's* `onBar` is gated on having a position. If its indicators were
@@ -287,12 +296,23 @@ The asymmetry is deliberate: a stop can force you *out*, but never keep you
 
 ## Built-in stop plugins
 
-Two ship initially, covering what the old config keys did:
+Two shipped initially, covering what the old config keys did. Two more followed, each
+one added to prove a mechanism rather than to lengthen the list:
 
 | Plugin | Params | Behaviour |
 |---|---|---|
 | `fixed-percent` | `percent` (default 5%) | A level a fixed percent from average entry, recomputed as avg cost changes when scaling in. Direction-aware: below entry when long, above when short. |
 | `trailing-percent` | `percent` (default 8%) | A level a fixed percent from `bestPrice`, ratcheting in the position's favour and never rewinding. Direction-aware. Looser default than the fixed stop, since it ratchets. |
+| `atr-stop` | `atrLength` (14), `multiple` (2.5×) | A level `multiple` ATRs from the close. The first consumer of `requires()`, and it legitimately **widens** when volatility rises — which is why widening is recorded rather than forbidden. |
+| `pullback-stop` | the five params of the gap-up breakout pullback signal | Reports the `stop` output of that composite indicator ([indicators.md](./indicators.md#composing-indicators)). Longs only, honestly: the level sits below price by construction, so a short gets no level rather than one on the profitable side. |
+
+`pullback-stop` is the deepest dependency chain shipped — stop → composite →
+{ breakout, ATR } — and therefore the proof that resolution *recurses* rather than only
+going one level down. It also shows the cost of the no-sharing rule plainly: its params
+duplicate the indicator's, because `requires()` is resolved from a plugin's own params
+and a stop cannot read the settings of a chart overlay. A player running both has to keep
+two sets of numbers in step; the alternative is a stop whose level changes when a chart
+is toggled, which is the outcome this document calls the worst available.
 
 **`trailing-percent` ships active, in advisory mode**, and is the only entry
 in the default `stops.active` ([config.md](./config.md#stops)). Advisory
@@ -305,17 +325,15 @@ every exit, which was the previous default and is still the "full manual
 discipline" risk profile in
 [game-design.md](./game-design.md#risk-management).
 
-Neither built-in declares a `requires()`, so both work before the indicator
-registry exists — which is why they can land at
-[roadmap.md](./roadmap.md) step 4 while indicators wait for step 8.
+The two percent stops declare no `requires()`, so they work before the indicator
+registry exists — which is why they can land at [roadmap.md](./roadmap.md) step 4 while
+indicators wait for step 8.
 
 Natural later additions, none needing engine work: a time-based stop ("exit
 after N bars") and a break-even stop ("move to entry once up X%") need only
-`PositionState`. An **ATR/volatility stop** and a **chandelier stop** are
-the first consumers of
-[indicators in stops](#using-indicators-inside-a-stop-plugin) — they become
-possible once the indicator registry lands, and are the reason that
-mechanism exists.
+`PositionState`. A **chandelier stop** is the remaining unbuilt consumer of
+[indicators in stops](#using-indicators-inside-a-stop-plugin), alongside the ATR stop
+that already ships — those two are the reason that mechanism exists.
 
 ## Sandboxing and hosting
 

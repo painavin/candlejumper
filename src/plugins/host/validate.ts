@@ -1,9 +1,13 @@
 import type {
+  IndicatorDrawStyle,
   IndicatorPlugin,
   ParamSpec,
   PluginDescriptor,
   StopPlugin,
 } from '@shared/contracts/index.js'
+
+/** Every accepted draw style. Stated here because the validator can't infer a union. */
+const DRAW_STYLES: readonly IndicatorDrawStyle[] = ['none', 'line', 'dots', 'dash']
 
 /**
  * Contract validation for a loaded plugin module.
@@ -53,6 +57,58 @@ function validateParamSpec(spec: unknown, at: string): string[] {
   return problems
 }
 
+/**
+ * `outputStyles` names outputs and draw modes, both of which the renderer trusts.
+ *
+ * A key that isn't a declared output is a typo worth reporting rather than ignoring:
+ * the symptom is an output silently drawn as a line, which looks like the style
+ * feature not working at all.
+ */
+function validateOutputStyles(styles: unknown, outputs: unknown): string[] {
+  if (styles === undefined) return []
+  if (typeof styles !== 'object' || styles === null || Array.isArray(styles)) {
+    return ['indicator: outputStyles must be an object keyed by output name']
+  }
+
+  const problems: string[] = []
+  const declared = Array.isArray(outputs) ? outputs : []
+  for (const [output, style] of Object.entries(styles as Record<string, unknown>)) {
+    const at = `indicator.outputStyles.${output}`
+    if (declared.length > 0 && !declared.includes(output)) {
+      problems.push(`${at}: not a declared output`)
+      continue
+    }
+    if (typeof style !== 'object' || style === null) {
+      problems.push(`${at}: not an object`)
+      continue
+    }
+    const entry = style as { draw?: unknown; colour?: unknown; offsetPx?: unknown }
+    if (entry.draw !== undefined && !DRAW_STYLES.includes(entry.draw as IndicatorDrawStyle)) {
+      problems.push(`${at}: draw must be one of ${DRAW_STYLES.join(', ')}`)
+    }
+    if (
+      entry.colour !== undefined &&
+      (typeof entry.colour !== 'number' ||
+        !Number.isInteger(entry.colour) ||
+        entry.colour < 0 ||
+        entry.colour > 0xffffff)
+    ) {
+      problems.push(`${at}: colour must be a 24-bit RGB integer`)
+    }
+    // Bounded, because this is a pixel offset the renderer applies without question: a
+    // mark lifted a thousand pixels is off the top of the chart and simply missing.
+    if (
+      entry.offsetPx !== undefined &&
+      (typeof entry.offsetPx !== 'number' ||
+        !Number.isFinite(entry.offsetPx) ||
+        Math.abs(entry.offsetPx) > 100)
+    ) {
+      problems.push(`${at}: offsetPx must be a number within ±100`)
+    }
+  }
+  return problems
+}
+
 function validateCommon(value: unknown, kind: string): { problems: string[]; params: unknown[] } {
   const problems: string[] = []
   if (typeof value !== 'object' || value === null) {
@@ -93,6 +149,13 @@ export function validatePluginModule(
         problems.push('indicator: fixedRange must be [min, max] with min below max')
       }
     }
+    if (plugin.requires !== undefined && typeof plugin.requires !== 'function') {
+      problems.push('indicator: requires must be a function when present')
+    }
+    if (plugin.labelParams !== undefined && !Array.isArray(plugin.labelParams)) {
+      problems.push('indicator: labelParams must be an array of param keys when present')
+    }
+    problems.push(...validateOutputStyles(plugin.outputStyles, plugin.outputs))
   }
 
   if (kind === 'stop' && typeof value === 'object' && value !== null) {
