@@ -164,8 +164,11 @@ Four things that will bite you:
   A build platform defaulting to an older Node is the most likely cause of a
   failed deploy.
 - **Downloading a ticker doesn't work on a plain static host.** The dev server
-  proxies the price APIs to dodge CORS; a built bundle has no proxy, so visitors
-  need a CORS extension unless the host can rewrite to an external origin. See
+  proxies the price APIs to dodge CORS; a built bundle has no proxy, so it needs
+  either a CORS extension or a host that can rewrite to an external origin. Failing
+  that, the error offers a link to fetch the data yourself — a tab you open isn't
+  subject to the rule that blocks the page — and the importer recognises what comes
+  back. See
   [data-sources.md](./docs/data-sources.md#cors-is-the-whole-difficulty). Bundled
   datasets and CSV/JSON import work everywhere.
 - **`localStorage` is per-origin**, so nothing follows you from `localhost:5173`

@@ -1,4 +1,15 @@
 export type { OhlcvBar } from './bar.js'
+export type { BarInterval } from './interval.js'
+export {
+  BAR_INTERVALS,
+  DEFAULT_INTERVAL,
+  inferInterval,
+  intervalMatches,
+  intervalName,
+  intervalSeconds,
+  isBarInterval,
+  isIntraday,
+} from './interval.js'
 export type { ParamSpec, ParamValues } from './params.js'
 export type { TouchHandlers } from './controls.js'
 export type { IndicatorPlugin, IndicatorInstance } from './indicator.js'

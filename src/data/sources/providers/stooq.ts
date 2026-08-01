@@ -55,6 +55,17 @@ export const stooqProvider: PriceProvider = {
   // unadjusted split is a >50% single-bar move and `validateBars` rejects the
   // download outright, so a series that installs has no split artifacts in it.
   adjusted: true,
+  /**
+   * Daily only, and deliberately.
+   *
+   * Stooq documents `i=w`, `i=m` and `i=q`, and none of them have been *observed* to
+   * answer here. That distinction has already cost a debugging round on this endpoint:
+   * an unverified `&d1=` parameter returned an HTML page with a 200, which the CSV
+   * parser could only report as "not a series of daily bars". Offering an interval that
+   * silently returns a web page is worse than not offering it, so these arrive when
+   * someone has run the request and seen the answer.
+   */
+  intervals: ['1d'],
   url: stooqCsvUrl,
   parse: parseStooqCsv,
 }

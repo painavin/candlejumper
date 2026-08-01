@@ -8,7 +8,7 @@ reworking pole/rendering logic.
 
 ```ts
 interface TickerMeta {
-  symbol: string           // 'AAPL'
+  symbol: string           // the source's id: 'AAPL' bundled, 'AAPL@1d' in the library
   displayName: string
   barCount: number
   firstBarTime: number     // epoch seconds
@@ -24,7 +24,7 @@ interface PriceSeriesSource {
    * Ordered bars, oldest first. Optional range filter is inclusive,
    * in epoch seconds.
    */
-  loadSeries(symbol: string, range?: { from: number; to: number }): Promise<OhlcvBar[]>
+  loadSeries(ticker: string, range?: { from: number; to: number }): Promise<OhlcvBar[]>
 }
 ```
 
@@ -41,10 +41,18 @@ top:
 
 ```ts
 interface DownloadableSource extends PriceSeriesSource {
-  readonly providers: readonly { id: string; displayName: string }[]
-  download(request: { symbol: string; providerId: string }): Promise<TickerMeta>
+  readonly providers: readonly {
+    id: string
+    displayName: string
+    intervals: readonly BarInterval[]   // what this one can actually serve
+  }[]
+  download(request: {
+    symbol: string
+    providerId: string
+    interval: BarInterval
+  }): Promise<TickerMeta>
   importFile(file: { name: string; text: string }): Promise<TickerMeta>
-  forget(symbol: string): Promise<void>
+  forget(ticker: string): Promise<void>
 }
 ```
 
@@ -102,15 +110,66 @@ implied. Day gaps of 1–4 days are just weekends and market holidays.
 
 ## Downloading and importing
 
+### Intervals
+
+A bar is not necessarily a day. The picker offers `1m`, `2m`, `5m`, `15m`, `30m`, `1h`,
+`1d`, `1wk`, `1mo` and `3mo` — Yahoo's own ids, so a response can be checked against
+what was asked for without a translation table in between.
+
+**Per provider, not global.** Yahoo serves all ten. Stooq serves `1d` and only `1d`
+here: it documents `i=w`, `i=m` and `i=q`, and none have been *observed* to answer. That
+distinction already cost a debugging round on this endpoint — an unverified `&d1=`
+parameter returned an HTML page with a 200 — so the others arrive when someone has run
+the request and seen the answer. The picker filters to what the selected provider lists,
+because an option that returns an error body is worse than one that was never there.
+
+**Range is not a free choice.** Yahoo caps history by interval — roughly 7 days at `1m`,
+60 days from `2m` to `30m`, 730 days at `1h` — and `range` is an enumeration rather than
+a duration: the recorded fixture reports `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd,
+max`. Each interval therefore asks for the largest *valid* range under its cap: `5d`,
+`1mo`, `2y`, and `max` for daily and coarser. The enumeration is measured; the caps are
+Yahoo's documented limits and are **not** verified here, so a wrong one shows up as an
+error body reported verbatim rather than as silence.
+
+**Three things scale with the interval**, and each was a latent bug before:
+
+- **The split tolerance.** `maxBarMoveFor` widens from 0.5 at a day to 2.5 at a quarter.
+  The check exists to catch an unadjusted split, which is ~50% for 2:1 at any interval,
+  but what the market really does in one bar depends on how long the bar is. Measured:
+  INTC's quarterly series contains a genuine +151% move with adjusted and unadjusted
+  closes agreeing exactly. At a quarter the check is frankly weak — it can no longer
+  separate a split from a real move — and that is an acceptable trade only because both
+  providers adjust their own data, making this a safety net rather than the defence.
+- **The identity of a series.** See the keying section below.
+- **What "the whole history" means.** A download still takes everything the provider
+  offers and discards nothing; how much that is now depends on the interval and not on
+  us.
+
 `data.source: downloaded` is **the library**: every series the player has obtained,
 however they obtained it. It is one source with two ways to fill it — download from a
 provider, or import a file — and no API key either way.
 
-### One library, keyed by symbol
+### One library, keyed by symbol and interval
 
-A symbol names a series. Downloading `AAPL` from any provider, or importing a file
-called `AAPL.csv`, writes the same entry, and the newest write wins. One central cache
-under one key, `datasets`.
+A symbol **and an interval** together name a series — `INTC@1d` and `INTC@1wk` coexist,
+because they are different bars of different length and a different game to play.
+Downloading `AAPL` daily from any provider, or importing a file called `AAPL.csv`, writes
+the same `AAPL@1d` entry, and the newest write wins. One central cache under one key,
+`datasets`.
+
+That composite id is what `config.data.ticker` stores and what `loadSeries` receives, so
+the interval reaches the run fingerprint for free — a weekly AAPL never pools personal
+bests with a daily one. `@` is the separator because no symbol contains one: Yahoo's
+carry `-` and `.` (`BRK-B`, `RELIANCE.NS`) and Stooq's carry `.` (`intc.us`). Daily is
+not special-cased to a bare `INTC`, tempting as that is, because then one series would
+have two spellings and every comparison would have to normalise.
+
+**Entries written before intervals existed** are keyed by a bare symbol with no interval
+field. They read as daily — which is what they are, since daily was all there was — and
+are re-filed under the composite key on the next save. The key *is* the migration: no
+version field, nothing to run once. A stored `config.data.ticker` of `INTC` also still
+resolves, for the same reason, and the settings screen maps it to `INTC@1d` rather than
+letting the selection jump to whatever sorts first.
 
 Two earlier designs were wrong here and are worth recording so they don't come back:
 
@@ -164,11 +223,39 @@ something worth asking the player about.
   would import unadjusted prices, which either trips the split check or — worse —
   passes while teaching a move that never happened. The ratio is applied to open, high,
   low, and volume, exactly as the Yahoo adapter does.
+- **A provider's own response body** is recognised as a fourth format, which is what
+  makes "fetch it yourself and import it" work — see
+  [CORS is the whole difficulty](#cors-is-the-whole-difficulty). Yahoo's chart JSON is
+  a columnar envelope that matches neither of our JSON shapes, so without this the link
+  in the error message would hand the player a file the app rejects. A provider opts in
+  with `PriceProvider.recognise`; Stooq needs none, since its response is already CSV
+  that `parseCsvBars` reads.
 - **The symbol** comes from the file's own contents when it says, otherwise from the
-  filename up to the first dot — so `MSFT.Daily.json` and `nke.csv` both work.
+  filename up to the first dot — so `MSFT.Daily.json` and `nke.csv` both work. A
+  recognised provider response is read for its symbol first, because browsers name a
+  saved API response after the URL or after nothing useful, and an import filed under
+  the wrong ticker is silent.
+- **The interval** comes from the payload when it declares one — a recognised provider
+  response, or a wrapped dataset carrying the field — and is otherwise **inferred from
+  the gaps between bars**. The *median* gap, because a daily series is full of 3-day
+  weekend gaps by design, matched by closest ratio so that being out by an hour matters
+  at `1m` and not at `3mo`. Fewer than three gaps yields no opinion at all and the import
+  falls back to daily, since one gap could be anything and the interval decides the split
+  tolerance.
 - **An import is unadjusted unless the file said otherwise**, and imports are validated
   by the same `parseBars` a download is. A file is not more trusted for having been
-  chosen by hand.
+  chosen by hand. A recognised provider response is the one case that inherits an
+  adjustment claim from something other than the file's own contents — its provider's —
+  which is the whole reason recognising it beats treating it as anonymous JSON: filing
+  adjusted prices as unadjusted is wrong in the direction nothing downstream can detect.
+  Such an entry is credited to that provider rather than to `imported`, because that's
+  where it came from.
+
+Recognition and parsing are deliberately separate steps. Once a format claims a payload
+its own error is allowed through — "Yahoo says: No data found for MSFT" is worth reading
+and "is JSON, but not a series" is not — while an unrecognised payload falls through to
+the next format, and if none claim it the *original* failure is what the player sees.
+They were far more likely to be importing a broken CSV than a provider response.
 
 Header-driven parsing rather than positional is the one decision worth defending: it's
 four lines longer, and the failure mode it removes is silently swapping high for low,
@@ -232,6 +319,24 @@ nothing installed:
 | Built bundle in a browser | `fetch` from the page | Only with a CORS extension |
 | Tauri / Capacitor | native HTTP, outside the browser engine | Yes, once wired — see below |
 
+There is a fourth route that needs nothing at all, and it falls out of what CORS
+actually restricts: **the player fetches the URL themselves.** CORS withholds a
+response from *script*; it has nothing to say about a tab a person navigated to. So
+opening the provider URL in a new tab returns the data, and saving that file and
+importing it is a complete path to real prices from a built bundle with no proxy,
+no extension, and no native shell.
+
+The download failure message offers that link for every failure except a 404, which is
+the one case where the endpoint refused *the symbol* rather than *this request* — there
+is nothing at that URL, so opening it by hand finds nothing either. Everything else is
+worth a try, including a rate limit: the window is time-based and may have passed by the
+time the link is clicked, and a request a person makes from a tab carries different
+headers and cookies from the one `fetch` made. The link is always the provider's real
+URL, never the dev proxy path, since a same-origin path means nothing in a new tab.
+
+For that round trip to close, the importer has to recognise what comes back — see
+[importing a file](#importing-a-file).
+
 The dev proxy table lives in [vite.config.ts](../vite.config.ts); `DEV_PROXY_PATHS`
 in `app/shell.ts` points each provider at its proxied path when
 `import.meta.env.DEV`. Those two lists are the same fact stated twice and have to
@@ -255,8 +360,19 @@ ones beside it. `src-tauri/tauri.conf.json` also needs the provider host in
 
 [`src/data/sources/providers/yahoo.ts`](../src/data/sources/providers/yahoo.ts)
 is pure — a URL builder and a parser — and tested against a **recorded** response.
-Three cases carry the weight:
+Four cases carry the weight:
 
+- **The interval the response actually is.** `interval` looks optional on this endpoint
+  and isn't: omit it and Yahoo picks a granularity to suit the range, which for
+  `range=max` is *three-month* bars. So a hand-fetched URL missing `interval=1d` returns
+  168 quarters instead of 11,000 days — data that parses perfectly and is wrong. The
+  parser checks `meta.dataGranularity` and refuses anything but `1d`, before it looks at
+  a single bar, because the downstream failure actively misleads: quarterly moves
+  routinely exceed 50%, so `validateBars` reports a wall of "likely an unadjusted split"
+  for a series whose adjustment is fine and whose real problem is its interval. One
+  sentence naming the granularity beats eight confident diagnoses of the wrong thing. A
+  response that omits the field is judged on its bars, as before — absence is not a
+  claim to the contrary.
 - **Adjustment.** Yahoo adjusts only the close, so the `adjclose / close` ratio
   is applied to the open, high, and low too. Skip it and a 4:1 split reads as a
   75% single-bar crash, which `validateBars` correctly refuses. Volume is

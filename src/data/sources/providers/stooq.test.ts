@@ -14,7 +14,7 @@ import { parseStooqCsv, stooqCsvUrl, stooqProvider, stooqSymbol } from './stooq.
  */
 
 const request = (over: Partial<Parameters<typeof stooqCsvUrl>[0]> = {}) =>
-  stooqCsvUrl({ base: 'https://stooq.com', symbol: 'INTC', ...over })
+  stooqCsvUrl({ base: 'https://stooq.com', symbol: 'INTC', interval: '1d', ...over })
 
 describe('stooqSymbol', () => {
   it('lower-cases and adds the US suffix the provider namespaces by', () => {

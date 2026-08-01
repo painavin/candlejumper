@@ -8,7 +8,7 @@ import {
   validateConfig,
   FINGERPRINT_VERSION,
 } from '@config/index.js'
-import { BUNDLED_SOURCE_ID, createSourceRegistry } from '@data/index.js'
+import { BUNDLED_SOURCE_ID, createSourceRegistry, DownloadFailure } from '@data/index.js'
 import {
   createStopHost,
   createStopRegistry,
@@ -28,7 +28,7 @@ import {
 } from '@platform/pluginLoading/index.js'
 import type { PluginFile } from '@platform/pluginLoading/index.js'
 import type { ParamSpec, PluginDescriptor, TickerMeta } from '@shared/contracts/index.js'
-import { isDownloadable } from '@shared/contracts/index.js'
+import { DEFAULT_INTERVAL, isDownloadable } from '@shared/contracts/index.js'
 import { earnedUnlocks } from '@content/progression/index.js'
 import { createHaptics } from '@platform/haptics/index.js'
 import { createBrowserTransport } from '@platform/http/index.js'
@@ -296,8 +296,23 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
    * refusing to boot over it would be theatre.
    */
   if (state.tickers.length > 0 && !state.tickers.some((t) => t.symbol === state.config?.data.ticker)) {
-    state.config.data.ticker = state.tickers[0]!.symbol
-    state.config.data.dateRange = undefined
+    /**
+     * Try the daily form of the stored id before giving up on it.
+     *
+     * A config written before intervals existed holds a bare `INTC`, while the library
+     * now lists `INTC@1d` — the same series under its new id. Without this the selection
+     * would silently jump to whatever sorts first, which is the one part of the interval
+     * migration a player would actually notice.
+     */
+    const stored = state.config.data.ticker
+    const renamed = stored.includes('@')
+      ? undefined
+      : state.tickers.find((t) => t.symbol === `${stored}@${DEFAULT_INTERVAL}`)
+
+    state.config.data.ticker = renamed?.symbol ?? state.tickers[0]!.symbol
+    // A range that narrowed the old series says nothing about a different one. Kept when
+    // the entry is the same series under a new id.
+    if (!renamed) state.config.data.dateRange = undefined
   }
 
   /**
@@ -966,12 +981,12 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
      * the alternative is reaching into the screen's own draft from here, which would
      * make `app/` responsible for a form it doesn't own.
      */
-    downloadTicker: async (symbol, providerId) => {
+    downloadTicker: async (symbol, providerId, interval) => {
       const active = downloadableSource()
       if (!active) return undefined
       state.download = { busy: true, symbol }
       try {
-        const meta = await active.download({ symbol, providerId })
+        const meta = await active.download({ symbol, providerId, interval })
         await refreshTickers()
         state.download = { busy: false, notice: describeSeries(meta) }
         return meta
@@ -979,7 +994,11 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
         // Shown in the settings screen rather than thrown: a failed download is a
         // normal outcome here — no proxy, wrong symbol, throttled provider — not a
         // broken app.
-        state.download = { busy: false, error: messageOf(error) }
+        state.download = {
+          busy: false,
+          error: messageOf(error),
+          manualUrl: error instanceof DownloadFailure ? error.manualUrl : undefined,
+        }
         return undefined
       }
     },

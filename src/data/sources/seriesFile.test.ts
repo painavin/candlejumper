@@ -238,3 +238,192 @@ describe('failures', () => {
     expect(messageFrom('Date,Open,High,Low,Close\nn/d,n/d,n/d,n/d,n/d')).toContain('no usable rows')
   })
 })
+
+/**
+ * Provider responses as an import format.
+ *
+ * The point of this path: CORS withholds a response from *script*, not from a tab the
+ * player opened, so fetching the URL by hand and importing the file is the one way to
+ * get real data into a built bundle with no proxy and no extension.
+ */
+describe('a provider’s own response', () => {
+  const YAHOO = JSON.stringify({
+    chart: {
+      result: [
+        {
+          meta: { symbol: 'MSFT' },
+          timestamp: [day(2026, 7, 22), day(2026, 7, 23)],
+          indicators: {
+            quote: [
+              { open: [20.5, 20.9], high: [21, 21.4], low: [20.1, 20.8], close: [20.9, 21.2], volume: [30, 28] },
+            ],
+            adjclose: [{ adjclose: [20.9, 21.2] }],
+          },
+        },
+      ],
+      error: null,
+    },
+  })
+
+  const format = {
+    id: 'yahoo',
+    adjusted: true,
+    recognise: (text: string) => (text.includes('"chart"') ? { symbol: 'MSFT' } : undefined),
+    parse: () => [
+      { o: 20.5, h: 21, l: 20.1, c: 20.9, v: 30, t: day(2026, 7, 22) },
+      { o: 20.9, h: 21.4, l: 20.8, c: 21.2, v: 28, t: day(2026, 7, 23) },
+    ],
+  }
+
+  it('is parsed when our own formats reject it', () => {
+    const parsed = parseSeriesFile({ name: 'chart.json', text: YAHOO }, { nativeFormats: [format] })
+    expect(parsed.bars).toHaveLength(2)
+    expect(parsed.provider).toBe('yahoo')
+  })
+
+  it('takes the symbol from the payload, not the filename', () => {
+    // The saved file is named after the URL or nothing useful at all; the response
+    // knows what it is.
+    const parsed = parseSeriesFile({ name: 'chart.json', text: YAHOO }, { nativeFormats: [format] })
+    expect(parsed.symbol).toBe('MSFT')
+  })
+
+  it('carries the provider’s adjustment claim', () => {
+    // Load-bearing: filing adjusted prices as unadjusted mislabels the one flag that
+    // travels with the series, and nothing downstream can tell.
+    const parsed = parseSeriesFile({ name: 'chart.json', text: YAHOO }, { nativeFormats: [format] })
+    expect(parsed.adjusted).toBe(true)
+  })
+
+  it('falls back to the filename when the format recognises but cannot name it', () => {
+    const anonymous = { ...format, recognise: () => ({}) }
+    const parsed = parseSeriesFile(
+      { name: 'TSLA.json', text: YAHOO },
+      { nativeFormats: [anonymous] }
+    )
+    expect(parsed.symbol).toBe('TSLA')
+  })
+
+  it('lets a recognised format’s own error through', () => {
+    // "Yahoo says: No data found for MSFT" is worth reading; "is JSON, but not a
+    // series" is not. Once a format claims the payload, its diagnosis wins.
+    const failing = {
+      ...format,
+      parse: () => {
+        throw new Error('Yahoo says: No data found.')
+      },
+    }
+    expect(() =>
+      parseSeriesFile({ name: 'chart.json', text: YAHOO }, { nativeFormats: [failing] })
+    ).toThrow('Yahoo says: No data found.')
+  })
+
+  it('keeps the original failure when nothing recognises the file', () => {
+    // Far more imports are a broken CSV than an unrecognised provider response, so the
+    // message is about the file the player actually chose.
+    const declining = { ...format, recognise: () => undefined }
+    expect(() =>
+      parseSeriesFile({ name: 'notes.json', text: '{"hello":true}' }, { nativeFormats: [declining] })
+    ).toThrow(/not a series/)
+  })
+
+  it('never consults a format for a file our own parsers accept', () => {
+    const exploding = {
+      ...format,
+      recognise: (): { symbol?: string } => {
+        throw new Error('should not be reached')
+      },
+    }
+    expect(
+      parseSeriesFile({ name: 'AAPL.csv', text: CSV }, { nativeFormats: [exploding] }).bars
+    ).toHaveLength(2)
+  })
+})
+
+describe('a wrapped dataset with an unusable symbol', () => {
+  it('falls back to the filename rather than arriving anonymous', () => {
+    // The wrapper always carries a `symbol` key, so spreading it over the filename
+    // fallback put an explicit `undefined` back and lost the name.
+    const wrapped = JSON.stringify({
+      symbol: 42,
+      adjusted: false,
+      bars: [{ o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 7, 22) }],
+    })
+    expect(parseSeriesFile({ name: 'NVDA.json', text: wrapped }).symbol).toBe('NVDA')
+  })
+})
+
+describe('the interval of an imported file', () => {
+  const barsEvery = (step: number, count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      Date: new Date((1_700_000_000 + i * step) * 1000).toISOString().slice(0, 10),
+      close: 100 + i,
+    }))
+
+  const csvEvery = (step: number, count: number): string =>
+    [
+      'Date,Open,High,Low,Close,Volume',
+      ...barsEvery(step, count).map(
+        (row) => `${row.Date},${row.close},${row.close + 1},${row.close - 1},${row.close},1000`
+      ),
+    ].join('\n')
+
+  it('is inferred from the gaps, because a CSV never says', () => {
+    // It matters more than it looks: the interval sets the split tolerance downstream, so
+    // a monthly file read as daily is rejected for moves that are ordinary at a month.
+    expect(parseSeriesFile({ name: 'A.csv', text: csvEvery(86_400, 10) }).interval).toBe('1d')
+    expect(parseSeriesFile({ name: 'B.csv', text: csvEvery(7 * 86_400, 10) }).interval).toBe('1wk')
+    expect(parseSeriesFile({ name: 'C.csv', text: csvEvery(30 * 86_400, 10) }).interval).toBe('1mo')
+  })
+
+  it('is taken from a wrapped dataset that states it, not re-guessed', () => {
+    const wrapped = JSON.stringify({
+      symbol: 'INTC',
+      adjusted: true,
+      interval: '1wk',
+      // Daily-looking gaps, deliberately at odds with the declared interval: what the
+      // file says wins, so a dataset moved between machines keeps its own record.
+      bars: [
+        { o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 7, 20) },
+        { o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 7, 21) },
+        { o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 7, 22) },
+        { o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 7, 23) },
+      ],
+    })
+    expect(parseSeriesFile({ name: 'INTC.json', text: wrapped }).interval).toBe('1wk')
+  })
+
+  it('is dropped rather than guessed when a wrapped file claims nonsense', () => {
+    const wrapped = JSON.stringify({
+      symbol: 'INTC',
+      interval: 'fortnightly',
+      bars: [{ o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 7, 22) }],
+    })
+    // Falls through to inference, which has no opinion about a single bar.
+    expect(parseSeriesFile({ name: 'INTC.json', text: wrapped }).interval).toBeUndefined()
+  })
+
+  it('is left unknown for a file with too few bars to tell', () => {
+    // One gap could be anything, and the caller defaults to daily rather than acting on
+    // a guess.
+    const two = csvEvery(86_400, 2)
+    expect(parseSeriesFile({ name: 'A.csv', text: two }).interval).toBeUndefined()
+  })
+
+  it('comes from the payload when a provider response declares it', () => {
+    const format = {
+      id: 'yahoo',
+      adjusted: true,
+      recognise: () => ({ symbol: 'INTC', interval: '3mo' as const }),
+      parse: () => [
+        { o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 1, 2) },
+        { o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: day(2026, 4, 2) },
+      ],
+    }
+    const parsed = parseSeriesFile({ name: 'chart.json', text: '{"chart":{}}' }, {
+      nativeFormats: [format],
+    })
+    // Declared, not inferred — two bars can't be inferred from at all.
+    expect(parsed.interval).toBe('3mo')
+  })
+})

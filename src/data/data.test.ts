@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { OhlcvBar } from '@shared/contracts/index.js'
 import { createBundledSource } from './sources/bundled.js'
-import { parseBars, sliceByTime, validateBars } from './validate.js'
+import { maxBarMoveFor, parseBars, sliceByTime, validateBars } from './validate.js'
 
 const bar = (overrides: Partial<OhlcvBar> = {}): OhlcvBar => ({
   o: 100,
@@ -106,5 +106,47 @@ describe('the bundled source', () => {
 
   it('names the available symbols when asked for one that does not exist', async () => {
     await expect(createBundledSource().loadSeries('TSLA')).rejects.toThrow(/AAPL, MSFT, NKE/)
+  })
+})
+
+describe('maxBarMoveFor', () => {
+  it('holds the daily figure for a day and anything finer', () => {
+    // The biggest one-day S&P drop is ~15.5% and a single stock can lose 40% on
+    // earnings, so 0.5 catches a 2:1 split without flagging a real crash. Finer
+    // intervals are not tightened: a minute bar around an announcement moves violently,
+    // and a false rejection is worse than a missed check on already-adjusted data.
+    for (const interval of ['1m', '5m', '30m', '1h', '1d'] as const) {
+      expect(maxBarMoveFor(interval)).toBe(0.5)
+    }
+  })
+
+  it('widens strictly as the bar gets longer', () => {
+    const coarse = (['1d', '1wk', '1mo', '3mo'] as const).map(maxBarMoveFor)
+    expect(coarse).toEqual([...coarse].sort((a, b) => a - b))
+    expect(new Set(coarse).size).toBe(coarse.length)
+  })
+
+  it('tolerates the real quarterly move that started all this', () => {
+    // INTC's quarterly series contains a genuine +151% bar — adjusted and unadjusted
+    // closes agreeing exactly — which the daily threshold called an unadjusted split
+    // eight times over. The check is frankly weak at a quarter, and rejecting real
+    // series would be worse.
+    expect(maxBarMoveFor('3mo')).toBeGreaterThan(1.51)
+    expect(maxBarMoveFor('1d')).toBeLessThan(1.51)
+  })
+
+  it('still bites on a 4:1 split at a day', () => {
+    // 75% is what an unadjusted 4:1 looks like.
+    expect(maxBarMoveFor('1d')).toBeLessThan(0.75)
+  })
+
+  it('is what lets a monthly series through validation at all', () => {
+    const monthly = [
+      bar({ c: 10, t: 1_700_000_000 }),
+      // +120%: ordinary over a month, an "unadjusted split" under the daily rule.
+      bar({ c: 22, t: 1_702_629_800 }),
+    ]
+    expect(validateBars(monthly, { maxBarMove: maxBarMoveFor('1mo') })).toEqual([])
+    expect(validateBars(monthly, { maxBarMove: maxBarMoveFor('1d') })).toHaveLength(1)
   })
 })

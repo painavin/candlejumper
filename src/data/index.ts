@@ -4,12 +4,13 @@ export { createBundledSource, BUNDLED_SOURCE_ID } from './sources/bundled.js'
 export { createSyntheticSource } from './sources/synthetic.js'
 export {
   createLibrarySource,
+  DownloadFailure,
   LIBRARY_SOURCE_ID,
   IMPORTED_PROVIDER_ID,
 } from './sources/library.js'
 export type { LibrarySourceOptions } from './sources/library.js'
 export { parseCsvBars, parseSeriesFile, symbolFromFilename } from './sources/seriesFile.js'
-export type { ParsedSeries } from './sources/seriesFile.js'
+export type { NativeFormat, ParsedSeries, ParseSeriesOptions } from './sources/seriesFile.js'
 export {
   PRICE_PROVIDERS,
   YAHOO_BASE_URL,
@@ -17,6 +18,7 @@ export {
   normalizeSymbol,
   parseStooqCsv,
   parseYahooChart,
+  recogniseYahooChart,
   stooqCsvUrl,
   stooqProvider,
   stooqSymbol,

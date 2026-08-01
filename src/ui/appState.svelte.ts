@@ -1,5 +1,5 @@
 import type { RunConfig } from '@config/index.js'
-import type { ParamSpec, TickerMeta, TouchHandlers } from '@shared/contracts/index.js'
+import type { BarInterval, ParamSpec, TickerMeta, TouchHandlers } from '@shared/contracts/index.js'
 import type { LifetimeStats } from '@platform/persistence/index.js'
 import type { Summary } from '@engine/scoring/stats.js'
 
@@ -62,6 +62,13 @@ export interface SourceChoice {
 export interface ProviderChoice {
   id: string
   displayName: string
+  /**
+   * Intervals this provider serves, finest first.
+   *
+   * Carried through to the UI so the interval picker only offers what the selected
+   * provider can answer — Yahoo spans minutes to quarters, Stooq is daily only.
+   */
+  intervals: readonly BarInterval[]
 }
 
 /** What the last download or import is doing, or did. */
@@ -71,6 +78,14 @@ export interface DownloadState {
   symbol?: string
   notice?: string
   error?: string
+  /**
+   * Where to fetch this by hand, when doing so would help.
+   *
+   * Present on a CORS-shaped failure, because a tab the player opens is not subject to
+   * the rule that stopped the app — so the response can be saved and imported. Absent
+   * on failures a manual attempt would hit too, like a rate limit.
+   */
+  manualUrl?: string
 }
 
 export interface RunOutcome {
@@ -159,7 +174,11 @@ export interface AppActions {
    * Fetch a ticker from a named provider into the library. Resolves with what was
    * stored, or `undefined` if it failed — the reason is in `state.download.error`.
    */
-  downloadTicker(symbol: string, providerId: string): Promise<TickerMeta | undefined>
+  downloadTicker(
+    symbol: string,
+    providerId: string,
+    interval: BarInterval
+  ): Promise<TickerMeta | undefined>
   /** Open a picker and adopt the chosen CSV or JSON files. Resolves with what landed. */
   importSeriesFiles(): Promise<TickerMeta[]>
   /** Drop a ticker from the library. */

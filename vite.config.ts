@@ -44,8 +44,10 @@ export default defineConfig(({ mode }) => ({
    * process makes the real cross-origin call, where no such rule exists.
    *
    * `app/shell.ts` points the source at `/yahoo` when `import.meta.env.DEV`. A built
-   * bundle has no proxy and therefore needs a CORS extension scoped to that host —
-   * see docs/data-sources.md#downloading-a-ticker.
+   * bundle has no proxy, so downloading there needs either a CORS extension or the
+   * player opening the provider URL themselves and importing what comes back — a tab a
+   * person navigated to isn't subject to the rule that stops `fetch`. The failure
+   * message offers that link. See docs/data-sources.md#cors-is-the-whole-difficulty.
    */
   server: {
     proxy: {

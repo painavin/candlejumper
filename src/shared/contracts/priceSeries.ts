@@ -1,7 +1,15 @@
 import type { OhlcvBar } from './bar.js'
+import type { BarInterval } from './interval.js'
 
 /** What a source can tell the settings dropdown about a symbol. */
 export interface TickerMeta {
+  /**
+   * The source's own identifier for this series, and what `config.data.ticker` stores.
+   *
+   * Usually the bare ticker. The library encodes the interval into it — `INTC@1wk` —
+   * because one ticker can be held at several intervals at once and they are different
+   * series. Treat it as opaque: only the source that published it may take it apart.
+   */
   symbol: string
   displayName: string
   barCount: number
@@ -40,6 +48,13 @@ export interface PriceSeriesSource {
 export interface SeriesProvider {
   id: string
   displayName: string
+  /**
+   * Intervals this provider can serve, finest first.
+   *
+   * Per provider rather than global because they genuinely differ, and offering one
+   * that returns an error body would be a worse experience than not offering it.
+   */
+  intervals: readonly BarInterval[]
 }
 
 /** A file the player supplied, already read. */
@@ -72,7 +87,11 @@ export interface TextFile {
 export interface DownloadableSource extends PriceSeriesSource {
   /** Where this source can fetch from. Populates the provider picker. */
   readonly providers: readonly SeriesProvider[]
-  download(request: { symbol: string; providerId: string }): Promise<TickerMeta>
+  download(request: {
+    symbol: string
+    providerId: string
+    interval: BarInterval
+  }): Promise<TickerMeta>
   /** Adopt a player-supplied CSV or JSON file. */
   importFile(file: TextFile): Promise<TickerMeta>
   /** Drop a ticker from the library. */
@@ -93,6 +112,8 @@ export function isDownloadable(source: PriceSeriesSource): source is Downloadabl
  */
 export interface CachedDataset {
   symbol: string
+  /** How much time one bar covers. Absent in entries written before intervals. */
+  interval?: BarInterval
   /** Provider id, or `imported` for a file. */
   provider: string
   /** Whether these prices are split/dividend adjusted, as claimed at write time. */

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { DatasetCache, HttpTransport, OhlcvBar } from '@shared/contracts/index.js'
 import { HttpRequestError, isDownloadable } from '@shared/contracts/index.js'
-import { createLibrarySource } from './library.js'
+import { createLibrarySource, DownloadFailure } from './library.js'
 import { createSourceRegistry } from './registry.js'
-import { stooqProvider, yahooProvider } from './providers/index.js'
+import { stooqProvider, yahooChartUrl, yahooProvider } from './providers/index.js'
 
 /**
  * The library. Four properties carry the weight:
@@ -110,8 +110,8 @@ describe('the provider is chosen, never guessed', () => {
     const transport = fakeTransport(BOTH)
     const library = libraryOver(transport, memoryCache())
 
-    const meta = await library.download({ symbol: 'INTC', providerId: 'stooq' })
-    expect(meta.displayName).toBe('INTC — Stooq')
+    const meta = await library.download({ symbol: 'INTC', providerId: 'stooq', interval: '1d' })
+    expect(meta.displayName).toBe('INTC · Daily — Stooq')
     expect(transport.calls).toEqual(['/stooq/q/d/l/?s=intc.us&i=d'])
   })
 
@@ -125,7 +125,7 @@ describe('the provider is chosen, never guessed', () => {
     })
     const library = libraryOver(transport, memoryCache())
 
-    await expect(library.download({ symbol: 'INTC', providerId: 'yahoo' })).rejects.toThrow(
+    await expect(library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })).rejects.toThrow(
       /rate-limiting/
     )
     expect(transport.calls).toHaveLength(1)
@@ -133,15 +133,19 @@ describe('the provider is chosen, never guessed', () => {
   })
 
   it('offers the providers it can fetch from, for the picker', () => {
-    expect(libraryOver(fakeTransport({}), memoryCache()).providers).toEqual([
+    const { providers } = libraryOver(fakeTransport({}), memoryCache())
+    expect(providers.map(({ id, displayName }) => ({ id, displayName }))).toEqual([
       { id: 'yahoo', displayName: 'Yahoo Finance' },
       { id: 'stooq', displayName: 'Stooq' },
     ])
+    // Per provider, because they differ: Stooq's non-daily forms are unverified.
+    expect(providers.find((entry) => entry.id === 'stooq')?.intervals).toEqual(['1d'])
+    expect(providers.find((entry) => entry.id === 'yahoo')?.intervals).toContain('5m')
   })
 
   it('refuses a provider it does not have', async () => {
     const library = libraryOver(fakeTransport(BOTH), memoryCache())
-    await expect(library.download({ symbol: 'INTC', providerId: 'nope' })).rejects.toThrow(
+    await expect(library.download({ symbol: 'INTC', providerId: 'nope', interval: '1d' })).rejects.toThrow(
       /No price provider called "nope"/
     )
   })
@@ -152,26 +156,26 @@ describe('one library, keyed by symbol', () => {
     // A symbol names a series. Two entries for one ticker would turn "what do I have?"
     // into one question per provider, with nothing on screen explaining the duplicate.
     const library = libraryOver(fakeTransport(BOTH), memoryCache())
-    await library.download({ symbol: 'INTC', providerId: 'yahoo' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
     expect(await library.loadSeries('INTC')).toHaveLength(3)
 
-    const meta = await library.download({ symbol: 'INTC', providerId: 'stooq' })
-    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['INTC'])
-    expect(meta.displayName).toBe('INTC — Stooq')
+    const meta = await library.download({ symbol: 'INTC', providerId: 'stooq', interval: '1d' })
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['INTC@1d'])
+    expect(meta.displayName).toBe('INTC · Daily — Stooq')
     expect(await library.loadSeries('INTC')).toHaveLength(2)
   })
 
   it('records which provider produced the entry that is actually stored', async () => {
     const cache = memoryCache()
     const library = libraryOver(fakeTransport(BOTH), cache)
-    await library.download({ symbol: 'INTC', providerId: 'stooq' })
-    expect((await cache.load()).INTC).toMatchObject({ provider: 'stooq', adjusted: true })
+    await library.download({ symbol: 'INTC', providerId: 'stooq', interval: '1d' })
+    expect((await cache.load())['INTC@1d']).toMatchObject({ provider: 'stooq', adjusted: true })
   })
 
   it('normalises the symbol, so "aapl" and "AAPL" are one entry', async () => {
     const library = libraryOver(fakeTransport(BOTH), memoryCache())
-    await library.download({ symbol: ' aapl ', providerId: 'yahoo' })
-    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['AAPL'])
+    await library.download({ symbol: ' aapl ', providerId: 'yahoo', interval: '1d' })
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['AAPL@1d'])
     expect(await library.loadSeries('aapl')).toHaveLength(3)
   })
 })
@@ -180,7 +184,7 @@ describe('download', () => {
   it('keeps every bar the provider returned', async () => {
     // No span, and no trimming afterwards. The Stooq fixture spans 2015 to 2023.
     const library = libraryOver(fakeTransport(BOTH), memoryCache())
-    const meta = await library.download({ symbol: 'INTC', providerId: 'stooq' })
+    const meta = await library.download({ symbol: 'INTC', providerId: 'stooq', interval: '1d' })
     expect(meta.barCount).toBe(2)
     expect(meta.firstBarTime).toBe(Date.UTC(2015, 0, 2) / 1000)
     expect(meta.lastBarTime).toBe(Date.UTC(2023, 10, 15) / 1000)
@@ -188,7 +192,7 @@ describe('download', () => {
 
   it('asks Yahoo for its whole history', async () => {
     const transport = fakeTransport(BOTH)
-    await libraryOver(transport, memoryCache()).download({ symbol: 'MSFT', providerId: 'yahoo' })
+    await libraryOver(transport, memoryCache()).download({ symbol: 'MSFT', providerId: 'yahoo', interval: '1d' })
     expect(transport.calls[0]).toBe(
       '/yahoo/v8/finance/chart/MSFT?interval=1d&range=max&includeAdjustedClose=true'
     )
@@ -197,7 +201,7 @@ describe('download', () => {
   it('refuses an empty symbol without making a request', async () => {
     const transport = fakeTransport(BOTH)
     await expect(
-      libraryOver(transport, memoryCache()).download({ symbol: '   ', providerId: 'yahoo' })
+      libraryOver(transport, memoryCache()).download({ symbol: '   ', providerId: 'yahoo', interval: '1d' })
     ).rejects.toThrow(/Enter a ticker symbol/)
     expect(transport.calls).toEqual([])
   })
@@ -207,7 +211,7 @@ describe('download', () => {
     // which is what an unadjusted split looks like.
     const broken = yahooBody([bar(1_700_000_000, 400), bar(1_700_086_400, 40)])
     const library = libraryOver(fakeTransport({ yahoo: broken }), memoryCache())
-    await expect(library.download({ symbol: 'BAD', providerId: 'yahoo' })).rejects.toThrow(
+    await expect(library.download({ symbol: 'BAD', providerId: 'yahoo', interval: '1d' })).rejects.toThrow(
       /unadjusted split/
     )
   })
@@ -218,9 +222,9 @@ describe('importFile', () => {
     const library = libraryOver(fakeTransport({}), memoryCache())
     const meta = await library.importFile({ name: 'nke.csv', text: STOOQ_CSV })
 
-    expect(meta.symbol).toBe('NKE')
+    expect(meta.symbol).toBe('NKE@1d')
     expect(meta.barCount).toBe(2)
-    expect(meta.displayName).toBe('NKE — imported file')
+    expect(meta.displayName).toBe('NKE · Daily — imported file')
     expect(await library.loadSeries('NKE')).toHaveLength(2)
   })
 
@@ -228,16 +232,16 @@ describe('importFile', () => {
     const bars = [bar(1_700_000_000, 10), bar(1_700_086_400, 11)]
     const library = libraryOver(fakeTransport({}), memoryCache())
     const meta = await library.importFile({ name: 'TSLA.Daily.json', text: JSON.stringify(bars) })
-    expect(meta.symbol).toBe('TSLA')
+    expect(meta.symbol).toBe('TSLA@1d')
     expect(meta.barCount).toBe(2)
   })
 
   it('lands in the same library, replacing a downloaded entry', async () => {
     const library = libraryOver(fakeTransport(BOTH), memoryCache())
-    await library.download({ symbol: 'INTC', providerId: 'yahoo' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
     await library.importFile({ name: 'INTC.csv', text: STOOQ_CSV })
 
-    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['INTC'])
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['INTC@1d'])
     expect(await library.loadSeries('INTC')).toHaveLength(2)
   })
 
@@ -281,7 +285,7 @@ describe('playing', () => {
     // run start would give the same configuration a different series each day.
     const transport = fakeTransport(BOTH)
     const library = libraryOver(transport, memoryCache())
-    await library.download({ symbol: 'AAPL', providerId: 'yahoo' })
+    await library.download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
     const afterDownload = transport.calls.length
 
     await library.loadSeries('AAPL')
@@ -293,7 +297,7 @@ describe('playing', () => {
     // Narrowing what gets *played* lives here rather than at download time, so it can
     // change without re-fetching anything.
     const library = libraryOver(fakeTransport(BOTH), memoryCache())
-    await library.download({ symbol: 'AAPL', providerId: 'yahoo' })
+    await library.download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
     const bars = await library.loadSeries('AAPL', { from: 1_700_086_400, to: 1_700_172_800 })
     expect(bars.map((entry: OhlcvBar) => entry.t)).toEqual([1_700_086_400, 1_700_172_800])
   })
@@ -307,11 +311,11 @@ describe('playing', () => {
 describe('persistence', () => {
   it('survives a reload, which is the whole point of caching it', async () => {
     const cache = memoryCache()
-    await libraryOver(fakeTransport(BOTH), cache).download({ symbol: 'AAPL', providerId: 'yahoo' })
+    await libraryOver(fakeTransport(BOTH), cache).download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
 
     // A second library over the same cache: a fresh app start.
     const reloaded = libraryOver(fakeTransport({}), cache)
-    expect((await reloaded.listTickers()).map((entry) => entry.symbol)).toEqual(['AAPL'])
+    expect((await reloaded.listTickers()).map((entry) => entry.symbol)).toEqual(['AAPL@1d'])
     expect(await reloaded.loadSeries('AAPL')).toHaveLength(3)
   })
 
@@ -327,7 +331,7 @@ describe('persistence', () => {
       },
     }
     const library = libraryOver(fakeTransport(BOTH), cache)
-    await expect(library.download({ symbol: 'AAPL', providerId: 'yahoo' })).rejects.toThrow(
+    await expect(library.download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })).rejects.toThrow(
       /Storage is full/
     )
     expect(await library.listTickers()).toEqual([])
@@ -346,10 +350,10 @@ describe('persistence', () => {
       },
     }
     const library = libraryOver(fakeTransport(BOTH), cache)
-    await library.download({ symbol: 'INTC', providerId: 'yahoo' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
 
     failing = true
-    await expect(library.download({ symbol: 'INTC', providerId: 'stooq' })).rejects.toThrow()
+    await expect(library.download({ symbol: 'INTC', providerId: 'stooq', interval: '1d' })).rejects.toThrow()
     // Still the three-bar Yahoo version, not the two-bar Stooq one that never stored.
     expect(await library.loadSeries('INTC')).toHaveLength(3)
   })
@@ -364,7 +368,7 @@ describe('persistence', () => {
       NOTHING: 7,
     })
     const library = libraryOver(fakeTransport({}), cache)
-    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['AAPL'])
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['AAPL@1d'])
   })
 
   it('does not claim an entry was adjusted when it does not say so', async () => {
@@ -383,7 +387,7 @@ describe('forget', () => {
   it('removes the ticker, durably', async () => {
     const cache = memoryCache()
     const library = libraryOver(fakeTransport(BOTH), cache)
-    await library.download({ symbol: 'AAPL', providerId: 'yahoo' })
+    await library.download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
     await library.forget('aapl')
 
     expect(await library.listTickers()).toEqual([])
@@ -404,7 +408,7 @@ describe('failure messages', () => {
       fakeTransport({ yahoo: new HttpRequestError('unreachable', 'It refuses to say why.') }),
       memoryCache()
     )
-    await expect(library.download({ symbol: 'AAPL', providerId: 'yahoo' })).rejects.toThrow(
+    await expect(library.download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })).rejects.toThrow(
       /CORS extension|proxies Yahoo/
     )
   })
@@ -415,7 +419,7 @@ describe('failure messages', () => {
       memoryCache()
     )
     const message = await library
-      .download({ symbol: 'AAPL', providerId: 'yahoo' })
+      .download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
       .then(() => '')
       .catch((error: Error) => error.message)
     expect(message).toContain('Yahoo Finance is rate-limiting')
@@ -454,5 +458,289 @@ describe('createSourceRegistry', () => {
       yahooProvider.id,
       stooqProvider.id,
     ])
+  })
+})
+
+/**
+ * Importing a response the player fetched themselves.
+ *
+ * The escape hatch from a built bundle with no dev proxy and no CORS extension: the
+ * browser will happily load these URLs in a tab, because CORS governs what script may
+ * read rather than where a person may navigate. It only works if the importer
+ * recognises what comes back.
+ */
+describe('importing a hand-fetched provider response', () => {
+  /** `yahooBody` carries no `meta`, so this adds the one field recognition reads. */
+  const named = (symbol: string, rows: readonly Record<string, number>[]): string => {
+    const payload = JSON.parse(yahooBody(rows)) as {
+      chart: { result: [Record<string, unknown>] }
+    }
+    payload.chart.result[0].meta = { symbol }
+    return JSON.stringify(payload)
+  }
+
+  it('adopts Yahoo’s raw JSON, which is not one of our own formats', async () => {
+    const library = libraryOver(fakeTransport({}), memoryCache())
+    const meta = await library.importFile({ name: 'chart.json', text: named('MSFT', SERIES) })
+    expect(meta.barCount).toBe(SERIES.length)
+    expect(await library.loadSeries('MSFT')).toHaveLength(SERIES.length)
+  })
+
+  it('files it under the symbol in the payload, not the saved filename', async () => {
+    // Browsers name a saved API response after the URL or after nothing useful, and an
+    // import landing under the wrong ticker is silent.
+    const library = libraryOver(fakeTransport({}), memoryCache())
+    const meta = await library.importFile({ name: 'chart.json', text: named('MSFT', SERIES) })
+    expect(meta.symbol).toBe('MSFT@1d')
+  })
+
+  it('credits Yahoo rather than calling it an imported file', async () => {
+    const library = libraryOver(fakeTransport({}), memoryCache())
+    const meta = await library.importFile({ name: 'chart.json', text: named('MSFT', SERIES) })
+    expect(meta.displayName).toBe('MSFT · Daily — Yahoo Finance')
+  })
+
+  it('keeps Yahoo’s adjustment claim, which an anonymous blob would lose', async () => {
+    // The whole reason recognition beats treating it as unknown JSON: `adjusted` is the
+    // one flag that travels with a series, and reporting adjusted prices as unadjusted
+    // is wrong in the direction nothing downstream can detect.
+    const library = libraryOver(fakeTransport({}), memoryCache())
+    const meta = await library.importFile({ name: 'chart.json', text: named('MSFT', SERIES) })
+    expect(meta.adjusted).toBe(true)
+  })
+
+  it('still reports an unknown-symbol body in Yahoo’s own words', async () => {
+    const failure = JSON.stringify({
+      chart: { result: null, error: { code: 'Not Found', description: 'No data found' } },
+    })
+    const library = libraryOver(fakeTransport({}), memoryCache())
+    await expect(library.importFile({ name: 'NOPE.json', text: failure })).rejects.toThrow(
+      /No data found/
+    )
+  })
+
+  it('leaves a plain CSV as an imported file', async () => {
+    // Recognition must not reclassify what already worked.
+    const library = libraryOver(fakeTransport({}), memoryCache())
+    const meta = await library.importFile({ name: 'nke.csv', text: STOOQ_CSV })
+    expect(meta.displayName).toBe('NKE · Daily — imported file')
+  })
+})
+
+describe('the manual-download link on a failure', () => {
+  it('is offered when the browser refuses to say why, and points at the real host', async () => {
+    // Not `/yahoo`: a dev-server path is meaningless in a new tab, and this URL exists
+    // to be clicked.
+    const library = libraryOver(
+      fakeTransport({ yahoo: new HttpRequestError('unreachable', 'It refuses to say why.') }),
+      memoryCache()
+    )
+    const error = await library
+      .download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
+      .then(() => undefined)
+      .catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(DownloadFailure)
+    expect((error as DownloadFailure).manualUrl).toBe(
+      yahooChartUrl(yahooProvider.baseUrl, 'AAPL', '1d')
+    )
+    expect((error as DownloadFailure).manualUrl).not.toContain('/yahoo/v8')
+  })
+
+  it('is offered on a rate limit too, since a tab is a different request', async () => {
+    // Withheld here at first, on the reasoning that throttling is by IP so a tab would
+    // be refused identically. Too confident: the window is time-based and may have
+    // passed by the time it's clicked, and a tab carries different headers and cookies.
+    // Being refused costs two seconds; withholding costs the one route needing nothing
+    // installed.
+    const library = libraryOver(
+      fakeTransport({ yahoo: new HttpRequestError('status', 'HTTP 429', 429) }),
+      memoryCache()
+    )
+    const error = await library
+      .download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
+      .then(() => undefined)
+      .catch((cause: unknown) => cause)
+
+    expect((error as DownloadFailure).manualUrl).toBe(yahooChartUrl(yahooProvider.baseUrl, 'AAPL', '1d'))
+  })
+
+  it('is withheld on a 404, which refuses the symbol rather than the request', async () => {
+    // Nothing is at that URL, so opening it by hand finds nothing either.
+    const library = libraryOver(
+      fakeTransport({ yahoo: new HttpRequestError('status', 'HTTP 404', 404) }),
+      memoryCache()
+    )
+    const error = await library
+      .download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
+      .then(() => undefined)
+      .catch((cause: unknown) => cause)
+
+    expect((error as DownloadFailure).manualUrl).toBeUndefined()
+  })
+
+  it('explains that a tab is not subject to what blocked the app', async () => {
+    const library = libraryOver(
+      fakeTransport({ yahoo: new HttpRequestError('unreachable', 'It refuses to say why.') }),
+      memoryCache()
+    )
+    const message = await library
+      .download({ symbol: 'AAPL', providerId: 'yahoo', interval: '1d' })
+      .then(() => '')
+      .catch((error: Error) => error.message)
+    expect(message).toMatch(/import what it returns/)
+  })
+})
+
+/**
+ * One ticker at several intervals.
+ *
+ * The reason the cache key changed. `INTC@1d` and `INTC@1wk` are different bars of
+ * different length and a different game to play, so keying by symbol alone meant
+ * downloading one silently destroyed the other.
+ */
+describe('a symbol and an interval together name a series', () => {
+  /** Rows spaced to match `interval`, so the response is plausible for what was asked. */
+  const seriesAt = (stepSeconds: number, count: number, granularity: string): string => {
+    const rows = Array.from({ length: count }, (_, i) =>
+      bar(1_700_000_000 + i * stepSeconds, 100 + i)
+    )
+    const payload = JSON.parse(yahooBody(rows)) as {
+      chart: { result: [Record<string, unknown>] }
+    }
+    payload.chart.result[0].meta = { symbol: 'INTC', dataGranularity: granularity }
+    return JSON.stringify(payload)
+  }
+
+  it('holds both intervals of one ticker at once', async () => {
+    const daily = seriesAt(86_400, 3, '1d')
+    const weekly = seriesAt(604_800, 4, '1wk')
+    const transport: HttpTransport = {
+      async get(url) {
+        return url.includes('interval=1wk') ? weekly : daily
+      },
+    }
+    const library = libraryOver(transport, memoryCache())
+
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1wk' })
+
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual([
+      'INTC@1d',
+      'INTC@1wk',
+    ])
+    expect(await library.loadSeries('INTC@1d')).toHaveLength(3)
+    expect(await library.loadSeries('INTC@1wk')).toHaveLength(4)
+  })
+
+  it('names the interval in the label, so two entries for one ticker make sense', async () => {
+    // Two rows reading "INTC — Yahoo Finance" would be the duplicate-with-no-explanation
+    // problem that keying by provider had.
+    const transport: HttpTransport = { get: async () => seriesAt(604_800, 4, '1wk') }
+    const meta = await libraryOver(transport, memoryCache()).download({
+      symbol: 'INTC',
+      providerId: 'yahoo',
+      interval: '1wk',
+    })
+    expect(meta.displayName).toBe('INTC · Weekly — Yahoo Finance')
+  })
+
+  it('replaces only the matching interval when re-downloaded', async () => {
+    const daily = seriesAt(86_400, 3, '1d')
+    const weekly = seriesAt(604_800, 4, '1wk')
+    const transport: HttpTransport = {
+      async get(url) {
+        return url.includes('interval=1wk') ? weekly : daily
+      },
+    }
+    const library = libraryOver(transport, memoryCache())
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1wk' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
+
+    expect((await library.listTickers())).toHaveLength(2)
+    expect(await library.loadSeries('INTC@1wk')).toHaveLength(4)
+  })
+
+  it('drops one interval and keeps the other', async () => {
+    const daily = seriesAt(86_400, 3, '1d')
+    const weekly = seriesAt(604_800, 4, '1wk')
+    const transport: HttpTransport = {
+      async get(url) {
+        return url.includes('interval=1wk') ? weekly : daily
+      },
+    }
+    const library = libraryOver(transport, memoryCache())
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1d' })
+    await library.download({ symbol: 'INTC', providerId: 'yahoo', interval: '1wk' })
+
+    await library.forget('INTC@1wk')
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['INTC@1d'])
+  })
+
+  it('asks the provider for the interval it was given', async () => {
+    const transport = fakeTransport({ yahoo: seriesAt(3_600, 5, '1h') })
+    await libraryOver(transport, memoryCache()).download({
+      symbol: 'MSFT',
+      providerId: 'yahoo',
+      interval: '1h',
+    })
+    // Hourly is capped at two years of history by Yahoo, so the range narrows with it.
+    expect(transport.calls[0]).toBe(
+      '/yahoo/v8/finance/chart/MSFT?interval=1h&range=2y&includeAdjustedClose=true'
+    )
+  })
+
+  it('refuses an interval the provider does not serve, rather than substituting one', async () => {
+    // Quietly fetching daily when 5-minute was asked for would file the answer to a
+    // different question under the player's request.
+    const library = libraryOver(fakeTransport(BOTH), memoryCache())
+    await expect(
+      library.download({ symbol: 'INTC', providerId: 'stooq', interval: '5m' })
+    ).rejects.toThrow(/Stooq doesn't serve 5 minutes bars/)
+  })
+})
+
+describe('a library written before intervals existed', () => {
+  /** What the old format looked like: keyed by bare symbol, with no interval field. */
+  const legacy = () => ({
+    INTC: {
+      symbol: 'INTC',
+      provider: 'stooq',
+      adjusted: true,
+      downloadedAtMs: 1_699_000_000_000,
+      bars: [bar(1_700_000_000, 100), bar(1_700_086_400, 101)],
+    },
+  })
+
+  it('is read as daily, because daily is all there was', async () => {
+    const library = libraryOver(fakeTransport({}), memoryCache(legacy()))
+    expect((await library.listTickers()).map((entry) => entry.symbol)).toEqual(['INTC@1d'])
+    expect(await library.loadSeries('INTC@1d')).toHaveLength(2)
+  })
+
+  it('keeps its provider and adjustment claim across the move', async () => {
+    const library = libraryOver(fakeTransport({}), memoryCache(legacy()))
+    const [meta] = await library.listTickers()
+    expect(meta?.displayName).toBe('INTC · Daily — Stooq')
+    expect(meta?.adjusted).toBe(true)
+  })
+
+  it('is re-filed under the composite key on the next write', async () => {
+    // The key *is* the migration — no version field, and nothing to run once.
+    const cache = memoryCache(legacy())
+    const library = libraryOver(fakeTransport(BOTH), cache)
+    await library.download({ symbol: 'AAPL', providerId: 'stooq', interval: '1d' })
+
+    const stored = await cache.load()
+    expect(Object.keys(stored).sort()).toEqual(['AAPL@1d', 'INTC@1d'])
+    expect(stored.INTC).toBeUndefined()
+  })
+
+  it('still answers to a bare symbol, so a stored config keeps working', async () => {
+    // `config.data.ticker` holds ids written before this change. A bare id reads as
+    // daily, which is what it was.
+    const library = libraryOver(fakeTransport({}), memoryCache(legacy()))
+    expect(await library.loadSeries('INTC')).toHaveLength(2)
   })
 })

@@ -29,8 +29,8 @@
     RunConfig,
     StopInstanceConfig,
   } from '@config/index.js'
-  import type { ParamSpec, TickerMeta } from '@shared/contracts/index.js'
-  import { instanceLabel } from '@shared/contracts/index.js'
+  import type { BarInterval, ParamSpec, TickerMeta } from '@shared/contracts/index.js'
+  import { DEFAULT_INTERVAL, instanceLabel, intervalName } from '@shared/contracts/index.js'
   import { mintSeed } from '@shared/math/index.js'
   import { audioThemes } from '@content/audioThemes/index.js'
   import { visualThemes } from '@content/visualThemes/index.js'
@@ -65,6 +65,7 @@
   interface ProviderOption {
     id: string
     displayName: string
+    intervals: readonly BarInterval[]
   }
 
   let {
@@ -90,7 +91,14 @@
     sources: SourceOption[]
     providers: ProviderOption[]
     tickers: TickerMeta[]
-    download: { busy: boolean; symbol?: string; notice?: string; error?: string }
+    download: {
+      busy: boolean
+      symbol?: string
+      notice?: string
+      error?: string
+      /** Present when fetching by hand would get past what stopped the app. */
+      manualUrl?: string
+    }
     stopChoices: Choice[]
     indicatorChoices: IndicatorChoice[]
     personalBest: { percentReturn: number; arcadeScore: number } | undefined
@@ -102,7 +110,11 @@
     onPreview: (config: RunConfig) => void
     onImportPlugins: (kind: 'stop' | 'indicator') => void
     onRemovePlugin: (name: string) => void
-    onDownloadTicker: (symbol: string, providerId: string) => Promise<TickerMeta | undefined>
+    onDownloadTicker: (
+      symbol: string,
+      providerId: string,
+      interval: BarInterval
+    ) => Promise<TickerMeta | undefined>
     onImportSeriesFiles: () => Promise<TickerMeta[]>
     onForgetTicker: (symbol: string) => Promise<void>
   } = $props()
@@ -324,7 +336,7 @@
     {
       id: 'starting-price-relative',
       label: 'Relative to the first bar',
-      note: 'Everything measured against day one, so the whole run is one scale.',
+      note: 'Everything measured against the first bar, so the whole run is one scale.',
     },
   ]
 
@@ -362,6 +374,11 @@
 
   /** What to fetch, and from where. Nothing is requested until Download is pressed. */
   let symbolInput = $state('')
+  /**
+   * Daily, because it's what almost every download wants and what every existing
+   * dataset is. Reset by the effect below if the chosen provider can't serve it.
+   */
+  let intervalInput = $state<BarInterval>(DEFAULT_INTERVAL)
   let providerInput = $state('')
 
   // Default to the first provider once the list arrives, and recover if the chosen one
@@ -388,10 +405,35 @@
     }
   })
 
+  /**
+   * Intervals the selected provider can actually serve.
+   *
+   * Filtered rather than greyed out: an option that returns an error body is worse than
+   * one that was never offered. Stooq is daily only, so choosing it collapses this to a
+   * single entry.
+   */
+  const offeredIntervals = $derived(
+    providers.find((entry) => entry.id === providerInput)?.intervals ?? [DEFAULT_INTERVAL]
+  )
+
+  /**
+   * Keep the chosen interval one the provider offers.
+   *
+   * Switching from Yahoo to Stooq while `5m` is selected would otherwise leave a request
+   * nobody can answer armed behind a picker showing something else.
+   */
+  $effect(() => {
+    if (!offeredIntervals.includes(intervalInput)) {
+      intervalInput = offeredIntervals.includes(DEFAULT_INTERVAL)
+        ? DEFAULT_INTERVAL
+        : (offeredIntervals[0] ?? DEFAULT_INTERVAL)
+    }
+  })
+
   async function downloadTicker(): Promise<void> {
     const wanted = symbolInput.trim()
     if (wanted === '') return
-    const meta = await onDownloadTicker(wanted, providerInput)
+    const meta = await onDownloadTicker(wanted, providerInput, intervalInput)
     if (meta) adopt(meta)
   }
 
@@ -439,6 +481,21 @@
 
   const percent = (value: number): string =>
     `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value).toFixed(1)}%`
+
+  /**
+   * The host, for labelling a manual-download link.
+   *
+   * The full chart URL is long enough to wrap over three lines and says nothing the
+   * player needs; where the link *goes* is the part worth showing before they click it.
+   * Falls back to the whole string rather than throwing on anything unparseable.
+   */
+  function hostOf(url: string): string {
+    try {
+      return new URL(url).host
+    } catch {
+      return url
+    }
+  }
 </script>
 
 <div class="screen">
@@ -541,6 +598,11 @@
             bind:value={symbolInput}
             onkeydown={(event) => event.key === 'Enter' && void downloadTicker()}
           />
+          <select class="provider" bind:value={intervalInput} aria-label="Bar interval">
+            {#each offeredIntervals as interval (interval)}
+              <option value={interval}>{intervalName(interval)}</option>
+            {/each}
+          </select>
           <select class="provider" bind:value={providerInput} aria-label="Download from">
             {#each providers as provider (provider.id)}
               <option value={provider.id}>{provider.displayName}</option>
@@ -560,6 +622,18 @@
           <p class="note">Fetching {download.symbol ?? 'the series'}…</p>
         {:else if download.error}
           <p class="warn">{download.error}</p>
+          {#if download.manualUrl}
+            <!-- Opening this in a tab isn't blocked by the rule that stopped the app:
+                 CORS governs what script may read, not where a person may navigate.
+                 `noreferrer` because the provider has no business knowing this came
+                 from a settings panel. -->
+            <p class="manual">
+              <a href={download.manualUrl} target="_blank" rel="noreferrer noopener">
+                Open {hostOf(download.manualUrl)} ↗
+              </a>
+              <span class="note inline">then save the response and import it below.</span>
+            </p>
+          {/if}
         {:else if download.notice}
           <p class="note">{download.notice}</p>
         {/if}
@@ -574,10 +648,11 @@
         </div>
 
         <p class="note">
-          Downloads and imports share one library, keyed by symbol: obtaining AAPL again
-          replaces AAPL. The provider's whole daily history is kept and never re-fetched
-          at run start, so a series replays identically. Play a shorter window with the
-          date range under Advanced.
+          Downloads and imports share one library, keyed by symbol <em>and</em> interval:
+          obtaining daily AAPL again replaces it, while weekly AAPL sits beside it as its
+          own series. The provider's whole history at that interval is kept and never
+          re-fetched at run start, so a series replays identically. Play a shorter window
+          with the date range under Advanced.
         </p>
 
         {#if tickers.length > 0}
@@ -1262,6 +1337,26 @@
     border-left: 2px solid var(--accent);
     color: var(--ink);
     font-size: 12.5px;
+  }
+  /* Continues the warning block above it, so the border-left runs unbroken rather than
+     reading as a second, unrelated message. */
+  .manual {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: baseline;
+    margin: 0;
+    padding: 0 12px 10px;
+    background: rgba(242, 193, 78, 0.12);
+    border-left: 2px solid var(--accent);
+    font-size: 12.5px;
+  }
+  .manual a {
+    color: var(--accent);
+    font-weight: 600;
+    /* The URL is long and the label is a host: breaking mid-host is better than a
+       horizontal scrollbar on a narrow panel. */
+    overflow-wrap: anywhere;
   }
   .row {
     padding: 10px 0;

@@ -10,5 +10,5 @@ import { stooqProvider } from './stooq.js'
 export const PRICE_PROVIDERS: readonly PriceProvider[] = [yahooProvider, stooqProvider]
 
 export type { PriceProvider, ProviderRequest } from './types.js'
-export { yahooProvider, YAHOO_BASE_URL, YAHOO_PROVIDER_ID, normalizeSymbol, parseYahooChart, yahooChartUrl } from './yahoo.js'
+export { yahooProvider, YAHOO_BASE_URL, YAHOO_PROVIDER_ID, normalizeSymbol, parseYahooChart, recogniseYahooChart, yahooChartUrl } from './yahoo.js'
 export { stooqProvider, parseStooqCsv, stooqCsvUrl, stooqSymbol } from './stooq.js'

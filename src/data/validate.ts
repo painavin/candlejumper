@@ -1,4 +1,4 @@
-import type { OhlcvBar } from '@shared/contracts/index.js'
+import type { BarInterval, OhlcvBar } from '@shared/contracts/index.js'
 
 /**
  * Dataset validation.
@@ -17,10 +17,44 @@ export interface DatasetProblem {
 
 export interface ValidateOptions {
   /**
-   * Largest plausible single-bar move, as a fraction. The bundled set's biggest
-   * is ~15.5%, so 0.5 flags split artifacts without flagging real crashes.
+   * Largest plausible single-bar move, as a fraction. Defaults to the daily figure;
+   * `maxBarMoveFor` derives the right one from an interval.
    */
   maxBarMove?: number
+}
+
+/**
+ * How big a single-bar move stops being plausible, for a given interval.
+ *
+ * The check exists to catch an **unadjusted split**, which shows up as a ~50% drop for
+ * 2:1 or ~75% for 4:1 at any interval. The tolerance has to sit below that and above
+ * whatever the market really does in one bar — and what the market really does in one
+ * bar depends entirely on how long the bar is:
+ *
+ *   - **A day or finer**: the biggest one-day S&P drop is ~15.5%, and a single stock can
+ *     lose 40% on an earnings miss. 0.5 catches splits and clears real crashes. Finer
+ *     intervals are *not* tightened: a minute bar around an announcement can move
+ *     violently, and a false rejection is worse than a missed check on data that Yahoo
+ *     has already adjusted.
+ *   - **Weekly and coarser**: the window is wide enough for real moves to reach split
+ *     territory. Measured on the actual data: INTC's quarterly series contains a
+ *     genuine +151% bar, with adjusted and unadjusted closes agreeing exactly. So the
+ *     tolerance widens, and at a quarter the check is **frankly weak** — it can no
+ *     longer separate a split from a real move, and pretending otherwise would reject
+ *     real series. That's an acceptable trade only because both providers adjust their
+ *     own data, which makes this a safety net rather than the defence.
+ */
+export function maxBarMoveFor(interval: BarInterval): number {
+  switch (interval) {
+    case '1wk':
+      return 0.8
+    case '1mo':
+      return 1.5
+    case '3mo':
+      return 2.5
+    default:
+      return 0.5
+  }
 }
 
 /** Parse and validate unknown JSON into bars. Throws on anything unusable. */

@@ -22,11 +22,15 @@
 
   <ol>
     <li>
-      <h2>Every pole is a trading day</h2>
+      <h2>Every pole is one bar</h2>
       <p>
-        Its height is that day's closing price. The jumper stands on the newest one
-        and hops to the next as the day closes. You can never see a day you haven't
+        Its height is that bar's closing price. The jumper stands on the newest one
+        and hops to the next as the bar closes. You can never see a bar you haven't
         reached — unplayed poles don't exist yet.
+      </p>
+      <p>
+        A bar is a trading day unless you downloaded a different interval — a series
+        can be anything from one minute to one quarter per pole.
       </p>
     </li>
 

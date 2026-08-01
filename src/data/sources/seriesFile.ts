@@ -1,4 +1,5 @@
-import type { OhlcvBar, TextFile } from '@shared/contracts/index.js'
+import type { BarInterval, OhlcvBar, TextFile } from '@shared/contracts/index.js'
+import { inferInterval, isBarInterval } from '@shared/contracts/index.js'
 
 /**
  * Reading a price series out of a file — one entry point for CSV and JSON.
@@ -26,12 +27,50 @@ export interface ParsedSeries {
    * Whether these prices are split/dividend adjusted.
    *
    * Only ever `true` when the file *said* so — an adjusted-close column that was
-   * applied, or a wrapped JSON dataset that claims it. A bare list of prices is
-   * reported as unadjusted, because guessing in the other direction is what puts an
-   * invented crash on the chart.
+   * applied, a wrapped JSON dataset that claims it, or a recognised provider response
+   * whose provider adjusts. A bare list of prices is reported as unadjusted, because
+   * guessing in the other direction is what puts an invented crash on the chart.
    */
   adjusted: boolean
   bars: OhlcvBar[]
+  /** Set only when a provider's own response format was recognised. */
+  provider?: string
+  /**
+   * How much time one bar covers.
+   *
+   * From the payload when it says so, otherwise inferred from the gaps between
+   * timestamps. It matters more than it looks: the interval sets the split tolerance, so
+   * a monthly file read as daily is rejected for moves that are ordinary at a month.
+   */
+  interval?: BarInterval
+}
+
+/**
+ * A provider's own response body, as something the importer can fall back to.
+ *
+ * Structural rather than an import of `PriceProvider`: this module is the *general*
+ * one — the Stooq adapter already depends on `parseCsvBars` — and depending back on
+ * the providers would close that loop.
+ */
+export interface NativeFormat {
+  /** Recorded as the dataset's provider when this format matches. */
+  id: string
+  adjusted: boolean
+  /** See `PriceProvider.recognise`. `undefined` means "not mine". */
+  recognise(text: string): { symbol?: string; interval?: BarInterval } | undefined
+  parse(text: string, symbol: string, interval?: BarInterval): OhlcvBar[]
+}
+
+export interface ParseSeriesOptions {
+  /**
+   * Formats to try when the file isn't one of ours.
+   *
+   * This is what lets someone paste a provider URL into a browser, save what comes
+   * back, and import it — the only way to obtain data from a built bundle with no
+   * proxy and no CORS extension, since CORS withholds responses from *script* but
+   * has nothing to say about a tab a person opened.
+   */
+  nativeFormats?: readonly NativeFormat[]
 }
 
 /**
@@ -43,13 +82,59 @@ export function symbolFromFilename(name: string): string {
   return (base.split('.')[0] ?? base).trim().toUpperCase()
 }
 
-/** CSV or JSON, sniffed from the content. */
-export function parseSeriesFile(file: TextFile): ParsedSeries {
+/** CSV or JSON, sniffed from the content, then any provider's own response format. */
+export function parseSeriesFile(file: TextFile, options: ParseSeriesOptions = {}): ParsedSeries {
+  const fromName = symbolFromFilename(file.name)
   const trimmed = file.text.trimStart()
-  const parsed = trimmed.startsWith('{') || trimmed.startsWith('[')
-    ? parseJsonSeries(trimmed, file.name)
-    : parseCsvBars(file.text, file.name)
-  return { symbol: parsed.symbol ?? symbolFromFilename(file.name), ...parsed }
+  let parsed: ParsedSeries
+  try {
+    parsed = trimmed.startsWith('{') || trimmed.startsWith('[')
+      ? parseJsonSeries(trimmed, file.name)
+      : parseCsvBars(file.text, file.name)
+  } catch (cause) {
+    parsed = parseNativeFormat(file, fromName, options.nativeFormats ?? [], cause)
+  }
+  // `symbol` and `interval` last. Spreading `parsed` after them puts an explicit
+  // `undefined` back over the fallback, which is a quiet way to lose both.
+  return {
+    ...parsed,
+    symbol: parsed.symbol ?? fromName,
+    // Inferred only when the file didn't say. A bare CSV or JSON array never says.
+    interval: parsed.interval ?? inferInterval(parsed.bars.map((bar) => bar.t)),
+  }
+}
+
+/**
+ * The file wasn't one of ours — is it a provider's raw response?
+ *
+ * Recognition and parsing are separate steps on purpose. Once a format claims the
+ * payload its own parse error is allowed through, because "Yahoo says: No data found for
+ * MSFT" is worth reading and "is JSON, but not a series" is not. Only an unrecognised
+ * payload falls through to the next format, and if none claim it the original failure is
+ * what the player sees — they were far more likely to be importing a broken CSV than a
+ * provider response.
+ */
+function parseNativeFormat(
+  file: TextFile,
+  fromName: string,
+  formats: readonly NativeFormat[],
+  cause: unknown
+): ParsedSeries {
+  for (const format of formats) {
+    const claim = format.recognise(file.text)
+    if (claim === undefined) continue
+    const symbol = claim.symbol ?? fromName
+    return {
+      symbol,
+      adjusted: format.adjusted,
+      // The interval the payload declared, so the parser can refuse a response that
+      // turns out to be something else — the check is the point of passing it.
+      bars: format.parse(file.text, symbol, claim.interval),
+      provider: format.id,
+      interval: claim.interval,
+    }
+  }
+  throw cause instanceof Error ? cause : new Error(String(cause))
 }
 
 /**
@@ -71,12 +156,20 @@ function parseJsonSeries(text: string, label: string): ParsedSeries {
     return { adjusted: false, bars: payload as OhlcvBar[] }
   }
   if (typeof payload === 'object' && payload !== null) {
-    const wrapped = payload as { symbol?: unknown; adjusted?: unknown; bars?: unknown }
+    const wrapped = payload as {
+      symbol?: unknown
+      adjusted?: unknown
+      bars?: unknown
+      interval?: unknown
+    }
     if (Array.isArray(wrapped.bars)) {
       return {
         symbol: typeof wrapped.symbol === 'string' ? wrapped.symbol.toUpperCase() : undefined,
         adjusted: wrapped.adjusted === true,
         bars: wrapped.bars as OhlcvBar[],
+        // A dataset moved between machines keeps its interval rather than having one
+        // guessed back out of its timestamps.
+        interval: isBarInterval(wrapped.interval) ? wrapped.interval : undefined,
       }
     }
   }

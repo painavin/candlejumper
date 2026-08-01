@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateBars } from '../../validate.js'
 import fixture from './yahooChart.fixture.json' with { type: 'json' }
-import { normalizeSymbol, parseYahooChart, yahooChartUrl } from './yahoo.js'
+import { normalizeSymbol, parseYahooChart, recogniseYahooChart, yahooChartUrl } from './yahoo.js'
 
 /**
  * The provider adapter is pure, so its awkward cases are tested against a **recorded**
@@ -16,24 +16,24 @@ describe('yahooChartUrl', () => {
   it('asks for the whole daily history, with adjusted closes', () => {
     // `range=max`, always: asking for less would mean deciding how much of a stock's
     // life the player may see, and no single answer is right for every symbol.
-    const url = yahooChartUrl('https://query1.finance.yahoo.com', 'AAPL')
+    const url = yahooChartUrl('https://query1.finance.yahoo.com', 'AAPL', '1d')
     expect(url).toBe(
       'https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=max&includeAdjustedClose=true'
     )
   })
 
   it('takes a proxied base, which is how the browser build reaches it at all', () => {
-    expect(yahooChartUrl('/yahoo', 'MSFT')).toBe(
+    expect(yahooChartUrl('/yahoo', 'MSFT', '1d')).toBe(
       '/yahoo/v8/finance/chart/MSFT?interval=1d&range=max&includeAdjustedClose=true'
     )
   })
 
   it('tolerates a trailing slash on the base rather than emitting a double one', () => {
-    expect(yahooChartUrl('/yahoo/', 'MSFT')).toContain('/yahoo/v8/')
+    expect(yahooChartUrl('/yahoo/', 'MSFT', '1d')).toContain('/yahoo/v8/')
   })
 
   it('escapes a symbol instead of pasting it into the path', () => {
-    expect(yahooChartUrl('/yahoo', 'BRK/B')).toContain('/chart/BRK%2FB?')
+    expect(yahooChartUrl('/yahoo', 'BRK/B', '1d')).toContain('/chart/BRK%2FB?')
   })
 })
 
@@ -218,11 +218,111 @@ describe('failures', () => {
   })
 
   it('says so when the response carries no bars', () => {
-    expect(() => parseYahooChart(response([]), 'EMPTY')).toThrow(/no daily bars/)
+    expect(() => parseYahooChart(response([]), 'EMPTY')).toThrow(/no 1d bars/)
   })
 
   it('says so when every row was unusable', () => {
     const allNull = response([{ t: 1_700_000_000, o: 0, h: 0, l: 0, c: 0 }])
     expect(() => parseYahooChart(allNull, 'DEAD')).toThrow(/no usable bars/)
+  })
+})
+
+describe('recogniseYahooChart', () => {
+  it('recognises a real response and reads the symbol out of it', () => {
+    // From the payload, not the filename: a browser saving this URL names the file
+    // whatever it likes, and an import filed under the wrong ticker is silent.
+    expect(recogniseYahooChart(text)).toEqual({ symbol: 'AAPL', interval: '1d' })
+  })
+
+  it('claims a chart envelope even when it carries no symbol', () => {
+    // `''` is "mine, but anonymous" — the caller falls back to the filename. Still
+    // recognised, because this parser's error message beats the importer's.
+    const anonymous = JSON.stringify({ chart: { result: [{ meta: {} }], error: null } })
+    expect(recogniseYahooChart(anonymous)).toEqual({ symbol: undefined, interval: undefined })
+    expect(recogniseYahooChart(JSON.stringify({ chart: { error: null } }))).toEqual({
+      symbol: undefined,
+      interval: undefined,
+    })
+  })
+
+  it('claims an error body, so the reason survives', () => {
+    // An unknown symbol arrives as a 200 with `chart.error`. Declining it here would
+    // trade "Yahoo says: No data found" for "JSON, but not a series".
+    const failure = JSON.stringify({
+      chart: { result: null, error: { code: 'Not Found', description: 'No data found' } },
+    })
+    expect(recogniseYahooChart(failure)).toEqual({ symbol: undefined, interval: undefined })
+  })
+
+  it('declines anything that is not a chart response', () => {
+    for (const other of [
+      'Date,Open,High,Low,Close\n2026-01-02,1,2,0.5,1.5',
+      JSON.stringify([{ o: 1, h: 2, l: 0.5, c: 1.5, v: 10, t: 1 }]),
+      JSON.stringify({ symbol: 'AAPL', adjusted: true, bars: [] }),
+      '{ not json',
+      '',
+      '   ',
+    ]) {
+      expect(recogniseYahooChart(other)).toBeUndefined()
+    }
+  })
+})
+
+describe('the interval the response actually is', () => {
+  /** The recorded fixture with `dataGranularity` swapped, everything else untouched. */
+  const atGranularity = (value: unknown): string => {
+    const copy = structuredClone(fixture) as unknown as {
+      chart: { result: [{ meta: Record<string, unknown> }] }
+    }
+    if (value === undefined) delete copy.chart.result[0].meta.dataGranularity
+    else copy.chart.result[0].meta.dataGranularity = value
+    return JSON.stringify(copy)
+  }
+
+  it('refuses a response that is not daily, naming the interval and the fix', () => {
+    // `interval` looks optional and isn't: omit it and Yahoo picks to suit the range,
+    // which for range=max is 3mo. A hand-fetched URL missing it returns 168 quarters
+    // that parse perfectly and are wrong.
+    expect(() => parseYahooChart(atGranularity('3mo'), 'INTC')).toThrow(
+      /3mo data for INTC, not 1d.*interval=1d/s
+    )
+  })
+
+  it.each(['1wk', '1mo', '3mo', '1h'])('refuses %s when 1d was asked for', (granularity) => {
+    expect(() => parseYahooChart(atGranularity(granularity), 'INTC')).toThrow(/not 1d/)
+  })
+
+  it('accepts the interval it was asked for, whatever that is', () => {
+    // The check is "is this what I requested", not "is this daily".
+    expect(parseYahooChart(atGranularity('1wk'), 'INTC', '1wk').length).toBeGreaterThan(0)
+    expect(parseYahooChart(atGranularity('3mo'), 'INTC', '3mo').length).toBeGreaterThan(0)
+  })
+
+  it('treats 60m and 1h as one interval', () => {
+    // Yahoo answers with either spelling regardless of which was asked for, and
+    // rejecting good hourly data over that would look like a broken endpoint.
+    expect(parseYahooChart(atGranularity('60m'), 'INTC', '1h').length).toBeGreaterThan(0)
+    expect(parseYahooChart(atGranularity('1h'), 'INTC', '1h').length).toBeGreaterThan(0)
+  })
+
+  it('is checked before the bars, because the bar-level diagnosis would be wrong', () => {
+    // Quarterly moves routinely exceed 50%, so validateBars would report a wall of
+    // "likely an unadjusted split" for data that is adjusted fine and simply isn't
+    // daily. Eight confident diagnoses of the wrong thing are worse than one right one.
+    const message = (() => {
+      try {
+        parseYahooChart(atGranularity('3mo'), 'INTC')
+        return ''
+      } catch (error) {
+        return (error as Error).message
+      }
+    })()
+    expect(message).not.toMatch(/split/)
+  })
+
+  it('accepts daily, and tolerates a response that does not say', () => {
+    expect(parseYahooChart(atGranularity('1d'), 'AAPL').length).toBeGreaterThan(0)
+    // Judged on its bars, as before — absence is not a claim to the contrary.
+    expect(parseYahooChart(atGranularity(undefined), 'AAPL').length).toBeGreaterThan(0)
   })
 })
