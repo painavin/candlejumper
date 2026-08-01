@@ -152,6 +152,25 @@ export interface RunConfig {
   /** Bars (trading days) per second. Pixel velocity derives from bar width. */
   scrollSpeed: number
   visibleBarCount: VisibleBarCount
+  /**
+   * Bars fed to indicators and stops before play begins, so their values exist on the
+   * first bar the player sees. `0` is off; `'auto'` asks the active indicators.
+   *
+   * These bars are **consumed, not played**: they never reach the trading tick, never
+   * score, and never appear on the chart, which starts as empty as it does today. The
+   * cursor simply begins further into the series, so an indicator's warm-up happens
+   * where nobody is looking instead of across the opening minute of the run.
+   *
+   * Not lookahead. Preloaded bars are strictly *older* than the first played bar, and
+   * the no-lookahead property is unchanged: unplayed bars are still everything after
+   * the cursor. What it does cost is playable bars — they come off the front of
+   * whatever was loaded, including off the front of a chosen `data.dateRange`.
+   *
+   * `'auto'` resolves at run start from each active indicator's `warmupBars`, taking the
+   * maximum across the tree, and covers stop-owned indicators too — a cold ATR stop is
+   * the one case where a warming indicator is about risk rather than looks.
+   */
+  preloadBars: number | 'auto'
   /** Applied to price *before* normalization. Composes with any mode. */
   priceTransform: PriceTransform
   normalizationMode: NormalizationMode

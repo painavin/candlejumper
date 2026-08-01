@@ -136,6 +136,45 @@ export function resetIndicatorNode(node: IndicatorNode): void {
 }
 
 /**
+ * The bars a request needs before its outputs mean anything, across its whole tree.
+ *
+ * The **maximum** rather than the sum: the tree is fed one bar at a time in parallel,
+ * so every branch warms simultaneously — summing would preload three hundred bars for a
+ * composite whose deepest input needs two hundred. Plus the root's own requirement,
+ * since a composite does arithmetic on top of its inputs.
+ *
+ * Deliberately **tolerant where `resolveIndicatorTree` is strict**: an unknown id, a
+ * cycle, or a chain past the depth limit yields what has been measured so far instead of
+ * throwing. This runs while deciding how many bars to preload, which is a convenience;
+ * the same tree is resolved a moment later by the strict function, and that is where a
+ * broken dependency should stop the run — one error, from the place that owns it, rather
+ * than an earlier and stranger one from a setting nobody was thinking about.
+ */
+export function warmupBarsFor(
+  request: { indicatorId: string; params: ParamValues },
+  registry: ReadonlyMap<string, IndicatorPlugin>,
+  trail: readonly string[] = []
+): number {
+  const plugin = registry.get(request.indicatorId)
+  if (!plugin || trail.includes(request.indicatorId) || trail.length >= MAX_INDICATOR_DEPTH) {
+    return 0
+  }
+
+  const params = withIndicatorDefaults(plugin, request.params)
+  const own = plugin.warmupBars?.(params) ?? 0
+  const nextTrail = [...trail, request.indicatorId]
+  let deepest = 0
+  for (const child of plugin.requires?.(params) ?? []) {
+    deepest = Math.max(deepest, warmupBarsFor(child, registry, nextTrail))
+  }
+
+  // Non-finite or negative from a plugin is treated as nothing rather than poisoning the
+  // maximum: this feeds a bar count, and NaN there would preload the whole series.
+  const declared = Number.isFinite(own) && own > 0 ? Math.ceil(own) : 0
+  return declared + deepest
+}
+
+/**
  * Fill any param a request didn't set from the plugin's own `ParamSpec`.
  *
  * A `requires()` that names only the params it cares about is the common case — an

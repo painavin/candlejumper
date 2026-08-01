@@ -68,6 +68,8 @@ export interface RunSessionOptions {
   bars: readonly OhlcvBar[]
   /** Resolved once from orientation before the run starts, then frozen. */
   visibleBarCount: number
+  /** Bars warmed before play begins, already resolved from `config.preloadBars`. */
+  preloadBars?: number
   mode?: SessionMode
   stops?: StopEngine
   /** Displayed indicators — separate instances from anything a stop owns. */
@@ -94,6 +96,7 @@ export async function startRunSession({
   config,
   bars,
   visibleBarCount,
+  preloadBars,
   mode = 'play',
   stops,
   indicators,
@@ -115,6 +118,7 @@ export async function startRunSession({
     bars,
     config,
     visibleBarCount,
+    preloadBars,
     stops,
     indicators,
     showVolume: config.volume.enabled,

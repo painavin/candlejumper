@@ -101,6 +101,8 @@ interface IndicatorPlugin {
   labelParams?: string[]
   /** Other indicators this one is built from. Omit if none. */
   requires?(params: Record<string, number>): IndicatorRequest[]
+  /** Bars needed before its outputs mean anything. Drives the preload setting. */
+  warmupBars?(params: Record<string, number>): number
   /** How each output is drawn, by default — the player can override both fields. */
   outputStyles?: Record<
     string,
@@ -360,6 +362,60 @@ rules keep that honest:
   colour, which is what stops a five-output composite ignoring the player's choice
   entirely. Resolution happens once, in `plugins/host/indicatorFeed.ts`, because a
   second resolution is how a line and its legend entry come out different colours.
+
+## Preloading warm-up bars
+
+An indicator that needs 200 bars is useless for the decisions taken in the first minute
+of a run — it appears about the time the run ends. `preloadBars`
+([config.md](./config.md#scroll--poles)) feeds bars to the indicators *before* play
+starts, so their values are correct from the first bar the player trades.
+
+```ts
+warmupBars?(params: Record<string, number>): number
+```
+
+Declared by the plugin rather than guessed at, because nothing on the outside can tell
+which param is a bar count — `length` in one plugin, `breakoutLength` in another,
+`multiple` in neither. Count only what *this* plugin consumes: the host takes the maximum
+across a `requires()` tree and adds the root's own, so a composite reports the bars its
+own arithmetic needs on top of its inputs rather than the total. Omitting it means
+"nothing", which understates the preload instead of guessing — a sandboxed plugin
+necessarily lands there, since only data crosses the worker boundary.
+
+Four rules, three of which are about being honest regarding the cost:
+
+- **Preloaded bars are consumed, not played.** They reach the indicator feed and the stop
+  engine, and nothing else: no fills, no realized P&L, no streak movement. The stop half
+  matters as much as the chart — a warm line above a cold ATR stop would be the wrong
+  half of the feature, since that's where a warming indicator costs protection rather
+  than looks.
+- **It shortens the run.** They come off the front of whatever was loaded, so preload
+  trades playable bars for warm indicators. That's why it lives under Advanced and is off
+  by default, and why the resolved number joins the run fingerprint — starting 200 bars
+  in is a different challenge, and pooling it with a full run would flatter whichever is
+  easier. A run *without* preload hashes exactly as it did before the feature existed.
+- **The preloaded bars are drawn, as history.** The visible window is derived from the
+  cursor, so this falls out for free: a run opens on a full window with the indicators
+  already across it, which is what makes a warm indicator visible rather than merely
+  correct. It doesn't weaken the no-lookahead rule, which is about the *future* — nothing
+  after the cursor is ever in a frame, and what's on screen at the start is history the
+  player didn't trade, exactly as a chart looks when you start watching one.
+
+  The bar *under the character* still has no value, because a bar's value arrives when it
+  closes and feeding it early would mean feeding a close the game is pretending not to
+  know. That trailing one-bar gap is the same one a live chart has on its rightmost bar.
+
+  **Those bars are drawn as context, not as play.** They lose their profit/loss colour
+  entirely and take a lower alpha, and the volume histogram beneath them matches. Colour
+  means P&L here, and a wall of green and red the player never traded would claim a run
+  they had no part in. Losing the hue doesn't lose the direction — body and range still
+  differ in lightness, so the shape reads. The *indicator lines* stay at full strength
+  across that region, which is the whole reason those bars are on screen.
+- **Automatic clamps, a typed number refuses.** If Automatic wants more bars than the
+  series can spare, it takes what's available; a number the player typed that leaves no
+  run refuses to start and names both figures. A number in a box is intent, and quietly
+  playing 200 bars when they asked for 280 would hide the fact that the dataset is too
+  short.
 
 ## Two consumers: the chart, and stop plugins
 

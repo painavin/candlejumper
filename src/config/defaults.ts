@@ -32,6 +32,9 @@ export function defaultConfig(): RunConfig {
 
     scrollSpeed: 2, // provisional
     visibleBarCount: { landscape: 60, portrait: 28 }, // provisional
+    // Off by default: it shortens the playable series, which is a trade the player
+    // should opt into rather than discover.
+    preloadBars: 0,
     priceTransform: 'none',
     normalizationMode: 'visible-window-min-max',
     normalizationReference: 100,

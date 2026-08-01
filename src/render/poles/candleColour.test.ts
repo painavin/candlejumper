@@ -5,6 +5,7 @@ import {
   MIN_LUMA_GAP,
   RANGE_MIX,
   bodyColour,
+  contextPalette,
   histogramColour,
   mixColour,
   rangeColour,
@@ -155,6 +156,48 @@ describe('rangeColour', () => {
     const darker = luma(dark.neutral) < luma(light.neutral) ? dark : light
     const lighter = darker === dark ? light : dark
     expect(luma(rangeColour('up', darker))).toBeLessThan(luma(rangeColour('up', lighter)))
+  })
+})
+
+describe('contextPalette', () => {
+  it('gives a rising and a falling bar the same colour', () => {
+    // The point: a preloaded bar reports no profit or loss, because the player never took
+    // one. Leaving it green or red would show them a run of wins and losses they had no
+    // part in, which is a stronger claim than "you weren't trading yet".
+    for (let index = 0; index < visualThemes.length; index++) {
+      const context = contextPalette(paletteFor(index))
+      expect(bodyColour('up', context)).toBe(bodyColour('down', context))
+      expect(rangeColour('up', context)).toBe(rangeColour('down', context))
+    }
+  })
+
+  it('keeps the body and range distinguishable, so the shape still reads', () => {
+    // Losing the hue must not lose the direction: open-versus-close is still legible from
+    // where the body sits, which needs the two sections to differ in lightness.
+    for (let index = 0; index < visualThemes.length; index++) {
+      const context = contextPalette(paletteFor(index))
+      const body = bodyColour('up', context)
+      const range = rangeColour('up', context)
+      expect(luma(range)).toBeLessThan(luma(body))
+    }
+  })
+
+  it('carries no direction hue at all', () => {
+    // Compared against the real palette rather than asserted absolutely, because a
+    // theme's own neutral may well be tinted — what must be gone is the P&L hue.
+    const palette = paletteFor(0)
+    const context = contextPalette(palette)
+    expect(chroma(bodyColour('up', context))).toBeLessThan(chroma(bodyColour('up', palette)))
+    expect(bodyColour('up', context)).toBe(palette.neutral)
+  })
+
+  it('leaves the theme in charge of how dark those bars are', () => {
+    // The neutral is a mood's own colour, so a context bar stays that mood's bar rather
+    // than becoming a grey imported from here.
+    for (let index = 0; index < visualThemes.length; index++) {
+      const palette = paletteFor(index)
+      expect(contextPalette(palette).neutral).toBe(palette.neutral)
+    }
   })
 })
 

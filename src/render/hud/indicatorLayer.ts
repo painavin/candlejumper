@@ -72,6 +72,14 @@ const DOT = { fraction: 0.3, min: 1.6, max: 4.5 }
  */
 const DASH = { on: 9, off: 6 }
 
+/**
+ * Alpha on a volume bar for a preloaded bar, matching the pole above it.
+ *
+ * Slightly higher than the poles' own, because these sit on a pane plate rather than on
+ * sky and lose more contrast to the same transparency.
+ */
+const CONTEXT_ALPHA = 0.5
+
 /** Stroke a polyline as dashes. The walk itself lives in `dash.ts`, where it's tested. */
 function strokeDashed(graphics: Graphics, points: readonly Point[], colour: number): void {
   for (const segment of dashSegments(points, DASH)) {
@@ -304,15 +312,26 @@ export function createIndicatorLayer({ theme, palette }: IndicatorLayerOptions):
           }
 
           if (pane.histogram) {
+            const contextBefore = series.contextBefore ?? 0
             series.units.forEach((unit, offset) => {
               if (unit === null) return
               const barHeight = Math.max(1, unit * height)
+              // A bar the player never traded loses its direction colour and some alpha,
+              // matching the pole above it. Two cues, for the reason `contextPalette`
+              // gives — and matching, because a bright histogram under a greyed candle
+              // reads as a rendering bug rather than as context.
+              const context = offset < contextBefore
               panes
                 .rect(xOf(offset) - layout.poleWidth / 2, top + height - barHeight, layout.poleWidth, barHeight)
-                // Fully opaque: the colour is information, and any transparency blends
-                // it back toward the plate, which is the contrast problem this is
+                // Otherwise fully opaque: the colour is information, and any transparency
+                // blends it back toward the plate, which is the contrast problem this is
                 // solving.
-                .fill({ color: colourAt(offset), alpha: 1 })
+                .fill({
+                  color: context
+                    ? histogramColour('flat', candlePalette)
+                    : colourAt(offset),
+                  alpha: context ? CONTEXT_ALPHA : 1,
+                })
             })
             continue
           }

@@ -28,6 +28,15 @@ export interface FingerprintInputs {
    */
   visibleBarCount: number
   /**
+   * Bars consumed before play began, resolved once at run start — `'auto'` is a number
+   * by the time it gets here, for the same reason `visibleBarCount` is.
+   *
+   * Part of the challenge: preloading 200 bars means playing a shorter series that
+   * starts 200 bars later, with indicators already warm. Pooling that with a full run
+   * would compare two different games and flatter whichever is easier.
+   */
+  preloadBars: number
+  /**
    * What the chosen source currently holds for this ticker.
    *
    * `source` and `ticker` alone stopped identifying a price path once tickers became
@@ -63,6 +72,15 @@ export function fingerprintPayload(config: RunConfig, inputs: FingerprintInputs)
     // Reaction time available, and how much history is readable when deciding.
     scrollSpeed: config.scrollSpeed,
     visibleBarCount: inputs.visibleBarCount,
+    /**
+     * Present only when preload is actually in use.
+     *
+     * `canonicalize` drops `undefined` keys, so a run without preload hashes exactly as
+     * it did before this key existed — which is what lets the feature ship without a
+     * `FINGERPRINT_VERSION` bump, and a bump would have emptied every player's
+     * personal-best bucket.
+     */
+    preload: inputs.preloadBars > 0 ? inputs.preloadBars : undefined,
 
     // Available strategies, and position granularity.
     allowShorting: config.allowShorting,

@@ -66,6 +66,24 @@ export interface IndicatorPlugin {
    * reason a stop's ATR is its own — see docs/indicators.md#composing-indicators.
    */
   requires?(params: ParamValues): IndicatorRequest[]
+  /**
+   * How many bars this needs before its outputs mean anything, from its own params.
+   *
+   * Declared rather than guessed, and used by one thing: the **preload** setting's
+   * automatic mode, which starts playback that many bars in so the line is already
+   * drawn when the run begins. A moving average that only appears after you've played
+   * two hundred bars is no use for the decisions taken in the first minute, and no
+   * amount of inspecting `params` from outside could tell the host which of them is a
+   * bar count — `length` here, `breakoutLength` there, `multiple` never.
+   *
+   * Count only what *this* plugin consumes. The host takes the maximum across a
+   * `requires()` tree, so a composite reports the bars its own arithmetic needs on top
+   * of its inputs, not the total.
+   *
+   * Omitting it means "nothing", which is the safe answer: preload stays shorter than
+   * it might be, and the indicator warms up on screen exactly as it does today.
+   */
+  warmupBars?(params: ParamValues): number
   /** Fixed y-range for oscillator panes that have one, e.g. [0, 100] for RSI. */
   fixedRange?: [number, number]
   createInstance(params: ParamValues): IndicatorInstance

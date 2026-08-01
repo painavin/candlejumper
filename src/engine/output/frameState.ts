@@ -66,6 +66,15 @@ export interface VisibleBar {
    * open and extending toward its close.
    */
   growth: number
+  /**
+   * True for a bar that was **consumed to warm indicators, not played** — history the
+   * player had no chance to trade. See `RunConfig.preloadBars`.
+   *
+   * Computed here rather than by comparing indices in each renderer, for the same reason
+   * `direction` is: two consumers deriving it separately are two consumers that can
+   * disagree, and the poles and the volume pane must agree bar for bar.
+   */
+  preloaded: boolean
 }
 
 /** Value-space bounds of the chart, already eased. The axis is their inverse. */
@@ -87,6 +96,14 @@ export interface ChartFrame {
   /** The bar being traded — the rightmost, still-growing one. */
   currentBar: OhlcvBar | undefined
   currentIndex: number
+  /**
+   * The first index the player plays. Non-zero when bars were preloaded.
+   *
+   * Carried so progress can be measured over the *playable* range: a run that preloads
+   * 50 of 300 bars has 250 to play, and reporting 17% before the first press would
+   * suggest the player had already done something.
+   */
+  firstIndex: number
   totalBars: number
   /** Unit height of the previous bar's close, for the hop's takeoff point. */
   previousUnit: number | undefined
@@ -187,6 +204,16 @@ export interface SubPane {
     draw: Exclude<IndicatorDrawStyle, 'none'>
     offsetPx?: number
     units: readonly (number | null)[]
+    /**
+     * Points before this offset are context rather than part of the run — the preloaded
+     * bars. Only the volume pane sets it, because it is the only pane whose points *are*
+     * price bars.
+     *
+     * One number rather than a flag per point, because preloaded bars are always a
+     * prefix of the window: the window is a contiguous ascending slice, so everything
+     * below the first played index is a leading run.
+     */
+    contextBefore?: number
     /**
      * Per-point direction, aligned index-for-index with `units`.
      *

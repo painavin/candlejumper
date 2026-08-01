@@ -58,6 +58,7 @@ describe('round trip', () => {
       sfxMuted: false,
     }
     changed.data = { source: 'downloaded', ticker: 'INTC', dateRange: { from: 100, to: 200 } }
+    changed.preloadBars = 'auto'
     changed.stops.active = [{ typeId: 'fixed-percent', params: { percent: 4 }, advisory: false }]
     changed.indicators.active = [
       { typeId: 'sma', params: { length: 200 }, instanceId: 'sma-1', colour: 0x4da3ff },
@@ -324,6 +325,20 @@ describe('configured stops and indicators', () => {
       options
     )
     expect(parsed.indicators.active[0]?.outputs).toBeUndefined()
+  })
+
+  it('keeps a preload of auto, a number, or nothing', () => {
+    const parsed = (value: unknown) =>
+      parseStoredConfig(stored({ preloadBars: value }), options).preloadBars
+    expect(parsed('auto')).toBe('auto')
+    expect(parsed(50)).toBe(50)
+    expect(parsed(0)).toBe(0)
+    // Rejected back to the default rather than coerced: a stored value outside the range,
+    // fractional, or the wrong type is evidence of corruption, not of intent.
+    expect(parsed(-5)).toBe(defaults.preloadBars)
+    expect(parsed(5000)).toBe(defaults.preloadBars)
+    expect(parsed(12.5)).toBe(defaults.preloadBars)
+    expect(parsed('all of them')).toBe(defaults.preloadBars)
   })
 
   it('falls back to the default list when the stored one is not a list', () => {

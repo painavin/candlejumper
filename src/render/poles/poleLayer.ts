@@ -6,7 +6,7 @@ import type { FrameState } from '@engine/output/index.js'
 import type { Layout } from '../stage/layout.js'
 import { candleCentreX, candleShapeAt, wickWidthFor } from './candle.js'
 import type { Rect } from './candle.js'
-import { bodyColour, rangeColour } from './candleColour.js'
+import { bodyColour, contextPalette, rangeColour } from './candleColour.js'
 import type { CandlePalette } from './candleColour.js'
 
 /**
@@ -58,6 +58,16 @@ export interface PoleLayerOptions {
 /** Alpha on the bar still forming, so "this one isn't final" reads at a glance. */
 const FORMING_ALPHA = 0.62
 
+/**
+ * Alpha on a bar the player never traded — one consumed to warm indicators.
+ *
+ * Lower than `FORMING_ALPHA`, and the alpha is only half of the signal: those bars also
+ * lose their direction colour entirely (see `contextPalette`). Two cues rather than one,
+ * because transparency alone already means "still forming" at the other end of the chart,
+ * and one fade meaning two things is worse than either.
+ */
+const PRELOADED_ALPHA = 0.42
+
 /** Outline weight for themes that ask for one. */
 const OUTLINE_WIDTH = 1
 
@@ -77,6 +87,8 @@ export function createPoleLayer({ theme, palette, barStyle }: PoleLayerOptions):
 
   const colours = pnlColours(palette)
   const candlePalette: CandlePalette = { pnl: colours, neutral: theme.palette.candleRange }
+  /** For preloaded bars: the same neutral, with no profit or loss to report. */
+  const contextBars: CandlePalette = contextPalette(candlePalette)
   const { capStyle, outline } = theme.poles
   const wickWidthFraction = wickWidthFor(barStyle)
 
@@ -131,12 +143,19 @@ export function createPoleLayer({ theme, palette, barStyle }: PoleLayerOptions):
         const shape = candleShapeAt(visible, layout, wickWidthFraction, centreX)
         if (shape.body.x + shape.body.width < 0) continue
 
-        const alpha = shape.forming ? FORMING_ALPHA : 1
+        // Preload before forming: a preloaded bar is never the forming one, but stating
+        // the order makes it obvious that the two states can't fight over an alpha.
+        const alpha = visible.preloaded
+          ? PRELOADED_ALPHA
+          : shape.forming
+            ? FORMING_ALPHA
+            : 1
+        const bars = visible.preloaded ? contextBars : candlePalette
         // Range first, so the body sits on top of it. The range takes a desaturated
         // version of the body's own colour, so the whole column's hue reports the
         // direction while the saturated body still marks where open and close sit.
-        paint(poles, shape.range, rangeColour(shape.direction, candlePalette), alpha)
-        paint(poles, shape.body, bodyColour(shape.direction, candlePalette), alpha)
+        paint(poles, shape.range, rangeColour(shape.direction, bars), alpha)
+        paint(poles, shape.body, bodyColour(shape.direction, bars), alpha)
       }
     },
   }

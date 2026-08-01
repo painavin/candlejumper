@@ -101,6 +101,103 @@ describe('createPlayback', () => {
     expect(frame.bars).toEqual([])
   })
 
+  describe('a preloaded start', () => {
+    const preloaded = (closes: readonly number[], startIndex: number, visibleBarCount = 5) =>
+      createPlayback({
+        bars: series(closes),
+        config: defaultConfig(),
+        visibleBarCount,
+        startIndex,
+      })
+
+    it('opens with the preloaded bars on screen as history', () => {
+      // The point of the feature being visible at all: the chart opens looking like a
+      // chart, with the indicators already drawn across the bars behind the cursor.
+      const frame = preloaded([10, 20, 30, 40, 50, 60], 3).advance(0)
+      expect(frame.bars.map((bar) => bar.index)).toEqual([0, 1, 2, 3])
+      expect(frame.currentIndex).toBe(3)
+      expect(frame.firstIndex).toBe(3)
+    })
+
+    it('still never shows a bar past the cursor', () => {
+      // The invariant that actually matters is about the *future*. History behind the
+      // cursor leaks nothing; a bar ahead of it would leak everything.
+      const play = preloaded([10, 20, 30, 40, 50, 60], 3)
+      play.advance(0)
+      expect(play.frame.bars.every((bar) => bar.index <= 3)).toBe(true)
+      play.advance(BAR)
+      expect(play.frame.bars.some((bar) => bar.index === 4)).toBe(true)
+      expect(play.frame.bars.some((bar) => bar.index === 5)).toBe(false)
+    })
+
+    it('drops the oldest preloaded bar once the window is full', () => {
+      const play = preloaded([10, 20, 30, 40, 50, 60], 3, 4)
+      play.advance(0)
+      expect(play.frame.bars.map((bar) => bar.index)).toEqual([0, 1, 2, 3])
+      play.advance(BAR)
+      expect(play.frame.bars.map((bar) => bar.index)).toEqual([1, 2, 3, 4])
+    })
+
+    it('marks which bars were preloaded, so the renderer needn\'t compare indices', () => {
+      // Computed once in the engine for the same reason `direction` is: the poles and the
+      // volume pane must agree bar for bar, and two consumers deriving it separately are
+      // two that can disagree.
+      const frame = preloaded([10, 20, 30, 40, 50, 60], 3).advance(0)
+      expect(frame.bars.map((bar) => bar.preloaded)).toEqual([true, true, true, false])
+    })
+
+    it('marks nothing as preloaded when preload is off', () => {
+      const frame = playback([10, 20, 30]).advance(0)
+      expect(frame.bars.every((bar) => !bar.preloaded)).toBe(true)
+    })
+
+    it('marks the previous close from a preloaded bar, since it is on screen', () => {
+      // `previousUnit` is the character's takeoff point. With history drawn, the bar it
+      // refers to is one the player can see.
+      expect(preloaded([10, 20, 30, 40], 2).advance(0).previousUnit).toBeDefined()
+    })
+
+    it('anchors the price scale on the first played bar', () => {
+      // A relative mode measured from a preloaded bar would report a return from a price
+      // the player never had the chance to trade.
+      //
+      // Read off the *bounds*, which is where the choice of reference actually shows.
+      // With the reference at 100 the window's closes map to themselves (`price / 100 *
+      // 100`), so the axis reads 50..101; anchored on the preloaded 50 instead, the same
+      // window would read 100..202.
+      const config = { ...defaultConfig(), normalizationMode: 'starting-price-relative' as const }
+      const play = createPlayback({
+        bars: series([50, 60, 100, 101]),
+        config,
+        visibleBarCount: 5,
+        startIndex: 2,
+      })
+      const frame = play.advance(0)
+      expect(frame.bounds.max).toBeGreaterThan(100)
+      expect(frame.bounds.max).toBeLessThan(120)
+    })
+
+    it('still ends at the last bar of the series', () => {
+      const play = preloaded([10, 20, 30, 40], 2)
+      play.advance(0)
+      play.advance(BAR)
+      play.advance(BAR)
+      expect(play.frame.phase).toBe('finished')
+      expect(play.frame.currentIndex).toBe(3)
+    })
+
+    it('clamps a start index past the end rather than emptying the run', () => {
+      // Validation refuses this case with a message; the clamp is what stops a caller
+      // that skipped validation from producing a run with no bars in it.
+      const frame = preloaded([10, 20, 30], 99).advance(0)
+      expect(frame.currentIndex).toBe(2)
+      expect(frame.firstIndex).toBe(2)
+      // Every bar is history in that case, and the run is one bar long — refused by
+      // validation with a message; this is only the backstop against a caller that skipped it.
+      expect(frame.bars.map((bar) => bar.index)).toEqual([0, 1, 2])
+    })
+  })
+
   describe('pause', () => {
     it('advances no bars while paused', () => {
       const play = playback([100, 110, 120, 130])

@@ -17,6 +17,7 @@ function frame(index: number, direction: 'flat' | 'long', unrealized = 0, units 
     barPhase: 0,
     currentBar: undefined,
     currentIndex: index,
+    firstIndex: 0,
     totalBars: 500,
     previousUnit: undefined,
     droppedBars: 0,

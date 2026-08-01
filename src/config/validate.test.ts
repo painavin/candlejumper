@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultConfig } from './defaults.js'
-import { validateConfig } from './validate.js'
+import { MIN_PLAYABLE_BARS, preloadProblem, validateConfig } from './validate.js'
 import type { ValidationContext } from './validate.js'
 
 const context = (overrides: Partial<ValidationContext> = {}): ValidationContext => ({
@@ -96,5 +96,49 @@ describe('validateConfig', () => {
       'scrollSpeed',
       'data.source',
     ])
+  })
+})
+
+describe('preloadProblem', () => {
+  const config = (preloadBars: number | 'auto') => ({ ...defaultConfig(), preloadBars })
+
+  it('accepts a preload that leaves a run behind it', () => {
+    expect(preloadProblem(config(50), 300)).toBeUndefined()
+    expect(preloadProblem(config(280), 300)).toBeUndefined()
+  })
+
+  it('refuses one that does not, naming both numbers', () => {
+    // The player typed this, so the honest answer is to say the dataset is too short
+    // rather than to quietly play a different number of bars.
+    const problem = preloadProblem(config(285), 300)
+    expect(problem?.path).toBe('preloadBars')
+    expect(problem?.message).toContain('285 of 300')
+    expect(problem?.message).toContain(String(MIN_PLAYABLE_BARS))
+  })
+
+  it('reports nothing for a preload longer than the series rather than a negative count', () => {
+    expect(preloadProblem(config(500), 300)?.message).toContain('leaves 0 to play')
+  })
+
+  it('never refuses automatic, which is clamped instead', () => {
+    // Nobody typed that number, so a dataset too short for the player's own SMA(200)
+    // should still play — the clamp lives with whoever resolves `'auto'`.
+    expect(preloadProblem(config('auto'), 30)).toBeUndefined()
+  })
+
+  it('says nothing before a series has been loaded', () => {
+    // Absent must not read as zero bars: the general validation pass runs before the
+    // fetch, and this check is re-run once the data lands.
+    expect(preloadProblem(config(280), undefined)).toBeUndefined()
+  })
+
+  it('is included in the general pass when a bar count is available', () => {
+    const problems = validateConfig(config(285), context({ barCount: 300 }))
+    expect(problems.map((problem) => problem.path)).toContain('preloadBars')
+  })
+
+  it('rejects a fractional preload outright', () => {
+    const problems = validateConfig(config(12.5), context())
+    expect(problems.map((problem) => problem.message).join()).toMatch(/whole number/)
   })
 })

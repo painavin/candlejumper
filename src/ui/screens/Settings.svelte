@@ -282,6 +282,26 @@
   const paneOf = (active: IndicatorInstanceConfig): 'overlay' | 'oscillator' =>
     active.paneKind ?? choiceFor(active.typeId)?.paneKind ?? 'overlay'
 
+  /**
+   * Off / Automatic / a number, collapsed into the single `preloadBars` value.
+   *
+   * Choosing "a set number" lands on the *warm-up of the busiest active indicator* where
+   * one exists, rather than on 1 or on some house number: the player asked for a set
+   * amount, and the amount they almost certainly want is the one Automatic would have
+   * picked — now visible and editable instead of implicit.
+   */
+  function setPreloadMode(mode: string): void {
+    if (mode === 'auto') {
+      draft.preloadBars = 'auto'
+      return
+    }
+    if (mode === 'off') {
+      draft.preloadBars = 0
+      return
+    }
+    if (draft.preloadBars === 'auto' || draft.preloadBars === 0) draft.preloadBars = 50
+  }
+
   /** `''` from the select means "no override", not a third kind. */
   function setPaneKind(active: IndicatorInstanceConfig, value: string): void {
     active.paneKind = value === 'overlay' || value === 'oscillator' ? value : undefined
@@ -1326,6 +1346,42 @@
       <p class="note">
         Resolved once from your orientation at the start and frozen for the run, so
         rotating your phone re-lays out pixels without rescaling the chart.
+      </p>
+
+      <h3>Warm-up</h3>
+      <!--
+        Advanced because of what it costs: preloaded bars come off the front of the
+        series, so a run that warms 200 bars is a run 200 bars shorter, scored in its own
+        personal-best bucket. Worth it for a long moving average, which otherwise appears
+        a minute into a run that only lasts a few.
+      -->
+      <label>
+        Preload bars
+        <select
+          value={draft.preloadBars === 'auto'
+            ? 'auto'
+            : draft.preloadBars > 0
+              ? 'custom'
+              : 'off'}
+          onchange={(event) => setPreloadMode(event.currentTarget.value)}
+        >
+          <option value="off">Off — indicators warm up on screen</option>
+          <option value="auto">Automatic — as much as the indicators need</option>
+          <option value="custom">A set number of bars</option>
+        </select>
+      </label>
+      {#if draft.preloadBars !== 'auto' && draft.preloadBars > 0}
+        <label>
+          Bars <span class="value">{draft.preloadBars}</span>
+          <input type="range" min="1" max="300" step="1" bind:value={draft.preloadBars} />
+        </label>
+      {/if}
+      <p class="note">
+        {draft.preloadBars === 'auto'
+          ? 'Reads each active indicator\u2019s own warm-up length, including the ones your stops use. Trimmed if the series is too short to spare them.'
+          : draft.preloadBars > 0
+            ? 'Fed to indicators and stops before play, never traded and never scored \u2014 but drawn as history, so the run opens with the lines already on the chart.'
+            : 'Indicators start blank and fill in as bars arrive \u2014 a 200-bar average has nothing to draw for the first 200 bars.'}
       </p>
 
       <h3>Scoring</h3>

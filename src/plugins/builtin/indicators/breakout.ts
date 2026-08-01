@@ -50,6 +50,8 @@ export const breakoutIndicator: IndicatorPlugin = {
   paneKind: 'overlay',
   outputs: ['level', 'signal'],
   params: [LENGTH],
+  // The window, and not one bar more: warm-up is exactly `seen < length`.
+  warmupBars: (params) => Math.max(2, Math.round(params.length ?? (LENGTH.default as number))),
   outputStyles: {
     // The level is continuous, so it joins up; the signal happens on scattered bars
     // and must not. Both keep the instance colour: "a new high" has no established

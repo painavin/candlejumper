@@ -8,6 +8,7 @@ import {
   validateConfig,
   FINGERPRINT_VERSION,
 } from '@config/index.js'
+import { MIN_PLAYABLE_BARS, preloadProblem } from '@config/validate.js'
 import { BUNDLED_SOURCE_ID, createSourceRegistry, DownloadFailure } from '@data/index.js'
 import {
   createStopHost,
@@ -19,6 +20,7 @@ import {
   validateDescriptor,
 } from '@plugins/host/index.js'
 import { createIndicatorFeed } from '@plugins/host/indicatorFeed.js'
+import { warmupBarsFor } from '@plugins/host/indicatorTree.js'
 import { createCompositeStopEngine } from '@engine/stops/composite.js'
 import {
   importPluginFiles,
@@ -152,6 +154,8 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
    */
   let configBeforeSettings: RunConfig | undefined
   let runVisibleBarCount = 0
+  /** Resolved with it, and a fingerprint input for the same reason. */
+  let runPreloadBars = 0
   /**
    * The dataset behind the running config's ticker, frozen at run start for the same
    * reason `runVisibleBarCount` is: both are fingerprint inputs, and a value that
@@ -334,18 +338,56 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     return { barCount: meta?.barCount ?? 0, lastBarTime: meta?.lastBarTime ?? 0 }
   }
 
+  /**
+   * How many bars this config wants preloaded, resolved to a number.
+   *
+   * `'auto'` asks the plugins: the maximum `warmupBars` across every active indicator's
+   * dependency tree, and across the indicators the configured *stops* pull in — a warm
+   * chart with a cold ATR stop behind it would be the wrong half of the feature.
+   *
+   * Sandboxed plugins contribute nothing, because `warmupBars` is a function and only
+   * data crosses the worker boundary. That understates the number rather than guessing
+   * at it, and understating means an imported indicator warms up on screen exactly as it
+   * does today.
+   */
+  function resolvePreload(config: RunConfig, barCount?: number): number {
+    const wanted =
+      config.preloadBars === 'auto'
+        ? Math.max(
+            0,
+            ...config.indicators.active.map((active) =>
+              warmupBarsFor({ indicatorId: active.typeId, params: active.params }, indicatorRegistry)
+            ),
+            ...config.stops.active.flatMap((active) =>
+              (stopRegistry.get(active.typeId)?.requires?.(active.params) ?? []).map((request) =>
+                warmupBarsFor(request, indicatorRegistry)
+              )
+            )
+          )
+        : config.preloadBars
+    // Clamped rather than refused: nobody typed this number, so a dataset too short for
+    // the indicators the player chose should still play. A number they *did* type is
+    // refused by `validateConfig`, which is the asymmetry documented there.
+    if (config.preloadBars !== 'auto' || barCount === undefined) return wanted
+    return Math.max(0, Math.min(wanted, barCount - MIN_PLAYABLE_BARS))
+  }
+
   const fingerprintOf = (
     config: RunConfig,
     visibleBarCount: number,
-    series: FingerprintInputs['series']
-  ): string => runFingerprint(config, { visibleBarCount, series })
+    series: FingerprintInputs['series'],
+    preloadBars: number
+  ): string => runFingerprint(config, { visibleBarCount, series, preloadBars })
 
   const refreshPersonalBest = (): void => {
     if (!state.config) return
     const key = fingerprintOf(
       state.config,
       resolveVisibleBarCount(state.config.visibleBarCount),
-      seriesOf(state.config)
+      seriesOf(state.config),
+      // Against the source's own bar count, so the pending config's bucket matches the
+      // one the run will record into.
+      resolvePreload(state.config, seriesOf(state.config).barCount || undefined)
     )
     state.personalBest = save.personalBests[key]
   }
@@ -597,11 +639,24 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       return
     }
 
+    /**
+     * The one check that needs the data in hand: a preload the player typed can only be
+     * measured against a real bar count. Refused rather than clamped — see
+     * `preloadProblem` — and refused *here*, before the canvas is handed over, so the
+     * message replaces the run rather than interrupting one.
+     */
+    const preload = preloadProblem(config, bars.length)
+    if (preload) {
+      state.error = `This configuration can't start a run:\n\n${describeProblems([preload])}`
+      return
+    }
+
     session?.stop()
     // The backdrop and the run must never share the canvas — or the ticker.
     stopAttract()
     running = config
     runVisibleBarCount = resolveVisibleBarCount(config.visibleBarCount)
+    runPreloadBars = resolvePreload(config, bars.length)
     runSeries = seriesOf(config)
     state.screen = 'playing'
 
@@ -610,6 +665,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       config,
       bars,
       visibleBarCount: runVisibleBarCount,
+      preloadBars: runPreloadBars,
       stops: await buildStopEngine(config),
       indicators: await buildIndicatorFeed(config),
       onAction: () => haptics.fire('action'),
@@ -770,7 +826,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     const streak = controller.state.streak
     const longestStreak = Math.max(streak.longest, streak.streak)
 
-    const key = fingerprintOf(running, runVisibleBarCount, runSeries)
+    const key = fingerprintOf(running, runVisibleBarCount, runSeries, runPreloadBars)
     const previous = save.personalBests[key]
     const result = {
       percentReturn: frame.hud.percentReturn,

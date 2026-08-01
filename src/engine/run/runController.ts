@@ -66,6 +66,16 @@ export interface RunControllerOptions {
   stops?: StopEngine
   /** Displayed indicators. Separate instances from anything a stop owns. */
   indicators?: IndicatorFeed
+  /**
+   * Bars consumed before play starts, resolved from `config.preloadBars` by the caller
+   * — `'auto'` is already a number by the time it reaches here.
+   *
+   * Fed to the indicator feed and to the stop engine, and to **nothing else**: the
+   * trading tick never sees them, so no position opens, no trade is scored, and the
+   * streak is untouched. All they do is move the starting cursor and leave the
+   * indicators warm when the player arrives.
+   */
+  preloadBars?: number
   /** Volume gets a permanently-available pane using the same mechanism. */
   showVolume?: boolean
   /** Concurrent sub-panes are capped: 3 on desktop, 1 on mobile. */
@@ -78,13 +88,44 @@ export function createRunController({
   visibleBarCount,
   stops = createNoStops(),
   indicators = createNoIndicators(),
+  preloadBars = 0,
   showVolume = false,
   maxSubPanes = 3,
 }: RunControllerOptions): RunController {
-  const playback: Playback = createPlayback({ bars, config, visibleBarCount })
+  /**
+   * Clamped so at least one bar remains playable, whatever the caller asked for.
+   *
+   * Pre-run validation refuses a preload that would leave a run too short to be worth
+   * playing, and `'auto'` is clamped by the caller before it gets here — this is the
+   * backstop that keeps the invariant local rather than borrowed.
+   */
+  const startIndex = Math.min(
+    Math.max(0, Math.floor(preloadBars)),
+    Math.max(0, bars.length - 1)
+  )
+  const playback: Playback = createPlayback({ bars, config, visibleBarCount, startIndex })
   const buffer = createInputBuffer()
   stops.reset()
   indicators.reset()
+
+  /**
+   * Warm the indicators over the preloaded bars, before the first frame exists.
+   *
+   * Both feeds, deliberately: a chart line that appears immediately while the ATR stop
+   * behind it is still NaN would be the worse half of the feature, since that's the one
+   * where a cold indicator costs the player protection rather than a picture.
+   *
+   * `runTick` is *not* called, which is the whole point — these bars produce no fills,
+   * no realized P&L, and no streak movement. `isLastBar` is false throughout: the last
+   * preloaded bar is not the last bar of anything, and telling an indicator otherwise
+   * would let it emit a final value it should keep to itself.
+   */
+  for (let index = 0; index < startIndex; index++) {
+    const bar = bars[index]
+    if (!bar) continue
+    indicators.observeBar(bar, false)
+    stops.observeBar(bar)
+  }
 
   let state: TickState = {
     position: flatPosition(),
@@ -257,6 +298,9 @@ export function createRunController({
           colour: DEFAULT_INDICATOR_COLOUR,
           draw: 'line',
           units: chart.bars.map((visible) => visible.bar.v / span),
+          // Leading preloaded bars, so the histogram dims in step with the poles above
+          // it. A bright bar under a greyed candle would read as a bug.
+          contextBefore: chart.bars.filter((visible) => visible.preloaded).length,
           // Volume is the one pane whose points correspond one-for-one with price
           // bars, so each can be coloured like the candle above it. That reads as
           // "heavy selling" versus "heavy buying" at a glance, which a single-colour

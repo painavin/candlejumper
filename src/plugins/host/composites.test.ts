@@ -16,6 +16,7 @@ import {
   feedIndicatorNode,
   resetIndicatorNode,
   resolveIndicatorTree,
+  warmupBarsFor,
 } from './indicatorTree.js'
 import { createIndicatorRegistry, createStopRegistry } from './registry.js'
 import { createStopHost } from './stopHost.js'
@@ -207,6 +208,82 @@ describe('resolving an indicator tree', () => {
         resolveIndicatorTree({ indicatorId: plugin.id, params: {} }, registry)
       ).not.toThrow()
     }
+  })
+})
+
+describe('warmupBarsFor', () => {
+  it('adds the root\'s own requirement to its deepest branch', () => {
+    // The maximum, not the sum, across branches: the tree is fed one bar at a time in
+    // parallel, so every branch warms simultaneously. GBAP asks for 2 of its own on top
+    // of a breakout window of 20 and an ATR of 7 — so 22, not 29.
+    const registry = createIndicatorRegistry()
+    const warmup = warmupBarsFor(
+      {
+        indicatorId: 'gapup-breakout-atr-pullback',
+        params: { breakoutLength: 20, atrLength: 7 },
+      },
+      registry
+    )
+    expect(warmup).toBe(22)
+  })
+
+  it('follows the params it is given, not the defaults', () => {
+    const registry = createIndicatorRegistry()
+    expect(warmupBarsFor({ indicatorId: 'sma', params: { length: 200 } }, registry)).toBe(200)
+    expect(warmupBarsFor({ indicatorId: 'sma', params: {} }, registry)).toBe(20)
+  })
+
+  it('counts ATR as its window plus the seeding bar', () => {
+    // The first bar's true range has no previous close to reach back to, so a 14-bar ATR
+    // is usable from bar 15 rather than bar 14.
+    const registry = createIndicatorRegistry()
+    expect(warmupBarsFor({ indicatorId: 'atr', params: { length: 14 } }, registry)).toBe(15)
+  })
+
+  it('reports nothing for a plugin that declares nothing', () => {
+    const log: string[] = []
+    const registry = createIndicatorRegistry([recorder('quiet', { log })])
+    expect(warmupBarsFor({ indicatorId: 'quiet', params: {} }, registry)).toBe(0)
+  })
+
+  it('returns what it measured instead of throwing on a broken tree', () => {
+    // Deliberately tolerant where `resolveIndicatorTree` is strict: this decides a
+    // preload count, and a broken dependency should stop the run from the place that owns
+    // that error, not from a setting nobody was thinking about.
+    const log: string[] = []
+    const cyclic = createIndicatorRegistry([
+      recorder('a', { log, requires: [{ key: 'b', indicatorId: 'b' }] }),
+      recorder('b', { log, requires: [{ key: 'a', indicatorId: 'a' }] }),
+    ])
+    expect(() => warmupBarsFor({ indicatorId: 'a', params: {} }, cyclic)).not.toThrow()
+    expect(warmupBarsFor({ indicatorId: 'missing', params: {} }, cyclic)).toBe(0)
+  })
+
+  it('ignores a nonsense number rather than poisoning the total', () => {
+    // This feeds a bar count. NaN would preload the whole series; a negative would move
+    // the cursor backwards.
+    const registry = createIndicatorRegistry([
+      {
+        id: 'broken',
+        displayName: 'Broken',
+        paneKind: 'overlay',
+        outputs: ['x'],
+        params: [],
+        warmupBars: () => Number.NaN,
+        createInstance: () => ({ reset() {}, onBar: () => ({ x: 1 }) }),
+      },
+      {
+        id: 'negative',
+        displayName: 'Negative',
+        paneKind: 'overlay',
+        outputs: ['x'],
+        params: [],
+        warmupBars: () => -50,
+        createInstance: () => ({ reset() {}, onBar: () => ({ x: 1 }) }),
+      },
+    ])
+    expect(warmupBarsFor({ indicatorId: 'broken', params: {} }, registry)).toBe(0)
+    expect(warmupBarsFor({ indicatorId: 'negative', params: {} }, registry)).toBe(0)
   })
 })
 

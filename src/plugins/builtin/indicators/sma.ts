@@ -29,6 +29,8 @@ export const smaIndicator: IndicatorPlugin = {
   paneKind: 'overlay',
   outputs: ['sma'],
   params: [LENGTH],
+  // Exactly the window: the average is NaN until `length` bars exist.
+  warmupBars: (params) => Math.max(2, Math.round(params.length ?? (LENGTH.default as number))),
 
   createInstance(params: ParamValues): IndicatorInstance {
     const length = Math.max(2, Math.round(params.length ?? (LENGTH.default as number)))
@@ -76,6 +78,15 @@ export const atrIndicator: IndicatorPlugin = {
   paneKind: 'oscillator',
   outputs: ['atr'],
   params: [{ ...LENGTH, default: 14 }],
+  /**
+   * The window, plus one.
+   *
+   * Wilder's smoothing never fully forgets its seed, so strictly it is warm *forever*.
+   * `length + 1` is the point where it stops being NaN and starts being a usable
+   * approximation, which is the question preload is asking. The extra bar is the first
+   * one, whose true range has no previous close to reach back to.
+   */
+  warmupBars: (params) => Math.max(2, Math.round(params.length ?? 14)) + 1,
 
   createInstance(params: ParamValues): IndicatorInstance {
     const length = Math.max(2, Math.round(params.length ?? 14))

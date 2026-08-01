@@ -3,6 +3,7 @@ import { defaultConfig } from '@config/index.js'
 import type { OhlcvBar } from '@shared/contracts/index.js'
 import { DEFAULT_INDICATOR_COLOUR } from '@shared/palette/index.js'
 import type { IndicatorFeed, IndicatorSeries } from '../indicators/feed.js'
+import { createNoStops } from '../stops/port.js'
 import { createRunController } from './runController.js'
 
 /**
@@ -82,6 +83,154 @@ describe('the volume pane', () => {
     const controller = controllerOf([bar(100, 110)], false)
     controller.advance(0)
     expect(controller.frame.subPanes).toHaveLength(0)
+  })
+})
+
+describe('preloaded bars', () => {
+  /** Records every bar it is fed, so the pre-feed can be observed at all. */
+  const recordingFeed = (): IndicatorFeed & { seen: number[] } => {
+    const series: IndicatorSeries = {
+      instanceId: 'i1',
+      displayName: 'FAKE',
+      colour: 0x112233,
+      paneKind: 'overlay',
+      outputs: ['level'],
+      history: { level: [] },
+    }
+    const seen: number[] = []
+    return {
+      seen,
+      observeBar(candle) {
+        seen.push(candle.c)
+        series.history.level?.push(candle.c)
+      },
+      reset() {},
+      series: [series],
+    }
+  }
+
+  const bars = [bar(1, 10), bar(10, 20), bar(20, 30), bar(30, 40), bar(40, 50), bar(50, 60)]
+
+  const controller = (preloadBars: number, indicators?: IndicatorFeed) =>
+    createRunController({
+      bars,
+      config: defaultConfig(),
+      visibleBarCount: 5,
+      showVolume: false,
+      preloadBars,
+      indicators,
+    })
+
+  it('feeds the preloaded bars to the indicators before the first frame', () => {
+    const feed = recordingFeed()
+    controller(3, feed).advance(0)
+    // Warm before anyone has pressed anything: three closes already consumed, and the
+    // fourth is the bar now under the character.
+    expect(feed.seen).toEqual([10, 20, 30])
+  })
+
+  it('trades none of them', () => {
+    // The whole safety property: preloaded bars reach the indicators and the stop engine,
+    // never the trading tick. No fills, no realized P&L, no streak movement.
+    const run = controller(3)
+    run.advance(0)
+    expect(run.state.stats.stats.closeEvents).toBe(0)
+    expect(run.state.stats.stats.realized).toBe(0)
+    expect(run.state.position.shares).toBe(0)
+    expect(run.summary.campaigns).toBe(0)
+    expect(run.summary.realized).toBe(0)
+  })
+
+  it('starts the player on the bar after the preloaded ones, with those on screen', () => {
+    const run = controller(3)
+    const frame = run.advance(0)
+    expect(frame.currentIndex).toBe(3)
+    // History behind the cursor, which is what makes a warm indicator visible at all.
+    expect(frame.bars.map((visible) => visible.index)).toEqual([0, 1, 2, 3])
+  })
+
+  it('has a drawn line on the very first frame, and a gap only under the character', () => {
+    /**
+     * What the feature is for, plus its one honest limit.
+     *
+     * The preloaded bars carry values, so frame one opens with a line already across them
+     * — no waiting out a warm-up. The bar *under the character* is still forming and has
+     * no value: an indicator gets a bar when that bar closes, and feeding it early would
+     * mean feeding a close the game is pretending not to know. That trailing gap is the
+     * same one a live chart has on its rightmost bar.
+     */
+    const feed = recordingFeed()
+    const run = controller(3, feed)
+    const units = run.advance(0).overlays[0]?.units ?? []
+
+    expect(units).toHaveLength(4)
+    expect(units.slice(0, 3)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    ])
+    expect(units[3]).toBeNull()
+
+    // And the gap moves along with the character rather than staying put.
+    run.advance(BAR)
+    const next = run.frame.overlays[0]?.units ?? []
+    expect(next[next.length - 1]).toBeNull()
+    expect(next[next.length - 2]).toEqual(expect.any(Number))
+  })
+
+  it('measures progress over the playable range, not the whole file', () => {
+    // Otherwise a run that preloads half its series opens at 50% before a single press.
+    const frame = controller(3).advance(0)
+    expect(frame.firstIndex).toBe(3)
+    // 1 of 3 playable bars, not 4 of 6.
+    expect(Math.round(((frame.currentIndex - frame.firstIndex + 1) / (frame.totalBars - frame.firstIndex)) * 100)).toBe(33)
+  })
+
+  it('warms the stop engine too, not only the chart', () => {
+    // The half that matters for risk: a chart line that appears immediately while the ATR
+    // stop behind it is still NaN is the worse outcome of the two.
+    const seen: number[] = []
+    const run = createRunController({
+      bars,
+      config: defaultConfig(),
+      visibleBarCount: 5,
+      preloadBars: 3,
+      stops: {
+        ...createNoStops(),
+        observeBar: (candle) => seen.push(candle.c),
+      },
+    })
+    run.advance(0)
+    expect(seen).toEqual([10, 20, 30])
+  })
+
+  it('tells the volume pane how many of its bars are context', () => {
+    // So the histogram dims in step with the poles above it — a bright bar under a greyed
+    // candle reads as a rendering bug rather than as context.
+    const run = createRunController({
+      bars,
+      config: defaultConfig(),
+      visibleBarCount: 5,
+      showVolume: true,
+      preloadBars: 3,
+    })
+    const frame = run.advance(0)
+    const pane = frame.subPanes.find((candidate) => candidate.instanceId === 'volume')
+    expect(pane?.series[0]?.contextBefore).toBe(3)
+    // Counted over the *visible* bars, so it shrinks as the window scrolls the preloaded
+    // ones off the left edge rather than dimming bars the player did trade.
+    run.advance(BAR)
+    run.advance(BAR)
+    const later = run.frame.subPanes.find((candidate) => candidate.instanceId === 'volume')
+    expect(later?.series[0]?.contextBefore).toBe(2)
+  })
+
+  it('does nothing at all when off', () => {
+    const feed = recordingFeed()
+    const frame = controller(0, feed).advance(0)
+    expect(feed.seen).toEqual([])
+    expect(frame.currentIndex).toBe(0)
+    expect(frame.firstIndex).toBe(0)
   })
 })
 

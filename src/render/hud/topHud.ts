@@ -207,8 +207,13 @@ export function createTopHudLayer({
       capital.style.fontSize = hudFontSize(sizes.dim)
 
       const date = frame.currentBar ? isoDate(frame.currentBar.t) : '—'
+      // Over the playable range, not the whole file: preloaded bars were consumed before
+      // the player arrived, and counting them would open the run at 17%.
+      const playable = frame.totalBars - frame.firstIndex
       const progress =
-        frame.totalBars > 0 ? Math.round(((frame.currentIndex + 1) / frame.totalBars) * 100) : 0
+        playable > 0
+          ? Math.round(((frame.currentIndex - frame.firstIndex + 1) / playable) * 100)
+          : 0
       const notes = [ticker, date, `${progress}%`]
       if (frame.phase === 'paused') notes.push('PAUSED')
       if (frame.phase === 'finished') notes.push('END OF DATA')

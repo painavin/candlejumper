@@ -113,6 +113,23 @@ export function rangeColour(direction: 'up' | 'down' | 'flat', palette: CandlePa
 }
 
 /**
+ * The same palette with its direction colours removed.
+ *
+ * For bars that are **context rather than part of the run** — the preloaded ones a run
+ * warms its indicators on. Colour means profit and loss in this game, and those bars have
+ * neither: leaving them green and red would show the player a wall of wins and losses
+ * they never took, which is a stronger claim than "you weren't trading yet".
+ *
+ * Losing the hue doesn't lose the direction. Body and range still differ in lightness, so
+ * open-versus-close is readable from the shape; it just stops shouting. Paired with a
+ * lower alpha at the call site, which is what separates "not yours" from the forming
+ * bar's "not final" — that one keeps its colour.
+ */
+export function contextPalette(palette: CandlePalette): CandlePalette {
+  return { pnl: { up: palette.neutral, down: palette.neutral }, neutral: palette.neutral }
+}
+
+/**
  * Extra dimming for a histogram bar, on top of the range colour.
  *
  * The range colour is tuned to read against the **sky**, which is what a candle sits

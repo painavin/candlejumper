@@ -167,6 +167,33 @@ describe('the settings screen', () => {
     dispose()
   })
 
+  it('offers preload off, automatic, or a set number', () => {
+    const { target, dispose } = render()
+    const options = [
+      ...target.querySelectorAll<HTMLOptionElement>('select option'),
+    ].map((option) => option.value)
+    expect(options).toContain('auto')
+    expect(options).toContain('custom')
+    dispose()
+  })
+
+  it('lands a set preload on a usable number rather than on one bar', () => {
+    // Choosing "a set number" should start where Automatic would have, made visible and
+    // editable — not at 1, which looks like the feature does nothing.
+    const { target, actions: acts, dispose } = render()
+    const select = [...target.querySelectorAll<HTMLSelectElement>('select')].find((candidate) =>
+      [...candidate.options].some((option) => option.value === 'custom')
+    )
+    expect(select).toBeDefined()
+    select!.value = 'custom'
+    select!.dispatchEvent(new Event('change', { bubbles: true }))
+
+    button(target, 'OK')?.click()
+    const passed = acts.commitSettings.mock.calls[0]?.[0] as RunConfig
+    expect(passed.preloadBars).toBeGreaterThan(1)
+    dispose()
+  })
+
   it('offers "Don\'t draw" as the way to hide one output', () => {
     // Deliberately not a separate visibility checkbox: two mechanisms for one state is
     // how they end up contradicting each other.

@@ -32,6 +32,52 @@ export interface ValidationContext {
    * its own params by the plugin host. Keyed by index into `stops.active`.
    */
   stopRequirements?: ReadonlyMap<number, readonly { key: string; indicatorId: string }[]>
+  /**
+   * How many bars the run actually has, so `preloadBars` can be checked against it.
+   *
+   * Absent when there is nothing loaded to check against — the caller validates before
+   * fetching in some paths, and "we don't know yet" must not read as "zero bars".
+   */
+  barCount?: number
+}
+
+/**
+ * The shortest run worth starting.
+ *
+ * A handful of bars isn't a run — there's no time to enter, be wrong, and adjust, which
+ * is the whole exercise. Refusing at twenty says so before the player watches a
+ * three-second run instead of after.
+ */
+export const MIN_PLAYABLE_BARS = 20
+
+/**
+ * Whether a preload leaves a run behind it, given how many bars there actually are.
+ *
+ * Exported separately because of *when* it can be answered: the rest of this file
+ * validates before a series is fetched, and the bar count only exists afterwards. So the
+ * caller runs the general pass first and this one once the data has landed — rather than
+ * `barCount` being an optional field that silently skips the only check that needed it.
+ *
+ * A typed preload that can't leave a run is **refused**, not clamped, which is the
+ * opposite of what the settings field itself does. Deliberately: a number in a box is
+ * intent, and quietly playing 200 bars when the player asked for 280 hides the fact that
+ * the dataset is too short. `'auto'` is clamped instead, by whoever resolves it — nobody
+ * asked for that number, so refusing to start over it would punish a player for their
+ * own SMA(200).
+ */
+export function preloadProblem(
+  config: RunConfig,
+  barCount: number | undefined
+): ConfigProblem | undefined {
+  if (config.preloadBars === 'auto' || barCount === undefined) return undefined
+  if (!Number.isInteger(config.preloadBars) || config.preloadBars <= 0) return undefined
+
+  const playable = barCount - config.preloadBars
+  if (playable >= MIN_PLAYABLE_BARS) return undefined
+  return {
+    path: 'preloadBars',
+    message: `preloading ${config.preloadBars} of ${barCount} bars leaves ${Math.max(0, playable)} to play, and a run needs at least ${MIN_PLAYABLE_BARS}`,
+  }
 }
 
 const NORMALIZATION_MODES = new Set([
@@ -53,6 +99,12 @@ export function validateConfig(config: RunConfig, context: ValidationContext): C
     fail('entrySize', `must be a fraction in (0, 1], got ${config.entrySize}`)
   }
   positive('flattenHoldMs', config.flattenHoldMs)
+
+  if (typeof config.preloadBars === 'number' && !Number.isInteger(config.preloadBars)) {
+    fail('preloadBars', `must be a whole number of bars, got ${config.preloadBars}`)
+  }
+  const preload = preloadProblem(config, context.barCount)
+  if (preload) problems.push(preload)
 
   if (config.costBasisMethod === 'fifo') {
     // A documented config option that was never implemented; better to say so

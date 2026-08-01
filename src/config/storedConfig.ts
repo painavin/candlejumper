@@ -114,6 +114,7 @@ export function parseStoredConfig(raw: unknown, options: ParseOptions): RunConfi
         500
       ),
     },
+    preloadBars: preload(saved.preloadBars, defaults.preloadBars),
     priceTransform: oneOf(saved.priceTransform, ['none', 'log10'] as const, defaults.priceTransform),
     normalizationMode: oneOf(
       saved.normalizationMode,
@@ -247,6 +248,20 @@ function params(value: unknown): Record<string, number> {
     if (typeof entry === 'number' && Number.isFinite(entry)) out[key] = entry
   }
   return out
+}
+
+/**
+ * The preload bar count: a non-negative integer, or the string `'auto'`.
+ *
+ * 500 is a ceiling on a *stored* value rather than a considered maximum — it is far
+ * above the longest built-in warm-up and far below anything that would eat a whole
+ * series, and a stored number outside it is evidence of corruption rather than intent.
+ * How many bars actually remain playable is checked against the real series length by
+ * pre-run validation, which is the only place that knows it.
+ */
+function preload(value: unknown, fallback: number | 'auto'): number | 'auto' {
+  if (value === 'auto') return 'auto'
+  return int(value, typeof fallback === 'number' ? fallback : 0, 0, 500)
 }
 
 /**

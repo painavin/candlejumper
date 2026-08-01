@@ -3,7 +3,7 @@ import { defaultConfig } from './defaults.js'
 import { fingerprintPayload, runFingerprint } from './fingerprint.js'
 
 const SERIES = { barCount: 480, lastBarTime: 1_784_899_800 }
-const CONTEXT = { visibleBarCount: 60, series: SERIES }
+const CONTEXT = { visibleBarCount: 60, preloadBars: 0, series: SERIES }
 
 describe('runFingerprint', () => {
   it('is stable for an unchanged config', () => {
@@ -55,8 +55,8 @@ describe('runFingerprint', () => {
     // Which is why it's frozen at run start: a mid-run rotation would otherwise
     // move the run into a different personal-best bucket.
     const config = defaultConfig()
-    expect(runFingerprint(config, { visibleBarCount: 28, series: SERIES })).not.toBe(
-      runFingerprint(config, { visibleBarCount: 60, series: SERIES })
+    expect(runFingerprint(config, { visibleBarCount: 28, preloadBars: 0, series: SERIES })).not.toBe(
+      runFingerprint(config, { visibleBarCount: 60, preloadBars: 0, series: SERIES })
     )
   })
 
@@ -92,7 +92,7 @@ describe('runFingerprint', () => {
     // records set on the old one.
     const config = defaultConfig()
     const refreshed = { barCount: 481, lastBarTime: 1_784_986_200 }
-    expect(runFingerprint(config, { visibleBarCount: 60, series: refreshed })).not.toBe(
+    expect(runFingerprint(config, { visibleBarCount: 60, preloadBars: 0, series: refreshed })).not.toBe(
       runFingerprint(config, CONTEXT)
     )
   })
@@ -100,5 +100,39 @@ describe('runFingerprint', () => {
   it('carries its version, so adding a key is an explicit migration', () => {
     const payload = fingerprintPayload(defaultConfig(), CONTEXT) as Record<string, unknown>
     expect(payload.v).toBe(2)
+  })
+})
+
+describe('preloaded bars', () => {
+  it('does not change the fingerprint when preload is off', () => {
+    // The property that let this ship without a FINGERPRINT_VERSION bump: `canonicalize`
+    // drops undefined keys, so a run with no preload hashes exactly as it did before the
+    // key existed — and a bump would have emptied every personal-best bucket.
+    const config = defaultConfig()
+    expect(runFingerprint(config, { ...CONTEXT, preloadBars: 0 })).toBe(
+      runFingerprint(config, CONTEXT)
+    )
+  })
+
+  it('is a different bucket once preload is in use', () => {
+    // Starting 200 bars in is a shorter, different price path with warm indicators.
+    // Pooling it with a full run would compare two games and flatter the easier one.
+    const config = defaultConfig()
+    expect(runFingerprint(config, { ...CONTEXT, preloadBars: 200 })).not.toBe(
+      runFingerprint(config, { ...CONTEXT, preloadBars: 0 })
+    )
+    expect(runFingerprint(config, { ...CONTEXT, preloadBars: 200 })).not.toBe(
+      runFingerprint(config, { ...CONTEXT, preloadBars: 50 })
+    )
+  })
+
+  it('buckets by the resolved number, not by how it was chosen', () => {
+    // `'auto'` is a number by the time it reaches here, so an automatic 200 and a typed
+    // 200 are the same challenge and share a record.
+    const auto = { ...defaultConfig(), preloadBars: 'auto' as const }
+    const typed = { ...defaultConfig(), preloadBars: 200 }
+    expect(runFingerprint(auto, { ...CONTEXT, preloadBars: 200 })).toBe(
+      runFingerprint(typed, { ...CONTEXT, preloadBars: 200 })
+    )
   })
 })

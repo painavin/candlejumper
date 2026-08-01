@@ -137,6 +137,19 @@ export const gapupBreakoutAtrPullbackIndicator: IndicatorPlugin = {
   // Five values in a legend is a row of digits, not a label. The window and the ATR
   // factor are what a player actually runs two instances of side by side.
   labelParams: ['breakoutLength', 'atrFactor'],
+  /**
+   * Two, on top of whatever its inputs need — which the host adds for it.
+   *
+   * Its own arithmetic looks back exactly one bar: the gap compares two closes, and the
+   * retrace crossing compares two lows. Everything else it knows comes from `breakout`
+   * and `atr`, and reporting their lengths here as well would preload twice over.
+   *
+   * Worth noting what this *can't* promise. Two bars makes the signal computable; it
+   * does not make a signal have *happened*, and a chart opens with a retrace level only
+   * if a breakout or gap fell inside the preloaded bars. There's no honest number for
+   * "until this fires" — that depends on the prices, not the parameters.
+   */
+  warmupBars: () => 2,
   outputStyles: {
     // Three of the five outputs are *events* on scattered bars, so they are marks
     // rather than lines. `breakout` and `gapup` are drawn at the bar's high, where the
