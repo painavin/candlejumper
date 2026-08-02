@@ -1,12 +1,12 @@
 import { Container, Graphics, Text } from 'pixi.js'
-import { LAYOUT } from '@config/index.js'
 import type { Character, RigShape } from '@content/characters/types.js'
 import type { VisualTheme } from '@content/visualThemes/types.js'
 import type { FrameState } from '@engine/output/index.js'
-import { arc, lerp } from '@shared/math/index.js'
+import { arc } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
 import { unitToY } from '../stage/layout.js'
 import { hudTextStyle } from '../hud/hudText.js'
+import { gaitOf } from './gait.js'
 
 /**
  * The character: a primitive rig animated by transform maths.
@@ -31,6 +31,12 @@ import { hudTextStyle } from '../hud/hudText.js'
  * difference would need the next bar's price before jumping, which is exactly the
  * future information the no-lookahead constraint forbids. The standard auto-runner
  * solution and the only causally legal one coincide.
+ *
+ * **Where and when it moves lives in `gait.ts`**, which is pure and tested. Everything
+ * here is the rig: which shapes, what colour, how they squash and flap. The one thing
+ * worth knowing from the other file is that the character is *not* pinned at
+ * `characterX` — it rides the bar it stands on, and `characterX` is the line it arrives
+ * at.
  */
 
 export interface CharacterLayer {
@@ -143,27 +149,33 @@ export function createCharacterLayer({
       }
 
       const offset = short ? radius : -radius
-      const landing = unitToY(newest.unit, layout) + offset
-      const takeoff =
-        frame.previousUnit === undefined ? landing : unitToY(frame.previousUnit, layout) + offset
+      const gait = gaitOf({
+        barPhase: frame.barPhase,
+        previousUnit: frame.previousUnit,
+        newestUnit: newest.unit,
+      })
+      // The arc lifts away from the line in the direction the character is on: a short
+      // hangs beneath it, so "up" for a short is down the screen.
+      const lift = gait.liftInBarWidths * layout.barWidth * damp * (short ? 1 : -1)
 
-      const window = LAYOUT.barGrowthFraction
-      const t = window <= 0 ? 1 : Math.min(1, frame.barPhase / window)
-      const hopHeight = layout.barWidth * LAYOUT.hopHeightInBarWidths * damp
-      const lift = arc(t) * hopHeight * (short ? 1 : -1)
-
-      container.position.set(layout.characterX, lerp(takeoff, landing, t) + lift)
+      container.position.set(
+        // Riding the bar it stands on, by the same arithmetic `candle.ts` positions that
+        // bar with — so the two cannot drift apart.
+        layout.characterX - gait.barsBehind * layout.barWidth,
+        unitToY(gait.unit, layout) + offset + lift
+      )
 
       // Squash and stretch derived from the arc rather than keyframed, so it
       // responds continuously to speed. Per-character `squashFactor` is what makes
       // Bear land heavier than Robin without any new code.
-      const stretch = 1 + arc(t) * motion.squashFactor * damp
+      const stretch = 1 + arc(gait.hop) * motion.squashFactor * damp
       container.scale.set(1 / stretch, (short ? -1 : 1) * stretch)
-      // Tilt into the direction of travel.
-      container.rotation = (landing - takeoff) * 0.0016 * motion.tiltResponse * damp * (short ? -1 : 1)
+      // Tilt into the direction of travel. Measured from the two perches rather than from
+      // the position, which the arc dominates.
+      const climb = unitToY(newest.unit, layout) - unitToY(frame.previousUnit ?? newest.unit, layout)
+      container.rotation = climb * 0.0016 * motion.tiltResponse * damp * (short ? -1 : 1)
 
       flap(Math.sin((frame.barPhase + motion.flapPhaseOffset) * Math.PI * 2) * motion.flapAmplitude * damp)
-
       // Ghost stack: one translucent copy per open unit, so "I'm three deep" reads
       // at a glance and countably. Costs nothing per roster addition, since a ghost
       // is the same rig at reduced alpha.

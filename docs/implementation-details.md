@@ -148,10 +148,17 @@ describes the challenge.
 - **The run clock carries a 1e-9 tolerance.** Sixty frames of `1/60` sum to
   0.9999999999999999, so an exact `>=` defers a bar by a whole frame at every
   integer-second boundary.
-- **The hop spans the bar's growth window**, so the character lands exactly as the
-  new bar finishes forming. The docs asked for both a fixed-height hop and for the
-  character to "ride the bar up or down"; overlapping them is what satisfies both,
-  and it means the landing reads as a consequence rather than a plan.
+- **The hop starts when the bar closes**, and takes `hopDurationFraction` of a bar;
+  the rest is spent standing. It spanned the *growth* window at first, so the
+  character rode a forming bar up to its close and landed as it finished — which
+  satisfied "ride the bar up or down" but committed to a bar still being drawn, and
+  left the character motionless at a fixed screen position for the other three
+  quarters of every bar. That reads as a slide, because a fixed point against a
+  moving world is one. The character now rides the bar it stands on and leaps one bar
+  width on each hop; `characterX` is where it arrives, not where it lives. The timing
+  is a pure function in `render/character/gait.ts`, whose load-bearing property is
+  continuity at three seams: hop start, hop end, and the bar boundary where the bar
+  just ridden becomes the previous bar.
 
 ## Steps 2 + 3 — Trading engine and HUD
 

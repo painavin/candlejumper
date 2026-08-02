@@ -328,9 +328,13 @@ trivially correct.
 
 So the "empty" right side of the screen isn't a composition problem to
 fill with more visible world; it's a hard requirement. **Decided: the
-hybrid** — character pinned ~70–80% to the right, with a strip of open
+hybrid** — the now-line at ~70–80% to the right, with a strip of open
 world beyond it, so there's visual breathing room and a sense of forward
-motion without revealing a readable price level. Rationale: a pure
+motion without revealing a readable price level. (The character travels in a
+band about one bar wide to the left of that line rather than being pinned to
+it — see [game-design.md](./game-design.md#jump-mechanic) — which changes
+nothing about the constraint, since the strip's contents are enforced
+structurally.) Rationale: a pure
 right-edge pin can feel claustrophobic and gives the parallax nothing to
 scroll *into*.
 

@@ -6,6 +6,7 @@ import type { FrameState, PositionEvent } from '@engine/output/index.js'
 import { clamp, createPrng, easeOutCubic } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
 import { hudTextStyle } from '../hud/hudText.js'
+import { gaitOf } from '../character/gait.js'
 
 /**
  * Per-action feedback.
@@ -96,7 +97,11 @@ export function createJuiceLayer({
   /** Deterministic wobble: no Math.random anywhere, including in cosmetics. */
   let shakePhase = 0
 
-  const spawn = (event: Extract<PositionEvent, { kind: 'positionClosed' }>, layout: Layout): void => {
+  const spawn = (
+    event: Extract<PositionEvent, { kind: 'positionClosed' }>,
+    layout: Layout,
+    x: number
+  ): void => {
     const text = pool.pop() ?? makeText()
     // Sign and an arrow, so the value reads correctly with no colour at all —
     // P&L direction is never conveyed by hue alone.
@@ -107,7 +112,7 @@ export function createJuiceLayer({
     text.alpha = 1
     text.visible = true
     container.addChild(text)
-    labels.push({ text, age: 0, x: layout.characterX, y: layout.chartTop + layout.chartHeight * 0.4 })
+    labels.push({ text, age: 0, x, y: layout.chartTop + layout.chartHeight * 0.4 })
   }
 
   /**
@@ -121,11 +126,11 @@ export function createJuiceLayer({
   const burst = (
     kind: 'confetti' | 'dust',
     layout: Layout,
+    x: number,
     count: number,
     colour: number
   ): void => {
     if (reducedMotion) return
-    const x = layout.characterX
     const y = kind === 'confetti' ? layout.chartTop + layout.chartHeight * 0.45 : layout.groundY
     for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
       const angle =
@@ -151,11 +156,27 @@ export function createJuiceLayer({
     container,
 
     draw(frame, layout, dt) {
+      /**
+       * Where the character is right now, so a burst comes off the character rather than
+       * off the now-line it happens to be travelling toward.
+       *
+       * Recomputed here from the same pure function the character layer uses rather than
+       * plumbed through: two callers of a pure function of one frame cannot disagree, and
+       * threading a position through the stage to reach an effect would couple the two
+       * layers for no benefit.
+       */
+      const gait = gaitOf({
+        barPhase: frame.barPhase,
+        previousUnit: frame.previousUnit,
+        newestUnit: frame.bars.find((visible) => visible.age === 0)?.unit ?? 0,
+      })
+      const characterX = layout.characterX - gait.barsBehind * layout.barWidth
+
       for (const event of frame.events) {
         if (event.kind === 'positionClosed') {
-          spawn(event, layout)
+          spawn(event, layout, characterX)
           if (event.realized > 0) {
-            burst('confetti', layout, 26, colours.up)
+            burst('confetti', layout, characterX, 26, colours.up)
             // A smaller punch on a notably large win; the big one is reserved for
             // being taken out.
             if (screenShake && !reducedMotion) shake = Math.max(shake, 3)
@@ -163,11 +184,11 @@ export function createJuiceLayer({
             // A loss taken on purpose gets a muted acknowledgement rather than
             // nothing: it's still a completed decision, and under the discipline
             // rules it may well have built the streak.
-            burst('dust', layout, 10, colours.down)
+            burst('dust', layout, characterX, 10, colours.down)
           }
         }
         if (event.kind === 'stoppedOut') {
-          burst('dust', layout, 30, colours.down)
+          burst('dust', layout, characterX, 30, colours.down)
           if (screenShake && !reducedMotion) shake = 9
           flashAlpha = 0.32
         }

@@ -101,6 +101,20 @@ export const LAYOUT = {
   poleGapFraction: 0.15,
   /** How much of a bar's duration the newest bar spends growing to its close. */
   barGrowthFraction: 0.25,
+  /**
+   * How much of a bar's duration the hop takes, starting the instant the bar closes.
+   *
+   * The rest of the bar is spent standing on the perch, so this is the ratio of moving to
+   * waiting — at 0.35 the character is airborne about a third of the time. Deliberately
+   * less than half: the point of the change that introduced it was that the character
+   * should *wait on the bar*, and a hop occupying most of the bar would be the old
+   * complaint with the phases reordered.
+   *
+   * Must stay at or below 1. Consecutive hops start one bar apart — each begins the moment
+   * a bar closes — so a full bar's duration is the most one can have without the next hop
+   * beginning while this one is still in the air.
+   */
+  hopDurationFraction: 0.35,
   /** Hop arc height, in bar widths. Fixed height, variable landing. */
   hopHeightInBarWidths: 1.5,
   /** Y-axis label count. */

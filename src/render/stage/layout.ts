@@ -21,7 +21,14 @@ export interface Layout {
   chartHeight: number
   /** Baseline poles stand on. */
   groundY: number
-  /** The traded "now" line; the character is pinned here. */
+  /**
+   * The traded "now" line: where a bar arrives, and where the character lands.
+   *
+   * **Not where the character sits.** It rides the bar it stands on, so it travels in a
+   * band about one bar wide to the left of this and leaps back to it on each hop — see
+   * `character/gait.ts`. The line is still the anchor for everything else: a bar at `age`
+   * bars old sits `age + barPhase` bar widths left of it.
+   */
   characterX: number
   /** Left edge to `characterX`. */
   playfieldWidth: number

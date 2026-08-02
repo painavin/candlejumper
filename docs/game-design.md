@@ -638,6 +638,21 @@ happens to fall.
 - The landing therefore reads as a *consequence* rather than a plan, which
   suits the game: the player finds out where price went by watching where
   the character lands.
+- **It stands on closed bars, and rides them.** The hop begins the instant the
+  forming bar closes, so the character never commits to a bar still being
+  drawn — a bar's close is what the game fills at, and a bar that hasn't
+  closed has no close to stand on. Between hops the character travels
+  *with* the bar it's on, leftward at the scroll speed, and each hop is a
+  leap of exactly one bar width back toward the now-line.
+
+  It used to be pinned at that line and hop during the growth window
+  instead, which was wrong twice over for the same reason. It committed to
+  an unfinished bar, and because it held one screen position while the
+  world moved it appeared to slide: for three quarters of every bar it hung
+  motionless while the bar it had just landed on slid out from under it. A
+  fixed point against a moving world *is* a slide. So `characterX` is now
+  the line the character arrives at, not where it lives — see
+  `render/character/gait.ts`, where the timing lives as a pure function.
 
 ## Scoring & stats
 
