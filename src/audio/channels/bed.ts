@@ -8,7 +8,7 @@ import { droneNotes, droneTransition, shiftOctave } from './voicing.js'
 /**
  * Channel 1 — the generative ambient bed.
  *
- * **Fully generated: no audio files.** The theme supplies a *fixed* chord
+ * **Fully generated: no recording.** The theme supplies a *fixed* chord
  * progression and the generator randomizes voicing, register, and timing over it.
  * Fixing the harmony is the deliberate mitigation for generative ambient's known
  * failure mode — wandering aimlessly and turning monotonous. The randomness lives

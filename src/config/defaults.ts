@@ -65,8 +65,9 @@ export function defaultConfig(): RunConfig {
       // because P&L never depends on hue — every value carries a sign and an arrow
       // too — and blue/orange stays one click away. See docs/accessibility.md.
       pnlPalette: 'red-green',
-      // Defer to the mood: `jolly` draws candlesticks, `serious` draws Bollinger
-      // bars. A player with a preference can pin either one for every theme.
+      // One uniform column per bar, in every theme — a mood picks the bars' colour
+      // and corner style, never their chart type. `candlestick` is one click away
+      // for a player who reads wicks faster. See `config/types.ts`.
       barStyle: 'bollinger',
     },
 
@@ -75,9 +76,22 @@ export function defaultConfig(): RunConfig {
     audio: {
       theme: 'jolly',
       masterVolume: 1,
-      musicVolume: 0.6,
+      /**
+       * The bed sits **well under** the other two channels, not just under them.
+       *
+       * Channel 2 is the feature that makes price movement audible, and it is one
+       * tone per bar arguing with a bed of anywhere from two to ten simultaneous
+       * voices. At the old 0.6/0.8 split — about 2.5 dB — a composed track masked it
+       * outright, and even the generated bed left it borderline. ~6.5 dB of headroom
+       * is what makes a single bell legible over an arrangement.
+       *
+       * These are the *defaults* only: both are live sliders, excluded from the run
+       * fingerprint, and a stored value overrides them. Players who already set a
+       * level keep it.
+       */
+      musicVolume: 0.42,
       musicMuted: false,
-      sfxVolume: 0.8,
+      sfxVolume: 0.9,
       sfxMuted: false,
     },
 

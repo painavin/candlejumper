@@ -5,6 +5,7 @@ import type { VisualTheme } from '@content/visualThemes/types.js'
 import { generateClouds, generateHeightfield, generateMotifs } from '@generation/index.js'
 import { deriveSeed } from '@shared/math/index.js'
 import type { Layout } from '../stage/layout.js'
+import { foregroundTop } from '../stage/layout.js'
 import { bakeClouds, bakeMotifs, bakeSky, bakeTerrain } from '../bake/bakeLayer.js'
 
 /**
@@ -152,17 +153,36 @@ export function createParallaxStack(
   function buildForeground(target: Layout): Layer | undefined {
     if (!enabled('foreground')) return undefined
     const height = Math.round(Math.max(28, target.height * 0.13))
-    const motifs = generateMotifs(theme.foreground, config.visuals.worldSeed)
+    // The motif itself is chosen from the seed rather than named by the theme, so the
+    // kind comes back with the placements — see `generateMotifs`.
+    const field = generateMotifs(theme.foreground, config.visuals.worldSeed)
     const texture = bakeMotifs(
       renderer,
-      motifs,
-      theme.foreground.motif,
+      field.placements,
+      field.motif,
       Math.ceil(target.width * TEXTURE_WIDTH_MULTIPLE),
       height,
       theme.palette.foreground
     )
     const sprite = new TilingSprite({ texture, width: target.width, height })
-    sprite.position.set(0, target.height - height)
+    /**
+     * Anchored to the **ground line**, not the bottom of the viewport.
+     *
+     * The motifs are baked with their bases on the texture's bottom edge, so the
+     * sprite's bottom has to sit on `groundY` — that is where the character stands and
+     * where the poles rest, and passing in front of the character is this layer's
+     * entire job.
+     *
+     * It used to use `target.height`, which is the same value only when no sub-pane is
+     * open. With the volume pane visible, `groundY` is roughly 40% of the chart area
+     * higher, so the whole layer rendered *below* the histogram: a row of dark shapes
+     * along the bottom of the screen, nowhere near the character, occluding nothing.
+     * Exactly the mistake the ground layer already made and had fixed — a layer that
+     * belongs to the world cannot be positioned from the viewport once instrument panes
+     * take a share of it. `GROUND_MARGIN` means it was in fact wrong even with no pane
+     * open — see `foregroundTop`, which owns this arithmetic so a test can hold it.
+     */
+    sprite.position.set(0, foregroundTop(target, height))
     foregroundContainer.addChild(sprite)
     return { name: 'foreground', sprite, speed: speedOf('foreground'), textures: [texture] }
   }

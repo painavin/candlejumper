@@ -11,6 +11,16 @@
       "headers": {
         "cache-control": "public, max-age=31536000, immutable"
       }
+    },
+    {
+      "route": "/midi/*",
+      "headers": {
+        "cache-control": "public, max-age=3600, must-revalidate"
+      }
     }
-  ]
+  ],
+  "mimeTypes": {
+    ".mid": "audio/midi",
+    ".midi": "audio/midi"
+  }
 }

@@ -82,7 +82,7 @@ Thumbs.db
 #                        staticwebapp.config.json, which has to reach dist/ because
 #                        the deploy uploads dist/ as the app.
 #
-# There is no art or audio output to ignore here, and that is on purpose:
+# There is no *generated* art or audio output to ignore here, and that is on purpose:
 # every visual and audio asset is generated at runtime, so the project has no
 # asset pipeline and produces no generated media: docs/procedural-assets.md.
 # ---------------------------------------------------------------------------

@@ -71,7 +71,16 @@ export interface VisualTheme {
   clouds: CloudParams
   foreground: MotifParams
   poles: {
-    /** Rounded caps read playful; flat caps read like a terminal. */
+    /**
+     * Corner shape on both of a bar's rectangles.
+     *
+     * Both shipped moods now ask for `round`, so `flat` is currently a capability
+     * rather than something you can see: soft corners turned out to read fine on the
+     * serious mood too, and what actually separates the two is `outline` — one
+     * constant edge colour on every bar is what makes a chart read as a terminal.
+     * Kept because it is one branch in `poleLayer` and the obvious knob for a third
+     * mood; if none arrives, delete it the way `wickWidthFraction` went.
+     */
     capStyle: 'round' | 'flat'
     outline: boolean
     /**

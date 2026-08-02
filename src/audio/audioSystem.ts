@@ -2,10 +2,12 @@ import * as Tone from 'tone'
 import { audioTheme } from '@content/audioThemes/index.js'
 import type { AudioTheme } from '@content/audioThemes/types.js'
 import type { FrameState, PositionEvent } from '@engine/output/index.js'
+import type { MidiTrack } from '@shared/contracts/index.js'
 import { eventKey } from '@engine/output/index.js'
 import { createAmbientBed } from './channels/bed.js'
 import { createSonification } from './channels/sonification.js'
 import { createStingers } from './channels/stingers.js'
+import { createTrackBed } from './channels/track.js'
 import { toGain } from './mix.js'
 
 /**
@@ -83,6 +85,14 @@ export interface AudioOptions extends AudioMix {
    * fire a cue by accident. The only way a stinger sounds there is `previewSfx()`.
    */
   channels?: 'all' | 'menu'
+  /**
+   * A decoded background track for channel 1, replacing the generated bed.
+   *
+   * Passed in rather than fetched here because `src/audio` may not import `@data` —
+   * the composition root loads it and hands over the notes. Absent means the theme
+   * has no track file, and the generated bed plays instead.
+   */
+  track?: MidiTrack
 }
 
 /** Seconds to ramp a gain change over. Short enough to feel instant, long enough not to click. */
@@ -109,7 +119,12 @@ export function createAudio(options: AudioOptions): AudioSystem {
   sfxBus.connect(master)
 
   const menuOnly = options.channels === 'menu'
-  const bed = createAmbientBed(theme, musicBus, options.worldSeed)
+  // A composed track wins over the generated bed when the theme ships one. Both
+  // satisfy `AmbientBed`, so nothing below this line knows which is playing.
+  const bed =
+    options.track && options.track.notes.length > 0
+      ? createTrackBed(options.track, musicBus)
+      : createAmbientBed(theme, musicBus, options.worldSeed)
   const sonification = menuOnly ? undefined : createSonification(theme, sfxBus)
   // Built even in menu mode, for `previewSfx` alone.
   const stingers = createStingers(theme, sfxBus)

@@ -29,4 +29,5 @@ export type { PriceProvider, ProviderRequest } from './sources/providers/index.j
 export { parseBars, validateBars, sliceByTime } from './validate.js'
 export type { DatasetProblem, ValidateOptions } from './validate.js'
 export { createHttpJsonFetcher, datasetOf, jsonFromBytes, parseManifest } from './datasets.js'
+export { loadMidi, midiPath, parseMidi } from './midi.js'
 export type { BundledDataset, DatasetManifestEntry, JsonFetcher } from './datasets.js'

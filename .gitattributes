@@ -1,0 +1,14 @@
+# MIDI source files: the composed background tracks for channel 1.
+#
+# Declared binary so no line-ending conversion is ever applied to them. Git's own
+# NUL-byte sniffing usually gets this right, but a contributor with
+# `core.autocrlf=true` and a file whose header happens to look text-like is exactly
+# the case where "usually" corrupts a file on checkout, and a corrupted MIDI fails
+# at parse time with an error pointing nowhere near the cause.
+*.mid binary
+*.midi binary
+
+# The bundled datasets. Already stored correctly — git detected them as binary when
+# they were committed — but declaring it makes that independent of anyone's config
+# rather than dependent on content sniffing.
+*.json.gz binary

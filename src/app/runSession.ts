@@ -5,6 +5,7 @@ import type { RunController } from '@engine/run/runController.js'
 import type { StopEngine } from '@engine/stops/port.js'
 import type { IndicatorFeed } from '@engine/indicators/feed.js'
 import type { AudioMix, AudioSystem } from '@audio/audioSystem.js'
+import { loadMidi } from '@data/index.js'
 import { attachKeyboard } from '@input/keyboard.js'
 import { createTouchControls } from '@input/touchControls.js'
 import type { TouchControls } from '@input/touchControls.js'
@@ -169,8 +170,19 @@ export async function startRunSession({
    * anyway.
    */
   const { createAudio } = await import('@audio/audioSystem.js')
+  /**
+   * The theme's background track, if it ships one.
+   *
+   * Loaded here rather than inside the audio system because `src/audio` may not
+   * import `@data`. A theme with no file resolves to `undefined` and the generated
+   * bed plays, so this never blocks startup on a 404 — and a decode failure is
+   * swallowed for the same reason the run should still start with silence rather
+   * than not at all.
+   */
+  const track = await loadMidi(config.audio.theme).catch(() => undefined)
   const audio: AudioSystem = createAudio({
     themeId: config.audio.theme,
+    track,
     masterVolume: config.audio.masterVolume,
     musicVolume: config.audio.musicVolume,
     musicMuted: config.audio.musicMuted,

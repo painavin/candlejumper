@@ -21,6 +21,15 @@ Note the stack extends *past* the gameplay plane at the bottom — a layer
 in front of the character is what sells 2D depth, and it's easy to omit by
 accident when thinking of parallax as "backgrounds."
 
+It is also easy to *position* by accident. The foreground strip was anchored to the
+bottom of the viewport rather than to `groundY`, which put it below the instrument
+panes — a row of dark shapes along the bottom of the screen, occluding nothing. That
+was wrong in every configuration, not just when a pane was open, because
+`GROUND_MARGIN` already holds the ground line clear of the viewport edge. The
+arithmetic now lives in `foregroundTop` in `render/stage/layout.ts` so a test can hold
+it; `parallaxStack` needs a live renderer and cannot be tested directly, which is
+exactly why this shipped.
+
 Speeds are expressed as **multipliers of the base scroll speed**, not
 absolute values, so the existing `scrollSpeed` config drives everything
 uniformly — turning the dial up speeds up the whole scene coherently. Speed
@@ -65,7 +74,7 @@ VisualTheme {
     trees:     { amplitude, frequency, density },
   }
   clouds: { style: 'puffy' | 'wispy', density, scale }
-  foreground: { motif: 'grass' | 'leaves' | 'railing', density }
+  foreground: { densityScale }   // the motif itself comes from the seed
   poles: { outline, capStyle }
   accentPalette: HUD/UI colors matching mood
 }
@@ -93,11 +102,11 @@ Note: the jumping character is **not** part of this bundle — see
 [character.md](./character.md) for why it's a separate, theme-independent
 selection.
 
-### Initial theme set
+### Shipped theme set
 
-Named to match the audio themes so a player can pair them, though the two
-are independently configurable (see [Config](#config) below). These
-describe the *parameter intent*; exact values are tuned in code:
+The first two are named to match the audio themes so a player can pair them,
+though the two keys are independently configurable (see [Config](#config)
+below). These describe the *parameter intent*; exact values are tuned in code.
 
 | | **Jolly** | **Serious** |
 |---|---|---|
@@ -105,15 +114,92 @@ describe the *parameter intent*; exact values are tuned in code:
 | Clouds | `puffy`, high density, large scale | `wispy`, low density, thin |
 | Mountains | Low ridge sharpness (rounded), saturated greens/purples | High ridge sharpness (angular), desaturated grey-blue |
 | Trees / background props | Dense, bright | Sparse, muted — or a skyline silhouette via high frequency + low amplitude |
-| Bars | Bollinger bars, rounded corners | Bollinger bars, square corners, outlined |
+| Bars | Bollinger bars, rounded corners | Bollinger bars, rounded corners, outlined |
 | Ground | Candy-colored grass | Charcoal/steel |
-| Foreground occlusion | `grass` motif, moderate density | `railing` motif, sparse |
+| Foreground occlusion | busiest of the five (`densityScale` 1.15) | sparse (0.9) |
 | HUD accent palette | Warm, saturated | Cool, professional (navy/graphite) |
 
-Note the "city skyline" idea for Serious falls out of the *same* mountain
-generator at different parameters — high frequency, low amplitude, maximum
-ridge sharpness — rather than needing separate art. That's the payoff of
-themes-as-parameters.
+Three more were each built from a reference image:
+
+| | **Neon** | **Vapour** | **Cobalt** |
+|---|---|---|---|
+| Sky | Dark violet-navy to a lit navy horizon | Dark violet to a magenta horizon | **Inverted** — bright azure overhead, deep blue at the horizon |
+| Clouds | `wispy`, sparse — lens bloom rather than weather | `puffy`, dense, small — scattered bokeh dots | `wispy`, sparse, pale |
+| Mountains | Maximum ridging, `serious` amplitudes — the far edge of a grid | Dense sharp spikes, a forest of thin bars | Smooth bands, ridging near zero — and **lighter** than their own sky |
+| Bars | Rounded, teal rim | Rounded, plum rim | Rounded, **no rim** |
+| Ground | Near-black under a bright cyan grid line | Near-black under a hot magenta grid line | Deep blue under a pale blue line |
+| Foreground | `densityScale` 1 | 1.1 | 0.8, the sparsest |
+| HUD accent | Cyan-white text, ember-orange accent | Pink-white text, cyan accent | Blue-white text, pale blue accent |
+
+All five are **moods**: the picker lists ids present in both registries, and each of
+these three now has an audio bundle plus a composed background track at
+`public/midi/<id>.mid`. They were visuals-only at first, reachable only from "Mix them,
+or reseed the world" — which is the failure mode the intersection rule makes visible
+rather than silent.
+
+### The foreground motif comes from the seed
+
+A mood does **not** name its foreground shape. `generateMotifs` picks one of seven from
+the world seed, so the same theme looks different across worlds and "New world" changes
+it. One kind per strip, not a mixture: mixing trees with grass and rocks reads as
+clutter, and it would leave every mood looking alike in the layer that is supposed to
+distinguish them.
+
+| Motif | Shape | Leans? |
+|---|---|---|
+| `grass` | tapered blade | yes |
+| `leaves` | flat ellipse | yes |
+| `reeds` | cluster of 2–5 blades from one root | yes, as a cluster |
+| `rocks` | low jittered dome, 40% height — ground texture, not occlusion | no |
+| `bushes` | 2–5 lobe canopy, no trunk | no |
+| `trees` | trunk plus a 2–5 lobe canopy | no |
+| `conifer` | three stacked triangles over a short trunk | no |
+
+There was a `railing` of plain upright posts. It is gone: on a dark scene a row of dark
+posts reads as a black bar rather than as occlusion, which is the opposite of the job.
+
+**Density is per motif, scaled per mood.** A plain count cannot survive the motif being
+chosen by the seed — 26 is a pleasant scatter of grass and a solid wall of trees. Each
+kind carries its own base count and a theme supplies `densityScale` as a multiplier,
+clamped at 2×. That clamp is not tidiness: this layer crosses the character, and a mood
+that asked for ten times the trees would hide the poles being traded.
+
+Two constraints on any new motif, both learned by breaking them. The whole silhouette
+must fit inside `size`, because anything drawn upward from the strip's bottom edge that
+exceeds it is sliced flat by the texture — a full-height trunk with a canopy stacked on
+top overflowed by 12% and every crown came out with a flat top. And anything that reads
+as broken when tilted belongs in the upright set beside `trees` and `conifer`.
+
+Note that no theme adds a rendering feature. Serious's "city skyline" is the
+*same* mountain generator as Jolly's rolling hills at high frequency and maximum
+ridging; Vapour's spike forest is that again, denser; Cobalt's smooth bands are
+it with the ridging turned off. That's the payoff of themes-as-parameters — and
+Cobalt's light-over-dark sky is a two-number inversion that nothing in the
+renderer had to be told about.
+
+Two rules came out of building the dark ones, and both cost a rewrite:
+
+**A dark mood still needs a contrast ladder.** Neon first shipped with every
+background layer inside a 0.03–0.25 luma band and the terrain amplitudes halved,
+chasing its reference's empty grid plane. On a real chart it read as a black
+rectangle. What makes a layer visible is its gap against the sky *at the height
+it sits* — that gap was 0.025, a tenth of Jolly's — not its absolute darkness,
+and not whether the palette looks varied when listed. The layers now step
+0.09/0.08/0.06 apart on a 0.19 sky span, wider than Serious manages. Cobalt hit
+the mirror image of this: with its sky darkest where the hills sit, a
+conventional dark silhouette vanished, so its terrain is lighter than its sky.
+
+**`palette.candleRange` is not decoration.** It is mixed 62% into every high–low
+range, so a saturated theme neutral drains the direction out of the bars while
+every existing test still passes. At Neon's reference teal, the falling range
+under the colourblind-safe `blue-orange` palette landed on an olive-grey whose
+red channel led by *one*. Vapour's magenta was worse — it is a red-and-blue
+colour with almost no green, so it flattens *rising* bars, and hand-picked
+violets came out at margins of 6 and 1. Both moods give up the reference colour
+here and carry their identity in `groundLine` and the sky instead;
+`candleColour.test.ts` now pins a minimum hue margin so the next one fails
+loudly. Cobalt is the same story in blue: the deep royal blues its reference is
+made of fail the range invariants outright, so it ships a slate.
 
 **Theme selection UI**: the settings screen presents a single **"mood"
 picker** that sets `visuals.theme` and `audio.theme` together, so the

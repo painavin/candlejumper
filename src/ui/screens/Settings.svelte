@@ -900,8 +900,9 @@
     </label>
     <p class="note">
       One pick sets both the visuals and the music, and the world behind this panel
-      changes to match. Everything is generated at runtime from parameters — there
-      are no art or audio files, so a new mood is just another set of numbers.
+      changes to match. Every visual is generated at runtime from parameters, so a new
+      look is just another set of numbers. A mood may also bring its own background
+      track; the rest of the sound is synthesized as you play.
     </p>
 
     <details>

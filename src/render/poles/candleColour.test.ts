@@ -80,6 +80,44 @@ describe('rangeColour', () => {
     }
   })
 
+  it('keeps the direction hue by a margin, not by a single channel step', () => {
+    /**
+     * The gap the test above cannot see. `dominant` is a strict maximum, so it is
+     * satisfied by a lead of one — and a range whose leading channel wins by one is a
+     * grey that happens to round the right way, not a colour reporting a direction.
+     *
+     * Found while adding `neon`: at the reference image's full-strength grid teal, the
+     * falling range under `blue-orange` came out `#747360`, red ahead by exactly 1.
+     * Every assertion here passed. The mood was desaturated instead, and this exists so
+     * the next saturated neutral fails a test rather than shipping a chart whose losses
+     * are olive.
+     *
+     * `blue-orange` is the palette that matters most here, being the one chosen for a
+     * colour-vision difference, and it is also the weaker of the two: orange and a teal
+     * neutral sit far closer than red does.
+     */
+    const MIN_HUE_MARGIN = 10
+    /** Leading channel minus runner-up, in 0..255 — how decisively the hue holds. */
+    const hueMargin = (colour: number): number => {
+      const sorted = [(colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff].sort(
+        (a, b) => b - a
+      )
+      return (sorted[0] as number) - (sorted[1] as number)
+    }
+    for (let i = 0; i < visualThemes.length; i++) {
+      const id = (visualThemes[i] as (typeof visualThemes)[number]).id
+      for (const pnl of ['red-green', 'blue-orange']) {
+        const palette = paletteFor(i, pnl)
+        for (const direction of ['up', 'down'] as const) {
+          expect(
+            hueMargin(rangeColour(direction, palette)),
+            `${id} ${pnl} ${direction} range is nearly neutral`
+          ).toBeGreaterThanOrEqual(MIN_HUE_MARGIN)
+        }
+      }
+    }
+  })
+
   it('is less saturated than the body it belongs to', () => {
     // Otherwise the range competes with the body, and the body is the part you read
     // an actual price off.

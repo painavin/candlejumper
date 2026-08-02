@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { jollyTheme, seriousTheme } from '@content/visualThemes/index.js'
+import { MOTIF_KINDS } from '@shared/contracts/index.js'
+import type { MotifKind } from '@shared/contracts/index.js'
 import { deriveSeed } from '@shared/math/index.js'
 import { generateClouds, generateHeightfield, generateMotifs } from './heightfield.js'
 import { createValueNoise2D, fbm } from './noise.js'
@@ -139,20 +141,126 @@ describe('generateClouds', () => {
 })
 
 describe('generateMotifs', () => {
-  it('keeps railings upright and lets grass lean', () => {
-    const railings = generateMotifs({ motif: 'railing', density: 8 }, 2)
-    const grass = generateMotifs({ motif: 'grass', density: 8 }, 2)
-    expect(railings.every((placement) => placement.lean === 0)).toBe(true)
-    expect(grass.some((placement) => placement.lean !== 0)).toBe(true)
+  /** A seed whose motif pick is the kind wanted, found by scanning. */
+  const seedFor = (want: MotifKind): number => {
+    for (let seed = 1; seed < 5000; seed++) {
+      if (generateMotifs({ densityScale: 1 }, seed).motif === want) return seed
+    }
+    throw new Error(`no seed produced ${want} — the pick is not reaching every kind`)
+  }
+
+  it('picks one motif per world, and can reach every kind', () => {
+    /**
+     * The point of choosing here rather than in the theme. One kind per strip: a strip
+     * mixing trees with grass and rocks reads as clutter, and it would make every mood
+     * look alike in this layer.
+     *
+     * Scanning for reachability also guards the pick itself — an off-by-one in `pick`
+     * that never returned the last element would otherwise be invisible.
+     */
+    const seen = new Set<MotifKind>()
+    for (let seed = 1; seed <= 2000; seed++) seen.add(generateMotifs({ densityScale: 1 }, seed).motif)
+    expect([...seen].sort()).toEqual([...MOTIF_KINDS].sort())
   })
 
-  it('gives each motif kind its own stream', () => {
-    const grass = generateMotifs({ motif: 'grass', density: 6 }, 4)
-    const leaves = generateMotifs({ motif: 'leaves', density: 6 }, 4)
-    expect(grass.map((p) => p.x)).not.toEqual(leaves.map((p) => p.x))
+  it('gives the same world the same motif every time', () => {
+    // The determinism requirement: theme + seed must always produce an identical world.
+    for (const seed of [7, 1234, 99999]) {
+      const first = generateMotifs({ densityScale: 1 }, seed)
+      const second = generateMotifs({ densityScale: 1 }, seed)
+      expect(second.motif).toBe(first.motif)
+      expect(second.placements).toEqual(first.placements)
+    }
   })
 
-  it('snapshots the jolly grass placement', () => {
+  it('keeps the upright kinds upright, and lets the bladed ones lean', () => {
+    // A tree or conifer at a tilt has fallen over, and a bush or rock has no stem for a
+    // lean to mean anything about. Only the bladed kinds gain from it.
+    for (const motif of ['trees', 'conifer', 'bushes', 'rocks'] as const) {
+      const field = generateMotifs({ densityScale: 1 }, seedFor(motif))
+      expect(field.placements.every((placement) => placement.lean === 0), motif).toBe(true)
+    }
+    for (const motif of ['grass', 'leaves', 'reeds'] as const) {
+      const field = generateMotifs({ densityScale: 1 }, seedFor(motif))
+      expect(field.placements.some((placement) => placement.lean !== 0), motif).toBe(true)
+    }
+  })
+
+  it('never scales a motif past the strip height, whatever the kind', () => {
+    /**
+     * The ceiling that stops motifs being clipped. A motif is drawn upward from the
+     * strip's bottom edge, so a scale above 1 is cut off by the texture — it used to be
+     * 1.35, which sliced the top off roughly a third of every layer. That was invisible
+     * on grass blades, whose tips simply come out blunt, and unmissable on trees, which
+     * come out with flat-topped canopies.
+     */
+    for (const motif of MOTIF_KINDS) {
+      const field = generateMotifs({ densityScale: 2 }, seedFor(motif))
+      for (const placement of field.placements) {
+        expect(placement.scale, motif).toBeGreaterThan(0)
+        expect(placement.scale, motif).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
+  it('spreads sizes widely enough to read as a scatter, not one repeated object', () => {
+    // The depth cue only works if near and far ones differ. A range clustered near the
+    // top of the strip looks like a fence of identical objects.
+    const field = generateMotifs({ densityScale: 2 }, seedFor('trees'))
+    const scales = field.placements.map((placement) => placement.scale)
+    expect(Math.min(...scales)).toBeLessThan(0.45)
+    expect(Math.max(...scales)).toBeGreaterThan(0.88)
+  })
+
+  it('varies the part count across 2 to 5', () => {
+    // What stops every tree being the same tree, every bush the same bush. Bounds matter
+    // both ways: below two a canopy is a lollipop, above five the parts stop being
+    // individually visible at this strip height.
+    const counts = new Set<number>()
+    for (let seed = 1; seed <= 200; seed++) {
+      for (const placement of generateMotifs({ densityScale: 2 }, seed).placements) {
+        counts.add(placement.lobes)
+      }
+    }
+    for (const count of counts) {
+      expect(Number.isInteger(count)).toBe(true)
+      expect(count).toBeGreaterThanOrEqual(2)
+      expect(count).toBeLessThanOrEqual(5)
+    }
+    expect(counts.size).toBe(4)
+  })
+
+  it("scales density from the motif's own default, not from a shared count", () => {
+    /**
+     * 26 is a pleasant scatter of grass and a solid wall of trees, so a plain per-theme
+     * count cannot survive the motif being chosen by the seed. The multiplier is what
+     * lets a mood be sparser than another without knowing which shape it will get.
+     */
+    const grassSeed = seedFor('grass')
+    const sparse = generateMotifs({ densityScale: 0.5 }, grassSeed).placements.length
+    const normal = generateMotifs({ densityScale: 1 }, grassSeed).placements.length
+    expect(sparse).toBeLessThan(normal)
+    // Trees come out far fewer than grass at the same scale, which is the whole reason
+    // the base density is per kind.
+    const trees = generateMotifs({ densityScale: 1 }, seedFor('trees')).placements.length
+    expect(trees).toBeLessThan(normal)
+  })
+
+  it('clamps density so a mood cannot bury the poles being traded', () => {
+    // This layer crosses the character; sparseness is a hard requirement, not a taste.
+    const seed = seedFor('trees')
+    const asked = generateMotifs({ densityScale: 50 }, seed).placements.length
+    const capped = generateMotifs({ densityScale: 2 }, seed).placements.length
+    expect(asked).toBe(capped)
+  })
+
+  it('survives a nonsense density rather than generating NaN placements', () => {
+    const field = generateMotifs({ densityScale: Number.NaN }, 5)
+    expect(field.placements.length).toBeGreaterThan(0)
+    expect(generateMotifs({ densityScale: -3 }, 5).placements).toEqual([])
+  })
+
+  it('snapshots the jolly foreground field', () => {
     expect(generateMotifs(jollyTheme.foreground, 42)).toMatchSnapshot()
   })
 })

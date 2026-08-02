@@ -1,8 +1,12 @@
 import type { AudioTheme } from './types.js'
 
 /**
- * Two moods. Adding a third is another object of this size — no engine changes and
- * no audio production.
+ * Five moods. Adding a sixth is another object of this size — no engine changes, and
+ * no audio production *unless* it wants a composed bed: a theme may ship
+ * `public/midi/<id>.mid`, which replaces the generated bed with a sequenced one. Every
+ * bundle below still defines a full generated bed, because that is what plays when the
+ * file is absent or fails to load, and a mood whose fallback is silence turns a network
+ * hiccup into a bug report.
  *
  * The rule that shapes both: **`stoppedOut` must be deliberately different from
  * `positionClosed.loss`.** A triggered stop should *feel* different from a
@@ -168,7 +172,202 @@ export const seriousAudioTheme: AudioTheme = {
   },
 }
 
-export const audioThemes: readonly AudioTheme[] = [jollyAudioTheme, seriousAudioTheme]
+/**
+ * Neon: cold, wide, unhurried. The counterpart to the near-black visual mood.
+ *
+ * The bed here is a **fallback**, not the intended sound — `public/midi/neon.mid`
+ * replaces it whenever the file loads. It still has to be right, because it is what
+ * plays if the fetch fails, and a theme whose fallback is silence would turn a network
+ * hiccup into a bug report. That is also why these three themes exist at all as full
+ * bundles: the mood picker lists ids present in *both* registries, so a visuals-only
+ * theme is unreachable from it however good its track is.
+ */
+export const neonAudioTheme: AudioTheme = {
+  id: 'neon',
+  displayName: 'Neon',
+  bed: {
+    // i–v–VI–IV in D minor: circular rather than resolving, which is what lets a long
+    // chord sit without asking to move on.
+    progression: [
+      ['D2', 'F2', 'A2'],
+      ['A2', 'C3', 'E3'],
+      ['Bb2', 'D3', 'F3'],
+      ['G2', 'Bb2', 'D3'],
+    ],
+    instrument: 'pad',
+    register: 3,
+    noteRateRange: [2.2, 4.6],
+    // The heaviest drone of any mood: this one is nearly all foundation.
+    droneLevel: 0.72,
+    noteOverlap: 2,
+    reverbSend: 0.72,
+    delaySend: 0.4,
+    chordSeconds: 14,
+  },
+  sonification: {
+    // Dorian-flavoured pentatonic — minor without the leading-tone pull, so a long
+    // run of up-moves does not start sounding like it wants to land somewhere.
+    scale: ['D3', 'F3', 'G3', 'A3', 'C4', 'D4', 'F4', 'G4'],
+    instrument: 'bell',
+    volume: -15,
+  },
+  stingers: {
+    positionOpened: { voice: 'bell', notes: ['D5'], step: 0.05, duration: '32n', volume: -14 },
+    positionIncreased: { voice: 'bell', notes: ['A5'], step: 0.04, duration: '32n', volume: -18 },
+    'positionClosed.profit': {
+      voice: 'bell',
+      notes: ['D5', 'A5', 'D6'],
+      step: 0.07,
+      duration: '16n',
+      volume: -12,
+    },
+    'positionClosed.loss': {
+      voice: 'tone',
+      notes: ['F3', 'D3'],
+      step: 0.13,
+      duration: '4n',
+      volume: -13,
+    },
+    stoppedOut: { voice: 'buzz', notes: ['Db3', 'Db3'], step: 0.12, duration: '8n', volume: -8 },
+    actionDenied: { voice: 'thud', notes: ['D2'], step: 0.04, duration: '32n', volume: -19 },
+  },
+}
+
+/**
+ * Vapour: bright, saturated, plastic. Loud where `neon` is wide.
+ *
+ * `pulse` is present, so the fallback bed is **metered** rather than ambient — the
+ * visual mood is the most energetic of the five and an ambient drone under it would
+ * read as a mismatch. Same reason `jolly` has one: meter is what a bed needs to be
+ * anything other than atmospheric.
+ */
+export const vapourAudioTheme: AudioTheme = {
+  id: 'vapour',
+  displayName: 'Vapour',
+  bed: {
+    // I–III–IV–iv: the major-third lift, then a minor-fourth shadow. Bright and slightly
+    // wrong, which is the whole idea.
+    progression: [
+      ['F2', 'A2', 'C3', 'E3'],
+      ['A2', 'Db3', 'E3'],
+      ['Bb2', 'D3', 'F3'],
+      ['Bb2', 'Db3', 'F3'],
+    ],
+    instrument: 'pluck',
+    register: 4,
+    noteRateRange: [0.6, 1.8],
+    droneLevel: 0.2,
+    noteOverlap: 1.5,
+    reverbSend: 0.34,
+    delaySend: 0.26,
+    chordSeconds: 8,
+    pulse: {
+      tempo: 118,
+      // Straighter than jolly: this mood is meant to drive rather than skip.
+      swing: 0.12,
+      barsPerChord: 2,
+      // Root on every beat with an octave push between — a four-on-the-floor bass.
+      bassPattern: [0, -1, 0, 2, 0, -1, 0, 1],
+      // Stabs on every off-beat, which against that bass is the genre's whole rhythm.
+      stabPattern: [0, 1, 0, 1, 0, 1, 0, 1],
+      melodyPattern: [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+      phraseBars: 4,
+      levels: { bass: 0.6, stabs: 0.34, melody: 0.44 },
+    },
+  },
+  sonification: {
+    // Major pentatonic, high: the brightest scale of the five, to match the palette.
+    scale: ['F4', 'G4', 'A4', 'C5', 'D5', 'F5', 'G5', 'A5'],
+    instrument: 'bell',
+    volume: -14,
+  },
+  stingers: {
+    positionOpened: { voice: 'pluck', notes: ['F5', 'C6'], step: 0.06, duration: '16n', volume: -12 },
+    positionIncreased: { voice: 'pluck', notes: ['C6'], step: 0.04, duration: '32n', volume: -16 },
+    'positionClosed.profit': {
+      voice: 'bell',
+      notes: ['F5', 'A5', 'C6', 'F6'],
+      step: 0.06,
+      duration: '16n',
+      volume: -10,
+    },
+    'positionClosed.loss': {
+      voice: 'tone',
+      notes: ['Db4', 'Bb3'],
+      step: 0.11,
+      duration: '8n',
+      volume: -13,
+    },
+    stoppedOut: { voice: 'buzz', notes: ['Eb3', 'Eb3'], step: 0.11, duration: '8n', volume: -7 },
+    actionDenied: { voice: 'thud', notes: ['F2'], step: 0.04, duration: '32n', volume: -18 },
+  },
+}
+
+/**
+ * Cobalt: clean and neutral, the quiet one.
+ *
+ * Deliberately the least characterful bundle of the five. The visual mood is a
+ * presentation chart rather than a landscape, and a sound design with opinions would
+ * fight that — this is the mood for someone who wants the game to look and sound like
+ * an instrument. Its stingers are the driest here for the same reason.
+ */
+export const cobaltAudioTheme: AudioTheme = {
+  id: 'cobalt',
+  displayName: 'Cobalt',
+  bed: {
+    // I–V–vi–IV in C, the plainest progression available, at a slow turn.
+    progression: [
+      ['C3', 'E3', 'G3'],
+      ['G2', 'B2', 'D3'],
+      ['A2', 'C3', 'E3'],
+      ['F2', 'A2', 'C3'],
+    ],
+    instrument: 'pad',
+    register: 3,
+    noteRateRange: [1.8, 4],
+    droneLevel: 0.54,
+    noteOverlap: 1.7,
+    // The driest of the five: reverb is atmosphere, and this mood has none on purpose.
+    reverbSend: 0.3,
+    delaySend: 0.14,
+    chordSeconds: 11,
+  },
+  sonification: {
+    // Plain major pentatonic in the middle of the range — the most neutral option that
+    // still cannot sound dissonant.
+    scale: ['C4', 'D4', 'E4', 'G4', 'A4', 'C5', 'D5', 'E5'],
+    instrument: 'bell',
+    volume: -16,
+  },
+  stingers: {
+    positionOpened: { voice: 'tone', notes: ['C5'], step: 0.04, duration: '32n', volume: -17 },
+    positionIncreased: { voice: 'tone', notes: ['G4'], step: 0.04, duration: '32n', volume: -20 },
+    'positionClosed.profit': {
+      voice: 'pluck',
+      notes: ['C5', 'G5'],
+      step: 0.08,
+      duration: '16n',
+      volume: -13,
+    },
+    'positionClosed.loss': {
+      voice: 'tone',
+      notes: ['G3', 'D3'],
+      step: 0.12,
+      duration: '4n',
+      volume: -14,
+    },
+    stoppedOut: { voice: 'buzz', notes: ['B2', 'B2'], step: 0.14, duration: '8n', volume: -8 },
+    actionDenied: { voice: 'thud', notes: ['C2'], step: 0.04, duration: '32n', volume: -20 },
+  },
+}
+
+export const audioThemes: readonly AudioTheme[] = [
+  jollyAudioTheme,
+  seriousAudioTheme,
+  neonAudioTheme,
+  vapourAudioTheme,
+  cobaltAudioTheme,
+]
 
 export function audioTheme(id: string): AudioTheme {
   return audioThemes.find((theme) => theme.id === id) ?? jollyAudioTheme

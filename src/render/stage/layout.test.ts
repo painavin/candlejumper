@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeLayout, unitToY } from './layout.js'
+import { computeLayout, foregroundTop, unitToY } from './layout.js'
 
 describe('computeLayout', () => {
   it('derives bar width from the playfield, not the viewport', () => {
@@ -68,5 +68,45 @@ describe('unitToY', () => {
   it('increases upward, since screen y grows downward', () => {
     const layout = computeLayout(1200, 800, 60)
     expect(unitToY(0.8, layout)).toBeLessThan(unitToY(0.2, layout))
+  })
+})
+
+describe('foregroundTop', () => {
+  const STRIP = 104
+
+  it('sits the strip on the ground line, not the bottom of the viewport', () => {
+    /**
+     * The bug this exists for. With a sub-pane open, `groundY` is roughly 40% of the
+     * chart area above `height`, so anchoring to the viewport drops the whole
+     * occlusion layer below the instrument panes — dark shapes along the bottom of the
+     * screen, occluding nothing, nowhere near the character.
+     */
+    const layout = computeLayout(1200, 800, 60, 1)
+    expect(foregroundTop(layout, STRIP)).toBe(layout.groundY - STRIP)
+    expect(foregroundTop(layout, STRIP)).toBeLessThan(layout.height - STRIP)
+  })
+
+  it('never matches the viewport bottom, not even with no pane open', () => {
+    /**
+     * Worth pinning, because it is stronger than the bug looked. `GROUND_MARGIN`
+     * already holds the ground line clear of the viewport edge, so anchoring the strip
+     * to `height` was wrong in *every* configuration — subtly by that margin with no
+     * pane, and by the whole 40% pane budget with one. Nothing about "no panes open"
+     * made the old code correct; it just made it less visibly wrong.
+     */
+    const bare = computeLayout(1200, 800, 60, 0)
+    expect(bare.groundY).toBeLessThan(bare.height)
+    expect(foregroundTop(bare, STRIP)).toBeLessThan(bare.height - STRIP)
+
+    const withPane = computeLayout(1200, 800, 60, 1)
+    // And the gap widens sharply once a pane takes its share.
+    expect(bare.groundY - withPane.groundY).toBeGreaterThan(100)
+  })
+
+  it('puts the strip bottom exactly where a unit-0 bar rests', () => {
+    // The motifs are baked with their bases on the texture's bottom edge, so this is
+    // what makes them stand on the same line the poles do.
+    const layout = computeLayout(1400, 900, 60, 2)
+    expect(foregroundTop(layout, STRIP) + STRIP).toBe(unitToY(0, layout))
   })
 })

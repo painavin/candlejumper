@@ -24,7 +24,8 @@ Each of those is a directory boundary below, backed by an ESLint rule.
 ```
 candlejumper/
 ├── docs/            these planning docs
-├── public/          the web font; the only binary asset in the build
+├── public/          copied into the build verbatim: the web font, the datasets,
+│                    the MIDI tracks, and staticwebapp.config.json
 ├── src/             everything the app is made of, data included (see below)
 ├── src-tauri/       Tauri desktop shell (step 11)
 ├── android/         Capacitor Android project (step 11)
@@ -33,8 +34,27 @@ candlejumper/
 
 Plus the root configs: `eslint.config.js` carries the import-zone rules and the
 `Math.random()` ban, `eslint.zones.js` holds the dependency table both the lint
-config and `src/app/architecture.test.ts` read, and `vite.config.ts` declares
-the app build and the separate plugin-worker entry.
+config and `src/app/architecture.test.ts` read, `vite.config.ts` declares the app
+build and the separate plugin-worker entry, and `.gitattributes` declares the
+binary file types so no line-ending conversion can corrupt them.
+
+### What goes in `public/`
+
+`public/` is **shipped and served**: Vite copies it into `dist/` verbatim, so
+everything in it reaches the deploy with a stable URL. Three things live there, and
+each needs to be fetchable rather than imported:
+
+- `datasets/` — the OHLCV data plus its manifest, fetched per ticker when played.
+- `midi/` — one background track per audio theme, fetched when a run starts. See
+  [audio.md](./audio.md#composed-tracks-from-midi) for why these are served rather
+  than converted into note arrays at build time: MIDI is already the compact form, and
+  baking measured 3× larger gzipped plus 261 kB of generated TypeScript.
+- `staticwebapp.config.json` — the cache headers for both, which has to be inside the
+  deployed artifact because the workflow uploads `dist/` as the app.
+
+There is deliberately **no source-asset directory**. A root `assets/` existed briefly
+for the MIDI while the plan was to bake it into `content/`; when measurement reversed
+that, the folder had no occupant and was deleted rather than kept empty.
 
 **The bundled price data lives in `public/datasets/`, and `scripts/` holds the
 one script that maintains it.** It sat at the repo root first, then inside

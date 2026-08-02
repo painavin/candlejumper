@@ -227,16 +227,24 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 
 | Key | Description | Default |
 |---|---|---|
-| `audio.theme` | Selected audio theme **parameter set** — chord progression, synth recipes, and scale for all three channels, synthesized at runtime (no audio files). See [audio.md](./audio.md#audio-themes) | `jolly` |
+| `audio.theme` | Selected audio theme **parameter set** — chord progression, synth recipes, and scale for all three channels, synthesized at runtime; a theme may also ship a background track at `public/midi/<id>.mid`. See [audio.md](./audio.md#audio-themes) | `jolly` |
 | `audio.masterVolume` | Overall volume | 1.0 |
-| `audio.musicVolume` / `audio.musicMuted` | Ambient bed (channel 1), independent of theme | 0.6 / false |
-| `audio.sfxVolume` / `audio.sfxMuted` | Sonification + stingers (channels 2–3), independent of theme | 0.8 / false |
+| `audio.musicVolume` / `audio.musicMuted` | Music bed (channel 1), independent of theme. Defaults **well below** sfx — see the note under the table | 0.42 / false |
+| `audio.sfxVolume` / `audio.sfxMuted` | Sonification + stingers (channels 2–3), independent of theme | 0.9 / false |
 
 `audio.theme` and `visuals.theme` are separate keys, but the settings UI
 presents a single **"mood" picker** that sets both together — one coherent
 choice by default, with the two keys still independently editable for
 anyone who wants to mix them. See
 [visuals.md](./visuals.md#visual-themes).
+
+**Why music defaults so far under effects.** Channel 2 is the feature that makes
+price movement audible, and it is one tone per bar arguing with a bed of anywhere
+from two to ten simultaneous voices. The old 0.6/0.8 split — about 2.5 dB — let a
+composed track mask it outright and left even the generated bed borderline. ~6.5 dB
+of headroom is what makes a single bell legible over an arrangement. Both are live
+sliders excluded from the run fingerprint, so this only affects a first run; a stored
+value wins.
 
 ## Data
 

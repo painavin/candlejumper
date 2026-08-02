@@ -126,3 +126,18 @@ export function computeLayout(
 export function unitToY(unit: number, layout: Layout): number {
   return layout.groundY - unit * layout.chartHeight
 }
+
+/**
+ * Top edge of the foreground occlusion strip, given how tall it is.
+ *
+ * A one-line function with a test because getting it wrong is invisible: the strip's
+ * motifs are baked with their bases on the texture's bottom edge, so its bottom must
+ * land on `groundY`. Using `height` instead is identical whenever no sub-pane is open
+ * and silently wrong the moment one is — the strip drops below the instrument panes,
+ * where it occludes nothing and reads as a row of dark boxes along the bottom of the
+ * screen. That shipped, and no test could see it because the layer that used the wrong
+ * value needs a live renderer.
+ */
+export function foregroundTop(layout: Layout, stripHeight: number): number {
+  return layout.groundY - stripHeight
+}

@@ -37,8 +37,43 @@ export interface CloudParams {
   scale: number
 }
 
+/**
+ * The foreground silhouettes, in the order the seeded pick sees them.
+ *
+ * Ground cover (`grass`, `leaves`, `reeds`, `rocks`) sits low and adds weight near the
+ * ground line; the upright kinds (`trees`, `conifer`, `bushes`) are tall enough to cross
+ * the character, which is what makes the layer an occlusion cue rather than decoration.
+ *
+ * All seven come off the same placement list — only the shape differs — so adding one is
+ * a name here, a branch in `bakeMotifs`, and a base density. There was a `railing` of
+ * plain upright posts; it is gone, because on a dark scene a row of dark posts reads as
+ * a black bar rather than as occlusion.
+ */
+export const MOTIF_KINDS = [
+  'grass',
+  'leaves',
+  'reeds',
+  'rocks',
+  'bushes',
+  'trees',
+  'conifer',
+] as const
+
+export type MotifKind = (typeof MOTIF_KINDS)[number]
+
 export interface MotifParams {
-  motif: 'grass' | 'leaves' | 'railing'
-  /** Motifs per tile width. */
-  density: number
+  /**
+   * How dense this mood wants its foreground, as a **multiple of the chosen motif's
+   * own default** — 1 leaves it alone.
+   *
+   * A plain count cannot work now that the motif is picked per world: 26 is a pleasant
+   * scatter of grass and a solid wall of trees. So the count comes from the motif and
+   * this only nudges it, which keeps a mood able to be sparser or busier than another
+   * without having to know which shape it will get.
+   *
+   * Sparseness has a hard reason rather than a stylistic one — this layer crosses the
+   * character and must never hide a pole being traded — so the scale is clamped well
+   * below anything that would crowd the strip.
+   */
+  densityScale: number
 }

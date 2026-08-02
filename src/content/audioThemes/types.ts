@@ -1,6 +1,12 @@
 /**
- * An audio theme is a **parameter set, not an asset bundle** — every sound is
- * synthesized by Tone.js at runtime, so there are no audio files at all.
+ * An audio theme is a **parameter set** — every sound is synthesized by Tone.js at
+ * runtime, so no theme ships a recording.
+ *
+ * One exception, and it is the music bed only: a theme may ship a composed MIDI file
+ * in `public/midi/<id>.mid`, which replaces the generated bed with a sequenced one.
+ * MIDI carries notes rather than audio, so the synths below are still what makes the
+ * sound — but the file is an asset, and pretending otherwise would be a lie in a
+ * comment. Channels 2 and 3 are always synthesized from the recipes here.
  *
  * A theme defines content for **all three channels at once**, so switching mood
  * never leaves them mismatched (a jolly bed under a harsh trading-floor stinger).

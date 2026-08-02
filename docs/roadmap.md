@@ -18,7 +18,7 @@ resolved defaults and each system doc for its rationale.
    keep the trading engine free of any PixiJS/DOM imports so it stays
    unit-testable headless. Bundle the first OHLCV dataset
    ([data-sources.md](./data-sources.md)). No asset pipeline is needed —
-   there are no art or audio files.
+   there are no art files, and no recorded audio.
    - **0a. Screen layout wireframe — done.** Composed wireframes for
      landscape and portrait live in
      [hud.md](./hud.md#screen-layout). They already surfaced three real
