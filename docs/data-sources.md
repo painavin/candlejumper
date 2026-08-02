@@ -76,37 +76,153 @@ representation end to end and no remapping layer. Pole height and fills use
 **`t` is epoch seconds, not milliseconds** — see the note in
 [indicators.md](./indicators.md#shared-types).
 
-## Bundled dataset
+## Bundled datasets
 
-Three tickers ship in [`src/data/datasets/`](../src/data/datasets), each ~2 years of daily bars
-(2024-08 → 2026-07). They were chosen — and verified — to cover **three
-genuinely different market regimes**, so the starter set teaches distinct
-pattern-recognition lessons rather than three variations of one shape:
+644 series ship in [`public/datasets/`](../public/datasets) — 643 daily and one
+30-minute — each covering that ticker's full available history rather than a
+window. They are **gzipped static files served from the site's own origin**,
+fetched and inflated at runtime. No API keys, no rate limits, and the same series
+every time, which matters more than it first appears: personal-best comparison
+needs a ticker to play identically on every run.
 
-| File | Bars | Net | Close range | Regime |
-|---|---|---|---|---|
-| `AAPL.Daily.json` | 478 | **+41.6%** | 172.42 – 333.74 | Uptrend with a deep mid-run drawdown and recovery — teaches holding through noise |
-| `MSFT.Daily.json` | 480 | **−8.2%** | 352.83 – 542.07 | Choppy and range-bound with a wide swing — teaches that a flat net result can hide large moves |
-| `NKE.Daily.json` | 480 | **−50.9%** | 40.75 – 89.44 | Sustained downtrend — teaches not averaging into a falling knife, and is the natural short-side series |
+### No dataset is special
 
-Verified properties of all three: timestamps strictly monotonic, no null or
-zero prices, `h >= l` on every bar, and no single-bar move beyond ~15.5%.
-`src/data/validate.ts` restates every one of them as code, so a *downloaded*
-series is held to exactly the same standard.
+Every file is offered on identical terms and named from its own file name. There
+used to be a curated set of three — AAPL for an uptrend, MSFT for chop, NKE for a
+downtrend — with a hand-written regime description each. That was a good idea at
+three datasets and became 641 anonymous ones the moment the set grew, so the
+descriptions are gone. The three are all still in the set; they are simply no
+longer privileged.
 
-**Where they live**: under `src/data/datasets/`, not at the repo root. Keeping
-them outside `src/` would leave one file permanently exempt from the
-import-zone rules — see
-[code-structure.md](./code-structure.md#top-level).
+### A file name declares its series
 
-**On adjustment**: that last check is the practical split test. An
-unadjusted 4:1 split would appear as a ~75% single-bar crash, and the game
-would teach a pattern that never happened — the largest moves present
-(+15.3% on AAPL and +10.1% on MSFT on the same date, a market-wide event;
-−15.5% on NKE) are all plausible real moves, so there are no unadjusted
-split artifacts in this window. `TickerMeta.adjusted` records the claim
-explicitly, and any future source must state it rather than leaving it
-implied. Day gaps of 1–4 days are just weekends and market holidays.
+`AAPL.Daily.json` is `AAPL@1d`; `UVIX.Mins30.json` is `UVIX@30m`. A symbol and an
+interval together name a series — the same composite id the downloaded library
+uses — because one ticker can be held at several intervals and they are genuinely
+different series.
+
+The interval comes from the **file name**, not from `inferInterval`. The name is a
+declaration, and preferring a guess over it would let a mislabelled file play as
+something else. A token this build doesn't recognise is dropped from the catalogue
+rather than assumed daily: the interval sets the split tolerance, so guessing is how
+a monthly series gets rejected for a move that is ordinary over a month.
+
+### The manifest, and why it exists
+
+[`public/datasets/manifest.json`](../public/datasets/manifest.json) lists every file
+with its bar count and first and last bar time — about 60 kB, one line per dataset.
+`listTickers` reads that and nothing else.
+
+It exists because the catalogue used to be built by **loading every dataset** to
+count its bars. At three files that was invisible. At 644 it meant 64 MB downloaded
+before the title screen appeared, three and a half million bar objects retained for
+the session, and a 4 GB Node heap exhausted by the test that called `listTickers`.
+
+Regenerate it after adding, removing, or refreshing a dataset:
+
+```
+npm run datasets
+```
+
+That script also compresses. Drop in either `SYMBOL.Interval.json` or an
+already-gzipped `.json.gz`; plain JSON is minified, gzipped, and the original
+removed, so what ships is only ever the compressed form. It is a script rather than a
+build step because the data is static — reparsing 242 MB on every `vite build` and
+every CI run would be pure waste — and `data.test.ts` checks the manifest agrees with
+the files so a forgotten run fails a test instead of shipping.
+
+### Gzipped for the deploy, not for the download
+
+| | On disk | Per ticker (XOM, 6,886 bars) |
+|---|---|---|
+| Pretty-printed JSON | 385 MB | 754 kB |
+| Minified JSON | 242 MB | 472 kB |
+| **Gzipped, as shipped** | **63 MB** | **123 kB** |
+
+The host already compresses text responses in flight, so a plain dataset was arriving
+as ~123 kB either way — the browser has always been downloading these zipped. What
+changes is **bytes on disk**, and that is what a static-site size cap measures. The
+whole deploy goes from 245 MB, sitting exactly on the Azure Free tier's 250 MB
+ceiling, to 65 MB with room to grow.
+
+Two things this settled that were open questions:
+
+- **A columnar record format is not worth it.** Array-of-arrays saves 34% uncompressed
+  and 13 kB of 123 once gzipped, because gzip was already eliminating the repeated key
+  names the format change was for.
+- **Brotli is not worth it either**, though it is another 25% smaller.
+  `DecompressionStream` has no brotli, so it would mean a wasm decoder in the bundle —
+  defeating the point — or a `Content-Encoding` header, which cannot be tested before
+  it is deployed and fails as binary garbage.
+
+Inflating happens in `jsonFromBytes`, which **sniffs the gzip magic number rather than
+trusting the file extension**. That is the defence that matters: a CDN which recognises
+`.gz` and helpfully decodes it, setting `Content-Encoding` so the browser inflates
+first, would hand over plain JSON under a `.gz` name — and an unconditional inflate
+would then fail on every dataset with an error pointing nowhere near the cause. Gzip is
+self-describing, so the bytes get asked. Both paths are tested.
+
+### Why served, not bundled
+
+They used to be imported through a lazy `import.meta.glob`, which did split them into
+one chunk each. Serving them instead buys three things:
+
+- **The manifest becomes possible.** A `public/` file has a stable URL; a bundled
+  chunk has a hashed name only the bundler knows.
+- **The build stops pretending they are code.** 657 chunks became 14, and the build
+  went from 1.6s to under 600ms.
+- **It costs nothing in bytes.** Rolldown emitted each dataset as `JSON.parse("…")`
+  inside a JS module, so a minified `.json` is the same payload without the wrapper —
+  471.8 kB against 472 kB for XOM.
+- **It makes storing them compressed possible at all.** A bundler will not serve you
+  opaque bytes under a name you chose; a static file will.
+
+The cost is that `public/` names are not content-hashed, and a refreshed dataset
+reuses its name with different contents. That is a real hazard, not a theoretical
+one: the run fingerprint keys on bar count and last bar time taken from the
+*manifest*, so a client holding a stale dataset behind a fresh manifest would file
+runs under a bucket describing a series it isn't playing. So every dataset request
+carries `?v=<lastBarTime>`, which changes whenever the contents do — which in turn is
+what makes the year-long `cache-control` in
+[`public/staticwebapp.config.json`](../public/staticwebapp.config.json) safe. The
+manifest itself gets five minutes and `must-revalidate`, because it is the index and
+has to reflect an added ticker.
+
+### On adjustment, and the check that had to go
+
+Every bundled export is adjusted, and `TickerMeta.adjusted` records that claim
+explicitly rather than leaving it implied.
+
+The **split heuristic does not run on this source.** It exists to catch unverified
+data — a hand-fetched URL, an imported CSV — where an unadjusted 4:1 split appears as
+a 75% single-bar crash and the game would teach a pattern that never happened. It
+cannot survive contact with full market history, because the quantity it measures
+does not separate the two cases:
+
+| Dataset | Largest single-bar move | Date | What it is |
+|---|---|---|---|
+| `SVXY` | −83.0% | 2018-02-06 | Volmageddon. Real, and one of the most instructive bars in the set |
+| `MS` | +87.0% | 2008-10-13 | Morgan Stanley's crisis rally. Real |
+| `INSM` | +119.6% | 2017-09-05 | Biotech trial result. Real |
+| `AAPL` | −51.9% | 2000-09-29 | Apple's earnings warning. Real |
+| `DFEN` | +184.5% | 2024-06-04 | Leveraged ETF reverse split. An artifact |
+
+An unadjusted 2:1 split is 50%. Apple's real crash is 51.9%. One number, two
+meanings. Applied at the daily threshold, **66 of the 644 datasets** would be listed
+and then refuse to load — a ticker you can pick and cannot play, which is worse than
+either alternative.
+
+So the threshold moved from load time to index time. `npm run datasets` prints every
+dataset whose largest single-bar move exceeds it, and that list gets reviewed by
+someone who can tell a crisis rally from a reverse split; dropping a file removes it
+from the game. Leveraged ETFs reverse-split often and are the usual artifacts, while
+single names at 50–120% are usually real.
+
+Every **structural** check still runs on load: strictly increasing timestamps,
+positive prices, `h >= l` on every bar. Those catch corruption, and corruption is
+what a load-time check can actually decide. `src/data/validate.ts` restates them as
+code, and a *downloaded* series is still held to the split test as well — it has not
+been reviewed by anyone.
 
 ## Downloading and importing
 

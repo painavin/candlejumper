@@ -36,11 +36,13 @@ Plus the root configs: `eslint.config.js` carries the import-zone rules and the
 config and `src/app/architecture.test.ts` read, and `vite.config.ts` declares
 the app build and the separate plugin-worker entry.
 
-**The bundled price data lives under `src/data/datasets/`, not at the repo
-root.** Keeping it outside `src/` would mean one file was permanently exempt
-from the escaping-relative-import rule, and a rule with an exemption is a rule
-people learn to route around. One fewer special case is worth more than
-separating data from code visually.
+**The bundled price data lives in `public/datasets/`, and `scripts/` holds the
+one script that maintains it.** It sat at the repo root first, then inside
+`src/data/datasets/` to remove a lint exemption for the one file reaching outside
+`src/`, and now in `public/` because it is *served* rather than imported — see
+[data-sources.md](./data-sources.md#why-served-not-bundled). Nothing under `src/`
+imports it, so the escaping-relative-import rule has nothing to say about it, and
+the exemption that motivated the second move stays deleted.
 
 ## `src/`
 
@@ -72,9 +74,9 @@ src/
 ├── generation/     procedural art as numbers: noise, heightfields, placements.
 │                   No PixiJS — this is what makes it snapshot-testable.
 │
-├── data/           dataset validation, and:
-│   ├── datasets/     the bundled OHLCV JSON
+├── data/           dataset validation, the manifest reader, and:
 │   └── sources/      PriceSeriesSource implementations + the source registry
+│                     (the OHLCV JSON itself is in public/datasets/, served not imported)
 │
 ├── plugins/
 │   ├── worker/       THE TRUST BOUNDARY. Its own bundle; imports shared/ only.

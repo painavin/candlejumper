@@ -1,0 +1,16 @@
+{
+  "routes": [
+    {
+      "route": "/datasets/manifest.json",
+      "headers": {
+        "cache-control": "public, max-age=300, must-revalidate"
+      }
+    },
+    {
+      "route": "/datasets/*",
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable"
+      }
+    }
+  ]
+}

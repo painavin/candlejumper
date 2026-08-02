@@ -23,7 +23,7 @@ survival.
 | [procedural-assets.md](./procedural-assets.md) | Runtime generation of all art and audio — no asset files |
 | [accessibility.md](./accessibility.md) | Colorblind-safe P&L, motion, readability |
 | [config.md](./config.md) | Every configurable parameter, consolidated |
-| [data-sources.md](./data-sources.md) | Bar schema, `PriceSeriesSource`, bundled AAPL/MSFT/NKE dataset, downloading a ticker |
+| [data-sources.md](./data-sources.md) | Bar schema, `PriceSeriesSource`, the 644 bundled datasets and their manifest, downloading a ticker |
 | [tech-stack.md](./tech-stack.md) | Platform, library, persistence, and testing choices |
 | [code-structure.md](./code-structure.md) | Folder layout, import rules, where each roadmap step's code lands |
 | [roadmap.md](./roadmap.md) | Build order / milestones |

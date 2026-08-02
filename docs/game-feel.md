@@ -137,9 +137,32 @@ game." Concretely:
   ([tech-stack.md](./tech-stack.md#persistence)) — adding a key to the
   fingerprint later invalidates old buckets, and that should be an explicit
   migration rather than silent data loss.
-- **Session variety**: rotate/randomize which ticker + date range plays,
-  or a seeded "daily" ticker so repeat sessions don't feel identical. Ties
-  into [data-sources.md](./data-sources.md)'s multi-source work.
+- **Session variety** — *built, as the title screen's "Surprise me"*. A fixed
+  series becomes memorised, and a memorised series stops training anything,
+  because the player is recalling rather than reading. One press picks a
+  uniformly random ticker from the 644 packaged datasets, a random start point
+  inside its first two years, and a fresh world seed, then runs to the end of
+  that series.
+
+  Three choices in there worth keeping:
+
+  - **Always the packaged set**, whatever source is selected. It drew from the
+    *active* source at first, which meant Surprise me offered the player's own
+    downloads — a list they assembled deliberately and can already pick from —
+    and did nothing at all when that list was empty.
+  - **A random start, not a random window.** It carved out ~250 bars at first,
+    which made every surprise run the same length and threw away the rest of the
+    history. Varying the opening instead trains holding a position through
+    whatever comes next, rather than through a fixed budget of bars.
+  - **The start is confined to the first two years** so "runs to the end" stays a
+    session rather than a handful of bars, with a floor of 250 remaining bars for
+    series too short for that bound to bite. See `src/app/surprise.ts`.
+
+  Note what this does to the record: `data.dateRange` is a fingerprint key, so
+  two surprise runs essentially never share a personal-best bucket and every one
+  of them reports a new best. That was already true of the random-window version.
+  A seeded "daily ticker" — same slice for everyone, same day — is the shape that
+  would give surprise runs a record worth comparing.
 - **Onboarding overlay**: a 2–3 step contextual tutorial on first launch
   (what buy/sell do, what a pole means, what a stop does) rather than a
   wall of text — standard for the genre.

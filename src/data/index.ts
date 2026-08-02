@@ -28,4 +28,5 @@ export {
 export type { PriceProvider, ProviderRequest } from './sources/providers/index.js'
 export { parseBars, validateBars, sliceByTime } from './validate.js'
 export type { DatasetProblem, ValidateOptions } from './validate.js'
-export { bundledSymbols } from './datasets.js'
+export { createHttpJsonFetcher, datasetOf, jsonFromBytes, parseManifest } from './datasets.js'
+export type { BundledDataset, DatasetManifestEntry, JsonFetcher } from './datasets.js'

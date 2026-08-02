@@ -63,10 +63,14 @@ Thumbs.db
 # Deliberately NOT ignored — each of these is load-bearing, and ignoring it
 # would quietly break something the plan depends on.
 #
-# src/data/datasets/     The bundled OHLCV datasets. Offline, reproducible runs
-#                        are a design requirement, not a convenience:
-#                        docs/data-sources.md. They live under src/ so that
-#                        nothing in the project imports from outside it.
+# public/datasets/       The bundled OHLCV datasets, plus the manifest that
+#                        indexes them. Offline, reproducible runs are a design
+#                        requirement, not a convenience: docs/data-sources.md.
+#                        They are gzipped static files, served rather than
+#                        imported, so the catalogue costs one request instead of
+#                        loading all 644 of them, and the deploy is 65 MB rather
+#                        than 245. Run `npm run datasets` after changing the set:
+#                        it compresses and re-indexes.
 #
 # **/__snapshots__/      Vitest snapshots ARE the determinism guard for
 #                        procedural generation — theme + seed must always
@@ -74,8 +78,9 @@ Thumbs.db
 #                        should fail a test rather than look "a bit different":
 #                        docs/procedural-assets.md.
 #
-# public/                Holds the web font, which is the only binary asset in
-#                        the build.
+# public/                Copied into the build verbatim: the datasets above and
+#                        staticwebapp.config.json, which has to reach dist/ because
+#                        the deploy uploads dist/ as the app.
 #
 # There is no art or audio output to ignore here, and that is on purpose:
 # every visual and audio asset is generated at runtime, so the project has no

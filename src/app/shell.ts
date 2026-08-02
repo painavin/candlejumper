@@ -50,6 +50,7 @@ import App from '@ui/screens/App.svelte'
 import { createDatasetCache } from './datasetCache.js'
 import { readStoredConfig, writeStoredConfig } from './configStore.js'
 import { startRunSession } from './runSession.js'
+import { surpriseStart } from './surprise.js'
 import type { RunSession } from './runSession.js'
 
 /**
@@ -769,37 +770,50 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   }
 
   /**
-   * Session variety: a random ticker and a random window inside it.
+   * Session variety: a random ticker from the packaged set, played from a random start
+   * to the end of its history.
    *
-   * docs/game-feel.md's reason for this is that a fixed series becomes memorised —
-   * and a memorised series stops training anything, because the player is recalling
-   * rather than reading. Both keys are part of the run fingerprint, so each surprise
-   * run competes only against other runs of the same slice, which is correct: an easy
-   * uptrend and a brutal drawdown are not the same challenge.
+   * docs/game-feel.md's reason for this is that a fixed series becomes memorised — and a
+   * memorised series stops training anything, because the player is recalling rather than
+   * reading.
+   *
+   * **Always the bundled source**, whatever is currently selected. It used to draw from
+   * whichever source was active, which meant Surprise me offered the player's own
+   * downloads — a list they assembled deliberately and can already pick from — and did
+   * nothing at all when that list was empty. The packaged set is the one catalogue that is
+   * always there and always large enough for the word "surprise" to mean something.
+   *
+   * **A random start rather than a random window.** It used to carve out a slice of
+   * roughly 250 bars, which made every surprise run the same length and threw away the
+   * rest of the series. Now the *opening* is what varies and the run goes to the end, so
+   * the thing being trained is holding a position through whatever the series does next
+   * rather than through a fixed budget of bars.
    *
    * Seeded from fresh entropy rather than the world seed. This is the one thing that
    * *should* differ every time you press the button.
    */
-  function surpriseConfig(): RunConfig | undefined {
-    if (!state.config || state.tickers.length === 0) return undefined
-    const prng = createPrng(mintSeed())
-    const ticker = prng.pick(state.tickers)
+  async function surpriseConfig(): Promise<RunConfig | undefined> {
+    const bundled = sources.get(BUNDLED_SOURCE_ID)
+    if (!state.config || !bundled) return undefined
 
-    const span = ticker.lastBarTime - ticker.firstBarTime
+    let tickers: TickerMeta[]
+    try {
+      tickers = await bundled.listTickers()
+    } catch {
+      // The manifest is one request and the whole catalogue; without it there is nothing
+      // to pick from. Reported by the caller rather than swallowed here.
+      return undefined
+    }
+    if (tickers.length === 0) return undefined
+
+    const prng = createPrng(mintSeed())
+    const ticker = prng.pick(tickers)
+
     const config = snapshot(state.config)
+    config.data.source = BUNDLED_SOURCE_ID
     config.data.ticker = ticker.symbol
     config.visuals.worldSeed = mintSeed()
-
-    // Roughly a year of trading days as a fraction of the series' own span, so a
-    // short series isn't asked for a window it doesn't have.
-    const windowFraction = Math.min(1, 250 / Math.max(1, ticker.barCount))
-    if (windowFraction >= 1) {
-      config.data.dateRange = undefined
-      return config
-    }
-    const windowSpan = span * windowFraction
-    const from = Math.floor(prng.range(ticker.firstBarTime, ticker.lastBarTime - windowSpan))
-    config.data.dateRange = { from, to: Math.floor(from + windowSpan) }
+    config.data.dateRange = surpriseStart(ticker, prng)
     return config
   }
 
@@ -1013,10 +1027,27 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
       state.notice = undefined
     },
     surprise: () => {
-      const config = surpriseConfig()
-      if (!config) return
-      state.config = config
-      void begin(snapshot(config))
+      void (async () => {
+        const config = await surpriseConfig()
+        if (!config) {
+          // It used to return in silence, which on an empty catalogue meant pressing the
+          // button did nothing at all and looked like a dead control.
+          state.error =
+            "Surprise me couldn't read the packaged datasets.\n\n  " +
+            'Reload, or pick a ticker in Settings and press Play.'
+          return
+        }
+        state.config = config
+        /**
+         * Before `begin`, not after. Surprise me switches the source, and `runSeries` —
+         * a fingerprint input — is read from `state.tickers`; starting on a catalogue
+         * belonging to the *previous* source would record the run under a bar count and
+         * last bar time of zero.
+         */
+        await refreshTickers()
+        refreshPersonalBest()
+        await begin(snapshot(config))
+      })()
     },
     importPlugins: (kind) => {
       void importPluginFiles(kind).then(async (added) => {

@@ -73,16 +73,54 @@ Verified by probe files that each rule actually fires: engine importing
 worker importing `@config`; `render/` reaching `@engine/position` (denied)
 versus `@engine/output` (allowed).
 
-### Datasets load lazily from inside `src/`
+### Datasets are served, not imported
 
-`src/data/datasets.ts` uses `import.meta.glob` with lazy loading, so each dataset
-becomes its own chunk (~33–39 kB) instead of ~110 kB of JSON in the main bundle.
-That also matches the async `PriceSeriesSource.loadSeries` contract instead of
-fighting it.
+They live in `public/datasets/` and are fetched at runtime. Two earlier homes and one
+earlier mechanism, each removed for a reason worth keeping:
 
-The files themselves live at `src/data/datasets/`. They started at the repo
-root, which forced a permanent lint exemption for the one file that reached
-outside `src/`; moving them in deleted both the exemption and the special case.
+1. **At the repo root**, which forced a permanent lint exemption for the one file
+   reaching outside `src/`.
+2. **Under `src/data/datasets/`, imported through a lazy `import.meta.glob`.** That
+   deleted the exemption and split each dataset into its own chunk, so nothing sat in
+   the main bundle — and it was correct for the three datasets it was written for.
+
+What killed (2) was the catalogue, not the bundling. `listTickers` computed each
+series' bar count and date span by *loading the series*, so at 644 datasets opening
+the app meant 64 MB downloaded before the title screen, ~3.6M bar objects retained,
+and `data.test.ts` exhausting a 4 GB Node heap.
+
+`public/datasets/manifest.json` is that answer precomputed by `scripts/datasets.mjs`
+(`npm run datasets`), so the catalogue is one 60 kB request and a dataset is fetched
+only when played. Serving rather than importing is what makes it possible: a `public/`
+file has a stable URL, where a bundled chunk's name is known only to the bundler. It
+is byte-neutral — rolldown emitted each dataset as `JSON.parse("…")`, so a minified
+`.json` is the same payload minus the wrapper — and the build went from 657 chunks and
+1.6s to 14 chunks and under 600ms.
+
+The datasets are then stored **gzipped**, which took the deploy from 245 MB to 65 MB.
+That is for the size cap, not for the player: the host compresses text responses in
+flight, so the browser was already receiving ~123 kB for a 472 kB dataset. `.gz` files
+are opaque bytes, so `jsonFromBytes` inflates them via `DecompressionStream` —
+sniffing the gzip magic number rather than trusting the extension, because a CDN that
+decodes `.gz` for us would otherwise break every dataset with an error nowhere near
+the cause. Gzip and not brotli because `DecompressionStream` has no brotli, and the
+alternatives are a wasm decoder in the bundle or an untestable `Content-Encoding`
+header. This also retired the array-of-arrays idea: compressed, it saves 13 kB of 123.
+
+Serving them is also what makes compression possible at all — a bundler will not hand
+you opaque bytes under a name you chose.
+
+Two consequences that needed handling rather than noting:
+
+- **Names aren't content-hashed**, and a refreshed dataset reuses its name. Since the
+  run fingerprint keys on bar count and last bar time *from the manifest*, a stale
+  cached dataset behind a fresh manifest would file runs under a bucket describing a
+  different series. Every request carries `?v=<lastBarTime>`, which is what makes the
+  year-long cache header in `public/staticwebapp.config.json` safe.
+- **The split heuristic had to stop being a load-time rejection.** Apple's real
+  −51.9% day and an unadjusted 2:1 split are the same number; 66 of the 644 datasets
+  would be listed and then refuse to load. It reports at index time instead — see
+  [data-sources.md](./data-sources.md#on-adjustment-and-the-check-that-had-to-go).
 
 ### Layout constants
 

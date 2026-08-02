@@ -61,7 +61,7 @@
 
   <div class="actions">
     <button class="primary" onclick={onPlay}>Play <span class="hint">{ticker}</span></button>
-    <button onclick={onSurprise}>Surprise me <span class="hint">random slice</span></button>
+    <button onclick={onSurprise}>Surprise me <span class="hint">random ticker</span></button>
   </div>
   <div class="actions secondary">
     <button onclick={onSettings}>Settings</button>

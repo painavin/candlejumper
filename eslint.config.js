@@ -157,5 +157,15 @@ export default tseslint.config(
   {
     files: ['*.config.js', '*.config.ts', 'eslint.zones.js'],
     rules: { 'no-restricted-imports': 'off', 'no-undef': 'off' },
+  },
+
+  {
+    /**
+     * Build scripts: Node, and the one place `console` is the output rather than a
+     * leftover. They aren't part of the app — nothing under `src/` may import them — so
+     * the zone rules and the DOM-global bans have nothing to say about them.
+     */
+    files: ['scripts/**/*.mjs'],
+    rules: { 'no-restricted-imports': 'off', 'no-undef': 'off' },
   }
 )
