@@ -139,6 +139,26 @@ const POLYPHONY = 10
  */
 const MIN_DURATION = 0.03
 
+/**
+ * Every node a voice owns, so `dispose()` can reach all of them.
+ *
+ * The filters used to be created and then dropped on the floor — connected into the
+ * graph but stored nowhere, so teardown disposed the synth and the panner and orphaned
+ * a biquad per voice, every session. A node held only by the graph is a node nothing can
+ * free deliberately, so anything constructed here belongs in one of these records.
+ */
+interface PitchedVoice {
+  synth: Tone.PolySynth
+  filter: Tone.Filter
+  panner: Tone.Panner
+}
+
+interface DrumVoice {
+  noise: Tone.NoiseSynth
+  tone: Tone.MembraneSynth
+  filter: Tone.Filter
+}
+
 export function createTrackBed(
   track: MidiTrack,
   destination: Tone.InputNode,
@@ -160,10 +180,10 @@ export function createTrackBed(
   const gain = new Tone.Gain(Tone.dbToGain(trim)).connect(compressor)
 
   /** Keyed by `channel:program`, so a program change mid-track gets its own voice. */
-  const voices = new Map<string, { synth: Tone.PolySynth; panner: Tone.Panner }>()
-  const drums = new Map<number, { noise: Tone.NoiseSynth; tone: Tone.MembraneSynth }>()
+  const voices = new Map<string, PitchedVoice>()
+  const drums = new Map<number, DrumVoice>()
 
-  const pitched = (note: MidiNote): { synth: Tone.PolySynth; panner: Tone.Panner } => {
+  const pitched = (note: MidiNote): PitchedVoice => {
     const key = `${note.channel}:${note.program}`
     const existing = voices.get(key)
     if (existing) return existing
@@ -191,7 +211,7 @@ export function createTrackBed(
     })
     synth.maxPolyphony = POLYPHONY
     synth.connect(filter)
-    const voice = { synth, panner }
+    const voice = { synth, filter, panner }
     voices.set(key, voice)
     return voice
   }
@@ -203,7 +223,7 @@ export function createTrackBed(
    * mostly noise with a little pitch, a kick the reverse. `MembraneSynth` carries the
    * pitched half — it exists for exactly this and does the downward sweep itself.
    */
-  const percussive = (note: number): { noise: Tone.NoiseSynth; tone: Tone.MembraneSynth } => {
+  const percussive = (note: number): DrumVoice => {
     const existing = drums.get(note)
     if (existing) return existing
     const drum = drumFor(note)
@@ -223,12 +243,38 @@ export function createTrackBed(
       envelope: { attack: 0.001, decay: drum.length, sustain: 0, release: 0.02 },
       volume: Tone.gainToDb(Math.max(0.0001, drum.tone)),
     }).connect(gain)
-    const voice = { noise, tone }
+    const voice = { noise, tone, filter: bandpass }
     drums.set(note, voice)
     return voice
   }
 
   let part: Tone.Part<MidiNote> | undefined
+
+  /**
+   * Tear down playback: the part, any sounding notes, and the **global transport**.
+   *
+   * A named function rather than `stop()` calling itself through `this`, because both
+   * `stop()` and `dispose()` need it and the bug this fixes was exactly the two drifting
+   * apart. `dispose()` released the nodes and left the transport running, so it kept
+   * advancing between sessions and was never rewound — and `Transport.stop()` is what
+   * rewinds it. The next run then called `part.start(0)` against a position minutes
+   * past zero, leaving Tone to reconcile a short loop across every iteration since,
+   * which grows with how long the tab has been open. That is why replays got slower
+   * while the first run was fine.
+   *
+   * The generated bed and the pulse both already did this — `dispose()` there begins
+   * with `this.stop()`. This is the same contract, expressed so it cannot be forgotten
+   * by one of the two callers.
+   */
+  const halt = (): void => {
+    part?.stop()
+    part?.dispose()
+    part = undefined
+    // Release anything mid-note, or pausing leaves a chord sounding over a frozen
+    // chart — the same reason the generated bed stops on pause.
+    for (const voice of voices.values()) voice.synth.releaseAll()
+    Tone.getTransport().stop()
+  }
 
   return {
     start() {
@@ -267,26 +313,20 @@ export function createTrackBed(
       Tone.getTransport().start()
     },
 
-    stop() {
-      part?.stop()
-      part?.dispose()
-      part = undefined
-      // Release anything mid-note, or pausing leaves a chord sounding over a frozen
-      // chart — the same reason the generated bed stops on pause.
-      for (const voice of voices.values()) voice.synth.releaseAll()
-      Tone.getTransport().stop()
-    },
+    stop: halt,
 
     dispose() {
-      part?.dispose()
-      part = undefined
+      // Stop first, so the transport is stopped and rewound before the nodes go.
+      halt()
       for (const voice of voices.values()) {
         voice.synth.dispose()
+        voice.filter.dispose()
         voice.panner.dispose()
       }
       for (const voice of drums.values()) {
         voice.noise.dispose()
         voice.tone.dispose()
+        voice.filter.dispose()
       }
       voices.clear()
       drums.clear()
