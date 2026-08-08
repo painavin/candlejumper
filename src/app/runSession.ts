@@ -147,7 +147,11 @@ export async function startRunSession({
     },
     theme
   )
-  const stopLines = createStopLinesLayer(config.hud.showStopLevelOnChart, theme)
+  const stopLines = createStopLinesLayer(
+    config.hud.showStopLevelOnChart,
+    theme,
+    config.visuals.reducedMotion
+  )
   const indicatorLayer = createIndicatorLayer({ theme, palette: config.visuals.pnlPalette })
   const landmarks = createLandmarkLayer(theme)
   const juice = createJuiceLayer({

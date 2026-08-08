@@ -252,9 +252,10 @@ actual habit being trained.
   past it and what the P&L difference was versus exiting on the signal.
   That difference is the most direct feedback the game can give about
   hesitation.
-- Advisory levels render as a **dashed** line on the chart, enforcing ones
-  as solid ([hud.md](./hud.md#top-hud)), so there's never ambiguity about
-  whether something will save you.
+- Advisory levels render as a **ghosted** hedgehog riding the level, enforcing
+  ones as a solid one ([hud.md](./hud.md#top-hud)), so there's never ambiguity
+  about whether something will save you. Fill versus outline rather than a
+  shade, because the distinction has to survive being 20px on a phone.
 - Advisory and enforcing stops can be active simultaneously — e.g. an
   advisory tight trailing stop to practice reading exits, plus an enforcing
   wide disaster stop as a backstop.

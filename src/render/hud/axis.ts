@@ -32,7 +32,14 @@ export function axisUnitLabel({ mode, transform }: AxisFormat): string {
   return transform === 'log10' ? 'log₁₀ $' : '$'
 }
 
-function formatValue(value: number, { mode, transform }: AxisFormat): string {
+/**
+ * One axis value as text.
+ *
+ * Exported so a stop tag formats identically to the gridline labels beside it. A tag
+ * reading `3.41` next to gridlines reading `3.4` would look like a different quantity,
+ * and on a percent axis an unconverted tag would be flatly wrong.
+ */
+export function formatValue(value: number, { mode, transform }: AxisFormat): string {
   if (transform === 'log10') return value.toFixed(2)
   if (mode === 'starting-price-relative') return `${value.toFixed(0)}%`
   // Cents matter under ~$10 and are noise above it.

@@ -101,6 +101,22 @@ definitions rather than art: a Rocket (meme-stock nod), a Candle mascot
 (ties into the project's own name), a Robot Trader. Keep the starter roster
 small; expand once the three above feel right.
 
+### A rig that is not a roster entry
+
+`hedgehog` is a fourth rig and is **deliberately absent from `characters`**, the
+array the settings screen offers. It is the stop marker — see
+[hud.md](./hud.md#top-hud) — and a marker the player could choose to *be* would
+be a confusing thing to ship.
+
+It is worth knowing that the split is possible at all: a rig is data, so anything
+can draw one. The marker reuses `drawShape` from the character layer rather than
+growing a second rig renderer, which is why the hedgehog is a full `Character`
+(it needs a palette) despite never being playable. Its `motion` block is inert —
+the marker is driven by the stop level, not by a gait.
+
+A hedgehog because a stop *is* a hedge, and because a spiky dome is the one
+silhouette here that cannot be mistaken for the player at 20px.
+
 ## Relationship to visual themes
 
 Deliberately **decoupled from `visuals.theme`** (see

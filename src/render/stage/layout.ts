@@ -122,6 +122,18 @@ export function computeLayout(
   }
 }
 
+/**
+ * Width of the price-axis gutter on the right, in pixels.
+ *
+ * Here rather than in `axisLayer` — which draws it — because it is a *layout* term: the
+ * chart's usable width is the viewport minus this, so several layers need it and one of
+ * them is arithmetic that has to be testable without a renderer. Importing it from a
+ * Pixi module dragged Pixi into a node-environment test.
+ *
+ * Wide enough for a five-digit price at the HUD's label size, on a plate.
+ */
+export const AXIS_WIDTH = 62
+
 /** Screen y for a 0..1 unit height. 0 sits on the ground, 1 at the chart top. */
 export function unitToY(unit: number, layout: Layout): number {
   return layout.groundY - unit * layout.chartHeight

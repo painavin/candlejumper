@@ -74,13 +74,43 @@ read as broken.
 - **Arcade score** beside raw P&L, never instead of it
   ([game-feel.md](./game-feel.md#new-the-arcade-scoring-layer-the-discipline-streak)).
   Raw realized P&L stays the primary readout.
-- **Active stop levels**, for each active stop plugin — shown both as a HUD
-  number *and* as a horizontal line on the chart at that price, so the
-  player can watch it approach rather than only read a number.
-  **Enforcing stops draw solid; advisory stops draw dashed**
-  ([stops.md](./stops.md#advisory-mode)) — the player must never be unsure
-  whether a line will actually save them. Label lines with the owning
-  plugin when more than one is active
+- **Active stop levels**, drawn as a **hedgehog riding the level** rather than
+  a line across the chart. The marker sits in the empty strip right of the
+  character, so the vertical gap between bird and hedgehog *is* the risk being
+  carried — readable without reading a number, and it visibly closes as a
+  trailing stop ratchets. A short dashed leader reaches a few bar widths to its
+  left, which is the part of a full-width line worth keeping: comparing the
+  newest candles against the level.
+
+  **Enforcing draws solid; advisory draws as a ghost** — the same rig at low
+  alpha ([stops.md](./stops.md#advisory-mode)). The player must never be unsure
+  whether a level will actually save them, which is why the difference is fill
+  versus outline rather than a shade. A breached advisory level *tints* rather
+  than changing shape: recolouring says "attend to this", where a new silhouette
+  would say "this is now enforcing", which would be a lie.
+
+  The marker moves on two events only. A **ratchet** — the level moving in the
+  position's favour, which is direction-aware, up for a long and down for a
+  short — gets one hop. A **stop-out** gets a curl, spines tucking in. Neither
+  fires per bar, because a trailing stop moves a little on most of them and a
+  gesture per change is a twitch. Both are suppressed under `reducedMotion`,
+  where the state still reads through colour.
+
+  At most **two markers**, enforcing first: if only one fits it must never be
+  the advisory one, since not seeing the level that will eject you is worse than
+  not seeing one you were merely asked to respect.
+
+  The level's **number is on the price axis**, as a tag at that height, because
+  that is where every other price already lives and the axis already draws its
+  gridlines the full width — so the tag restores the horizontal reference
+  without a line. A gridline label yields when a tag would land on it: two
+  prices overlapping on a 62px plate is an unreadable smear, and the one the
+  player is actively watching wins.
+
+  The **owning plugin is named in the streak plate**, which already reads
+  `no stop rule` when dormant and so is the readout that answers "what is
+  protecting me". Landscape only — the plate is measured from its text, and a
+  plugin id on a 360px phone would push the meter off the edge
   ([stops.md](./stops.md#multiple-active-stops)).
 - **Session info**: ticker/symbol, current in-series date, progress
   through the series, and the scroll speed in force. Speed is here because

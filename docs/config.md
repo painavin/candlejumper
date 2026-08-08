@@ -52,7 +52,8 @@ open entry presses. Sizes below `1e-6` shares snap to flat.
 Per-instance **`advisory: true`** displays the level without enforcing it —
 the player must honour it themselves, and breaches are recorded as
 compliance events ([stops.md](./stops.md#advisory-mode)). Advisory levels
-draw dashed, enforcing ones solid.
+draw as a ghosted hedgehog, enforcing ones solid
+([hud.md](./hud.md#top-hud)).
 
 **The default is one advisory stop rather than an empty list.** A trainer
 whose out-of-the-box configuration carries no risk rule is a strange default,
@@ -182,7 +183,7 @@ brick/box resampling).
 
 | Key | Description | Default |
 |---|---|---|
-| `hud.showStopLevelOnChart` | Draw the active stop-loss/trailing-stop level as a horizontal line on the chart, in addition to the HUD readout | on |
+| `hud.showStopLevelOnChart` | Draw active stop levels on the chart — a hedgehog marker riding each level plus a tag on the price axis, in addition to the HUD readout. See [hud.md](./hud.md#top-hud) | on |
 
 See [hud.md](./hud.md) for the auto-scaling Y-axis (driven by
 `normalizationMode` above, not separately configured) and the top

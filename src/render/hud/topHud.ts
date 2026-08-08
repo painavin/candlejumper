@@ -6,6 +6,7 @@ import type { FrameState, HudState, PnlSign } from './hudTypes.js'
 import type { Layout } from '../stage/layout.js'
 import { hudFontSize } from './hudFont.js'
 import { hudDimTextStyle, hudTextStyle } from './hudText.js'
+import { visibleStops } from './stopMarker.js'
 import {
   PANEL_GAP,
   PANEL_MARGIN,
@@ -230,7 +231,15 @@ export function createTopHudLayer({
       session.text = notes.join('  ')
       session.style.fontSize = hudFontSize(sizes.dim)
 
-      const streak = streakContent(hud, sizes.multiplier)
+      /**
+       * Named in landscape only.
+       *
+       * The plate's width is measured from this text, so a plugin id on a 360px phone
+       * would push the streak meter off the edge. Landscape has the room; portrait keeps
+       * the compact form, and the results screen names the stop either way.
+       */
+      const stopLabel = layout.isPortrait ? '' : (visibleStops(frame.stopLines)[0]?.stopId ?? '')
+      const streak = streakContent(hud, sizes.multiplier, stopLabel)
 
       // ── Geometry ──────────────────────────────────────────────────────────
       panels.clear()
@@ -311,7 +320,17 @@ export function createTopHudLayer({
    */
   function streakContent(
     hud: HudState,
-    size: number
+    size: number,
+    /**
+     * Which stop plugin owns the active level, or `''` for none.
+     *
+     * The plate already reads `no stop rule` when dormant, so it is the readout that
+     * answers "what is protecting me" — naming the plugin here is the same question
+     * answered in the affirmative. It matters because the chart no longer says: the
+     * marker shows advisory-versus-enforcing and the axis shows the number, and neither
+     * can say *which* rule, which the stop-out record needs to be attributable to.
+     */
+    stopLabel: string
   ): { pips: number; filled: number; automated: boolean } {
     const { meter: state, multiplier: value, maxMultiplier, arcadeScore } = hud.streak
     multiplier.style.fontSize = hudFontSize(size)
@@ -326,9 +345,10 @@ export function createTopHudLayer({
     }
 
     const automated = state === 'automated'
+    const suffix = stopLabel ? `  ${stopLabel}` : ''
     multiplier.text = automated
-      ? `×${value} automated`
-      : `×${value}  ${formatSigned(arcadeScore, 0)}`
+      ? `×${value} automated${suffix}`
+      : `×${value}  ${formatSigned(arcadeScore, 0)}${suffix}`
     multiplier.style.fill = automated ? theme.accent.dim : theme.accent.text
     // Five pips, filling one per compliant close event and emptying on a reset.
     // Deliberately not a continuous bar: there is no time decay to animate.

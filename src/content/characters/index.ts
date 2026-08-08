@@ -52,6 +52,58 @@ export const bear: Character = {
   palette: { body: 0xff6b6b, accent: 0xc44a4a, detail: 0x2b1010 },
 }
 
+/**
+ * The stop marker, and **deliberately not in the roster below.**
+ *
+ * A hedgehog because a stop *is* a hedge, and because a spiky dome is the one
+ * silhouette here that cannot be mistaken for the player at 20px on a phone — which
+ * is the whole job. It rides the stop level rather than the ground, so the vertical
+ * gap between the player and it is the risk being carried, readable without reading a
+ * number.
+ *
+ * Kept out of `characters` on purpose: that array is what the settings screen offers,
+ * and a marker the player could choose to *be* would be a confusing thing to ship. It
+ * is a rig, not a roster entry, so it reuses `drawShape` and nothing else.
+ *
+ * The spines fan across the top rather than radiating evenly — a real hedgehog's
+ * profile, and it keeps the underside flat so the shape sits on a level convincingly.
+ */
+export const hedgehog: Character = {
+  id: 'hedgehog',
+  displayName: 'Hedgehog',
+  rig: [
+    { shape: 'ellipse', dx: 0, dy: 0, width: 1, height: 0.78, slot: 'body' },
+    // Five spines, leaning progressively back. `flaps` is left off: this rig has no
+    // bounce phase driving it, so a flap offset would be motion from nowhere.
+    { shape: 'triangle', dx: -0.5, dy: -0.42, width: 0.3, height: 0.42, slot: 'accent', rotation: -0.5 },
+    { shape: 'triangle', dx: -0.24, dy: -0.56, width: 0.3, height: 0.5, slot: 'accent', rotation: -0.26 },
+    { shape: 'triangle', dx: 0.02, dy: -0.6, width: 0.3, height: 0.54, slot: 'accent', rotation: 0 },
+    { shape: 'triangle', dx: 0.28, dy: -0.54, width: 0.3, height: 0.48, slot: 'accent', rotation: 0.26 },
+    { shape: 'triangle', dx: 0.52, dy: -0.4, width: 0.28, height: 0.4, slot: 'accent', rotation: 0.5 },
+    // Snout and eye, forward — it faces the oncoming price.
+    { shape: 'triangle', dx: 0.82, dy: 0.1, width: 0.34, height: 0.24, slot: 'body', rotation: 0 },
+    { shape: 'ellipse', dx: 0.44, dy: -0.12, width: 0.16, height: 0.16, slot: 'detail' },
+  ],
+  // Unused by the marker, which is driven by the stop level rather than a gait, but
+  // the shape of `Character` requires it and a sensible set costs nothing.
+  motion: { flapAmplitude: 0, flapPhaseOffset: 0, squashFactor: 0.1, tiltResponse: 0.12 },
+  /**
+   * **Greyscale on purpose — this rig is tinted, not coloured.**
+   *
+   * The marker has to be the same colour as its price tag on the axis, and tint is
+   * multiplicative: a white body tinted with the tag colour comes out as exactly that
+   * colour, where a brown one would come out muddy. Expressing the parts as *shades*
+   * rather than hues also means the relationships survive any tint — the spines stay
+   * about two thirds of the body's brightness and the eye stays dark, on a light theme
+   * and a dark one alike, with no per-theme palette to maintain.
+   *
+   * The alternative was rebuilding a dozen `Graphics` whenever the colour changed. A
+   * breach toggles rarely, but price oscillating around an advisory level would have
+   * done it every bar for nothing.
+   */
+  palette: { body: 0xffffff, accent: 0xa8a8a8, detail: 0x2a2a2a },
+}
+
 export const characters: readonly Character[] = [robin, bull, bear]
 
 export function character(id: string): Character {

@@ -228,7 +228,15 @@ export function createCharacterLayer({
   }
 }
 
-function drawShape(shape: RigShape, radius: number, character: Character): Graphics {
+/**
+ * One rig primitive, filled from the character's own palette.
+ *
+ * Exported so the stop marker can reuse it rather than growing a second rig renderer —
+ * two of those would drift, and the point of a rig being data is that anything can draw
+ * it. It takes a whole `Character` for the palette, which is why the marker's hedgehog
+ * is a `Character` too despite never being playable.
+ */
+export function drawShape(shape: RigShape, radius: number, character: Character): Graphics {
   const graphics = new Graphics()
   const colour = character.palette[shape.slot]
   const w = shape.width * radius
