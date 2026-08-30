@@ -111,7 +111,7 @@ Rendered as geometric silhouettes per the committed art direction in
 | Frog | The character the gait was already animating (see below) | Squat wide body, both eyes bulging above the body line, hind legs that kick | `hop` |
 | Bull | Bullish market mascot | Blocky body, two forward-swept horn triangles, head dips on each bounce | — |
 | Bear | Bearish counterpart to Bull | Heavier rounded body, small rounded ears, weightier squash | — |
-| Kangaroo | Hops for a living; the one leaning, tailed outline | Low body, long tail triangle, small head held high, hind leg that kicks | `hop` |
+| Squirrel | The one outline with mass *above* the body | Bushy tail arcing up over the back, small torso, ear seated into the head, hind foot that kicks | `hop` |
 | Rocket | Meme-stock nod; the one tall silhouette | Narrow fuselage, nose cone pointing **up**, two fins, exhaust that fires on the jump | `hop` |
 
 ### Silhouette is the scarce resource
@@ -123,7 +123,38 @@ difference. Palette is decoration; **outline is identity**.
 
 So the three added after the starter set were each chosen to break that mould
 rather than to add a colour — the frog is wide and low, the rocket is tall and
-thin, the kangaroo leans and has a tail. Apply the same test to the next one.
+thin, the squirrel carries its mass above the body. Apply the same test to the
+next one.
+
+### Every part must touch another part
+
+The first render of the new rigs exposed a bug that had shipped long before
+them: appendages were positioned by `dy` as though a body's top edge were flat,
+when an ellipse **curves away at the shoulders**. Bear's ears sat at `dx ±0.42`,
+where the body's surface is at `-0.304` while the ear's underside was at
+`-0.44` — a 0.136-radius gap, about 4px in game. Bull's horns were 0.6 radii
+clear, which is why they read as a bow tie. Robin's beak hung 0.16 radii off its
+face, and the hedgehog stop marker had the same snout.
+
+A silhouette with detached pieces is not a silhouette, so
+[roster.test.ts](../src/content/characters/roster.test.ts) now asserts that
+every part of every rig overlaps at least one other. Bounding boxes are useless
+for this — Bear's floating ears overlapped the body's *box* the whole time — so
+the check samples each part's outline and tests containment in the others.
+
+### The kangaroo that isn't
+
+This slot was a kangaroo first, and rendered it read as a purple bird: a blob
+with a thin tail, a small round head, and two wedges too small to be ears. A
+kangaroo's read depends on proportion detail that three primitives at 46px do
+not carry.
+
+The squirrel replaced it because its identifying feature is *enormous and
+singular* — a bushy tail arcing up over the back. Every other rig keeps its
+silhouette at or below the body line, so height behind the body is an outline
+nothing else can be confused with. Its tail also takes the `body` palette slot
+rather than the torso, since the tail is the larger area and the one that has to
+survive being seen against a sky.
 
 ### Why the frog fits the mechanic
 
@@ -164,8 +195,9 @@ Body colours are checked in
 two of them are not the colour the animal actually is:
 
 - **Pairwise hue separation ≥ 25°**, because body hue is what separates one
-  entry from another in the picker. The kangaroo is purple rather than tan for
-  exactly this reason — a naturalistic tan lands 12° from Robin's gold.
+  entry from another in the picker. The squirrel is purple rather than red-brown
+  for exactly this reason — a naturalistic brown lands 12° from Robin's gold,
+  and grey, the other honest option, collides with the Rocket.
 - **No new character may have worse sky contrast than the roster already
   does.** The frog's first green was a bright lime sitting 0.012 luma from
   Jolly's pale lower sky, i.e. invisible whenever price was low; the shipped

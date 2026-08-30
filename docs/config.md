@@ -222,7 +222,7 @@ Concurrent sub-panes are capped at 3 on desktop and 1 on mobile — see
 
 | Key | Description | Default |
 |---|---|---|
-| `character.selected` | Which roster entry is jumping — purely cosmetic, no gameplay effect. See [character.md](./character.md) for the roster shape and the six entries (`robin`, `frog`, `bull`, `bear`, `kangaroo`, `rocket`) | `robin` |
+| `character.selected` | Which roster entry is jumping — purely cosmetic, no gameplay effect. See [character.md](./character.md) for the roster shape and the six entries (`robin`, `frog`, `bull`, `bear`, `squirrel`, `rocket`) | `robin` |
 
 ## Audio
 

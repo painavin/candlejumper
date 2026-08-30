@@ -83,11 +83,20 @@ describe('previewViewBox', () => {
 
 describe('previewShapes', () => {
   it('keeps the rig order, because rigs use it for depth', () => {
-    // The frog's far leg is listed before its body so the body covers the leg's root.
-    const shapes = previewShapes(frog)
-    expect(shapes).toHaveLength(frog.rig.length)
-    expect(shapes[0]?.kind).toBe('polygon')
-    expect(shapes[1]?.kind).toBe('ellipse')
+    /**
+     * The frog's haunch is listed before its body so the body covers the haunch's root and
+     * only the bump over the back shows; the squirrel's tail is before its torso for the
+     * same reason. Reordering would flatten both.
+     *
+     * Asserted as a correspondence rather than by pinning which part is which — the first
+     * version named the frog's shape kinds and broke the moment the rig changed, which is
+     * a test measuring the wrong thing.
+     */
+    for (const entry of [frog, robin, rocket]) {
+      const kinds = previewShapes(entry).map((shape) => shape.kind)
+      const expected = entry.rig.map((shape) => (shape.shape === 'triangle' ? 'polygon' : 'ellipse'))
+      expect(kinds, entry.id).toEqual(expected)
+    }
   })
 
   it('fills from the character palette', () => {

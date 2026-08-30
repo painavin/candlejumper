@@ -13,8 +13,13 @@ import type { Character } from './types.js'
  * a round body with two things on top and differ only in whether those things are
  * triangles or ellipses, which at phone size is barely a difference at all. Everything
  * added since has been chosen to break that outline rather than to add another colour:
- * the frog is wide and low, the rocket is tall and thin, the kangaroo leans and has a
- * tail.
+ * the frog is wide and low, the rocket is tall and thin, the squirrel carries its mass
+ * above the body.
+ *
+ * And every part of a rig must **touch** another part. Appendages used to be placed by
+ * `dy` as though a body's top edge were flat, which floats them where the ellipse curves
+ * away — Bull's horns read as a bow tie and Robin's beak hung off its face. `roster.test.ts`
+ * asserts connectivity now, so that class of mistake cannot ship again.
  *
  * Body colours are checked against every theme's sky in `roster.test.ts`, which is why
  * one or two of them are not the colour the animal actually is.
@@ -28,8 +33,14 @@ export const robin: Character = {
   rig: [
     { shape: 'ellipse', dx: 0, dy: 0, width: 1, height: 0.88, slot: 'body' },
     { shape: 'arc', dx: -0.32, dy: 0.05, width: 0.62, height: 0.42, slot: 'accent', flaps: true },
-    { shape: 'triangle', dx: 0.86, dy: 0.04, width: 0.4, height: 0.26, slot: 'accent', rotation: 0 },
-    { shape: 'ellipse', dx: 0.34, dy: -0.22, width: 0.2, height: 0.2, slot: 'detail' },
+    // Pulled in from 0.86. The beak's base sat at x 0.66 while the body ends at 0.5, so it
+    // hovered 0.16 radii off the face — the same floating-appendage bug as Bull's horns,
+    // in the default character, and visible in the first render of the roster.
+    { shape: 'triangle', dx: 0.62, dy: 0.04, width: 0.4, height: 0.26, slot: 'accent', rotation: 0 },
+    // Nudged in from 0.34,-0.22, where part of the eye sat outside the body and so put
+    // near-black against the sky — the same fault that cost the frog its eyes, just
+    // smaller. Visually indistinguishable; measurably enclosed.
+    { shape: 'ellipse', dx: 0.3, dy: -0.18, width: 0.2, height: 0.2, slot: 'detail' },
   ],
   motion: {
     flapAmplitude: 0.9,
@@ -64,21 +75,44 @@ export const frog: Character = {
   id: 'frog',
   displayName: 'Frog',
   rig: [
-    // Far leg first, so the body draws over it and the two legs read as depth rather
-    // than as one thick limb.
-    { shape: 'triangle', dx: -0.4, dy: 0.12, width: 0.5, height: 0.28, slot: 'accent', rotation: 3.6, flaps: true },
+    /**
+     * A **haunch**, not a leg triangle.
+     *
+     * The first version pointed two big triangles back and down, and rendered they read
+     * as fins — a wide green thing with a tail. One triangle cannot bend, and a frog's
+     * leg is all bend: haunch up and back, foot forward. So the haunch is an ellipse
+     * behind the body, drawn first so the body covers its root and only the bump over the
+     * back shows, and the foot is a small triangle beneath it.
+     */
+    { shape: 'ellipse', dx: -0.34, dy: 0.14, width: 0.52, height: 0.5, slot: 'accent' },
     { shape: 'ellipse', dx: 0, dy: 0.18, width: 1.2, height: 0.62, slot: 'body' },
-    { shape: 'triangle', dx: -0.3, dy: 0.34, width: 0.58, height: 0.3, slot: 'accent', rotation: 3.6, flaps: true },
-    { shape: 'triangle', dx: 0.5, dy: 0.36, width: 0.3, height: 0.18, slot: 'accent', rotation: 0 },
-    // Both eyes, bulging clear of the body's top edge. The rest of the roster shows one
-    // eye in profile; a frog's two are the silhouette, so they are worth the exception.
-    { shape: 'ellipse', dx: 0.16, dy: -0.26, width: 0.3, height: 0.3, slot: 'detail' },
-    { shape: 'ellipse', dx: 0.46, dy: -0.22, width: 0.28, height: 0.28, slot: 'detail' },
+    // The hind foot, and the only animated part: it extends back on the jump and tucks
+    // under the haunch while riding. Small, so it cannot be mistaken for a tail.
+    { shape: 'triangle', dx: -0.3, dy: 0.38, width: 0.42, height: 0.22, slot: 'accent', rotation: 2.7, flaps: true },
+    { shape: 'triangle', dx: 0.46, dy: 0.32, width: 0.3, height: 0.18, slot: 'accent', rotation: 0.15 },
+    /**
+     * Both eyes, bulging clear of the body's top edge — the rest of the roster shows one
+     * eye in profile, but a frog's two are the silhouette, and rendered they are the thing
+     * that makes it read as a frog at all.
+     *
+     * **Each eye is a body-coloured dome with the dark pupil inside it**, and that split
+     * is the whole point. A single dark eye crossing the outline puts near-black against
+     * the *sky*, and only the body colour is measured against skies: at luma 0.115 the
+     * pupil was within 0.04 of the top of Serious, Neon and Vapour and the bottom of
+     * Cobalt, so on four of the five themes the bulges dissolved and the frog lost its
+     * eyes. The dome inherits the body's guaranteed contrast, and the pupil never touches
+     * sky because it sits inside the dome.
+     */
+    { shape: 'ellipse', dx: 0.12, dy: -0.24, width: 0.3, height: 0.3, slot: 'body' },
+    { shape: 'ellipse', dx: 0.13, dy: -0.25, width: 0.15, height: 0.15, slot: 'detail' },
+    { shape: 'ellipse', dx: 0.38, dy: -0.17, width: 0.28, height: 0.28, slot: 'body' },
+    { shape: 'ellipse', dx: 0.39, dy: -0.18, width: 0.14, height: 0.14, slot: 'detail' },
   ],
   motion: {
-    // Negative: the legs extend by rotating *back* toward horizontal from a tucked pose,
-    // and the sign is what picks the direction. `flapPhaseOffset` is inert under `hop`.
-    flapAmplitude: -0.75,
+    // Positive here: the foot extends by rotating *back* past horizontal from its tucked
+    // pose, and the sign is what picks the direction. `flapPhaseOffset` is inert under
+    // `hop`.
+    flapAmplitude: 0.6,
     flapPhaseOffset: 0,
     // The heaviest squash in the roster. Frogs compress flat and extend hugely, and this
     // is the one knob that expresses that inside a shared arc.
@@ -101,9 +135,15 @@ export const bull: Character = {
   displayName: 'Bull',
   rig: [
     { shape: 'ellipse', dx: 0, dy: 0.05, width: 1.05, height: 0.8, slot: 'body' },
-    { shape: 'triangle', dx: 0.52, dy: -0.6, width: 0.4, height: 0.5, slot: 'accent', rotation: -0.5 },
-    { shape: 'triangle', dx: 0.1, dy: -0.66, width: 0.34, height: 0.46, slot: 'accent', rotation: -0.2 },
-    { shape: 'ellipse', dx: 0.4, dy: -0.16, width: 0.18, height: 0.18, slot: 'detail' },
+    // Horns pulled inward from ±0.52 to where the body's shoulder is still high enough to
+    // meet them. They used to float 0.6 radii clear of the body and read as a bow tie —
+    // an ellipse curves away fast, and `dy` alone cannot see that. `roster.test.ts`
+    // asserts every part touches another so this cannot come back.
+    { shape: 'triangle', dx: 0.34, dy: -0.52, width: 0.4, height: 0.5, slot: 'accent', rotation: -0.5 },
+    { shape: 'triangle', dx: 0.02, dy: -0.56, width: 0.34, height: 0.46, slot: 'accent', rotation: -0.2 },
+    // Nudged in from 0.4,-0.16: nine of its sample points sat outside the body, putting
+    // near-black against the sky. 0.057 radii of movement, measurably enclosed.
+    { shape: 'ellipse', dx: 0.36, dy: -0.12, width: 0.18, height: 0.18, slot: 'detail' },
   ],
   // Head dips on each bounce: a heavier tilt response rather than new animation.
   motion: {
@@ -123,8 +163,10 @@ export const bear: Character = {
   displayName: 'Bear',
   rig: [
     { shape: 'ellipse', dx: 0, dy: 0.02, width: 1.12, height: 0.98, slot: 'body' },
-    { shape: 'ellipse', dx: -0.42, dy: -0.6, width: 0.32, height: 0.32, slot: 'accent' },
-    { shape: 'ellipse', dx: 0.42, dy: -0.6, width: 0.32, height: 0.32, slot: 'accent' },
+    // Same fix as Bull's horns, and closer together is also what a bear's ears actually
+    // are. At ±0.42 the body's surface was at −0.304 and the ear's underside at −0.44.
+    { shape: 'ellipse', dx: -0.31, dy: -0.5, width: 0.32, height: 0.32, slot: 'accent' },
+    { shape: 'ellipse', dx: 0.31, dy: -0.5, width: 0.32, height: 0.32, slot: 'accent' },
     { shape: 'ellipse', dx: 0.36, dy: -0.1, width: 0.2, height: 0.2, slot: 'detail' },
   ],
   // Weightier squash, so it lands differently from Robin without new code.
@@ -158,8 +200,11 @@ export const rocket: Character = {
     { shape: 'triangle', dx: -0.34, dy: 0.4, width: 0.42, height: 0.34, slot: 'accent', rotation: 3.5 },
     { shape: 'triangle', dx: 0.34, dy: 0.4, width: 0.42, height: 0.34, slot: 'accent', rotation: -0.35 },
     { shape: 'ellipse', dx: 0, dy: 0.05, width: 0.62, height: 1.15, slot: 'body' },
-    // Apex rotated to point up. The nose is the whole silhouette, so it is generous.
-    { shape: 'triangle', dx: 0, dy: -0.72, width: 0.5, height: 0.5, slot: 'accent', rotation: -1.5708 },
+    // Apex up, and **narrowed and lowered** so its base is flush with the fuselage. At
+    // half-width 0.25 based at y −0.47 the corners hung 0.18 radii clear of a body whose
+    // surface there is only −0.29, which read as an unseated cone. Half-width 0.22 based
+    // at −0.38 sits on the hull.
+    { shape: 'triangle', dx: 0, dy: -0.6, width: 0.5, height: 0.44, slot: 'accent', rotation: -1.5708 },
     // Apex down, reaching almost to the price line — so it looks like it is standing on
     // its own exhaust rather than hovering above the bar.
     { shape: 'triangle', dx: 0, dy: 0.78, width: 0.34, height: 0.44, slot: 'detail', rotation: 1.5708, flaps: true },
@@ -180,44 +225,57 @@ export const rocket: Character = {
 }
 
 /**
- * The third distinct outline: mass low and back, a long tail, a small head held high.
+ * The third distinct outline: **mass above the body**, which nothing else here has.
  *
- * Chosen for the same reason as the frog. Bull and Bear are both a round body with two
- * things on top and differ only in whether those things are triangles or ellipses, so
- * they read almost identically at phone size. A leaning, tailed silhouette does not
- * collide with anything already here.
+ * This slot was a kangaroo first, and rendered it read as a purple bird — a blob with a
+ * thin tail out the back, a small round head and two wedges too small to be ears. A
+ * kangaroo's read depends on proportion detail that three primitives at 46px do not
+ * carry.
  *
- * Hops for a living, so its leg answers to the jump like the frog's.
+ * A squirrel carries at that size because its identifying feature is enormous and
+ * singular: a bushy tail arcing up over the back. Every other rig in the roster keeps its
+ * silhouette at or below the body line, so height *behind* the body is an outline nobody
+ * else can be confused with — which is the whole selection criterion here.
+ *
+ * The tail takes the `body` slot rather than the torso, because the tail is the larger
+ * area and the one that has to survive being seen against a sky.
  */
-export const kangaroo: Character = {
-  id: 'kangaroo',
-  displayName: 'Kangaroo',
+export const squirrel: Character = {
+  id: 'squirrel',
+  displayName: 'Squirrel',
   rig: [
-    // The tail, first so the body draws over its root.
-    { shape: 'triangle', dx: -0.72, dy: 0.3, width: 0.8, height: 0.3, slot: 'accent', rotation: 3.25 },
-    { shape: 'ellipse', dx: -0.05, dy: 0.05, width: 1, height: 0.82, slot: 'body' },
-    { shape: 'triangle', dx: 0.38, dy: -0.76, width: 0.22, height: 0.34, slot: 'accent', rotation: -1.45 },
-    { shape: 'triangle', dx: 0.56, dy: -0.78, width: 0.22, height: 0.32, slot: 'accent', rotation: -1.25 },
-    { shape: 'ellipse', dx: 0.46, dy: -0.42, width: 0.44, height: 0.4, slot: 'body' },
-    { shape: 'triangle', dx: -0.05, dy: 0.42, width: 0.62, height: 0.34, slot: 'accent', rotation: 3.55, flaps: true },
-    { shape: 'ellipse', dx: 0.6, dy: -0.44, width: 0.16, height: 0.16, slot: 'detail' },
+    // The tail: one tall ellipse leaned over the back. Drawn first, so the torso covers
+    // its root and it reads as attached rather than as a balloon on a string.
+    { shape: 'ellipse', dx: -0.42, dy: -0.22, width: 0.46, height: 0.98, slot: 'body', rotation: -0.5 },
+    { shape: 'ellipse', dx: 0.04, dy: 0.22, width: 0.82, height: 0.72, slot: 'accent' },
+    { shape: 'ellipse', dx: 0.42, dy: -0.16, width: 0.44, height: 0.42, slot: 'accent' },
+    // Ear, seated into the head rather than perched above it.
+    { shape: 'triangle', dx: 0.42, dy: -0.42, width: 0.26, height: 0.22, slot: 'body', rotation: -1.5708 },
+    // Hind foot, tucked while riding and kicking back at the apex of a jump.
+    { shape: 'triangle', dx: -0.02, dy: 0.5, width: 0.4, height: 0.2, slot: 'body', rotation: 2.8, flaps: true },
+    { shape: 'ellipse', dx: 0.54, dy: -0.2, width: 0.15, height: 0.15, slot: 'detail' },
   ],
   motion: {
-    flapAmplitude: -0.7,
+    flapAmplitude: 0.55,
     flapPhaseOffset: 0,
-    squashFactor: 0.24,
-    tiltResponse: 0.34,
+    squashFactor: 0.26,
+    tiltResponse: 0.3,
     limbDriver: 'hop',
   },
   /**
-   * Purple, which is not what a kangaroo looks like, and that is the trade.
+   * Purple, which is not what a squirrel looks like, and that is the trade.
    *
-   * A naturalistic tan lands within 20° of Robin's gold, and body hue is what separates
-   * one entry from another in the picker. The art direction here is geometric
-   * silhouettes rather than illustration, so the outline carries the animal and the
-   * colour is free to do the job the outline cannot.
+   * A naturalistic red-brown lands within 20° of Robin's gold and within 30° of Bear's
+   * coral, and body hue is what separates one entry from another in the picker. Grey was
+   * the other honest option and collides with the Rocket. The art direction here is
+   * geometric silhouettes rather than illustration, so the outline carries the animal and
+   * the colour is free to do the job the outline cannot.
+   *
+   * `body` is the *lighter* value here, unlike the rest of the roster, because it is the
+   * tail — a bushy tail catching light over a darker torso, and the tail is what needs
+   * the contrast against a sky.
    */
-  palette: { body: 0xb07cc9, accent: 0x7a4f96, detail: 0x2a1830 },
+  palette: { body: 0xb07cc9, accent: 0x7a4f96, detail: 0x241030 },
 }
 
 /**
@@ -248,9 +306,13 @@ export const hedgehog: Character = {
     { shape: 'triangle', dx: 0.02, dy: -0.6, width: 0.3, height: 0.54, slot: 'accent', rotation: 0 },
     { shape: 'triangle', dx: 0.28, dy: -0.54, width: 0.3, height: 0.48, slot: 'accent', rotation: 0.26 },
     { shape: 'triangle', dx: 0.52, dy: -0.4, width: 0.28, height: 0.4, slot: 'accent', rotation: 0.5 },
-    // Snout and eye, forward — it faces the oncoming price.
-    { shape: 'triangle', dx: 0.82, dy: 0.1, width: 0.34, height: 0.24, slot: 'body', rotation: 0 },
-    { shape: 'ellipse', dx: 0.44, dy: -0.12, width: 0.16, height: 0.16, slot: 'detail' },
+    // Snout and eye, forward — it faces the oncoming price. The snout is at 0.62 rather
+    // than 0.82 because at 0.82 its base sat beyond the body's edge and it floated, the
+    // same bug the roster's connectivity test caught in Robin's beak and Bull's horns.
+    { shape: 'triangle', dx: 0.62, dy: 0.1, width: 0.34, height: 0.24, slot: 'body', rotation: 0 },
+    // Enclosed, for the same reason as every other eye here — and it matters more for the
+    // marker, whose rig is tinted with the stop colour rather than drawn in its own palette.
+    { shape: 'ellipse', dx: 0.4, dy: -0.09, width: 0.16, height: 0.16, slot: 'detail' },
   ],
   // Unused by the marker, which is driven by the stop level rather than a gait, but
   // the shape of `Character` requires it and a sensible set costs nothing.
@@ -285,7 +347,7 @@ export const hedgehog: Character = {
  * next to it because it is the entry that matches what the gait actually does. The rest
  * follow the order they were added.
  */
-export const characters: readonly Character[] = [robin, frog, bull, bear, kangaroo, rocket]
+export const characters: readonly Character[] = [robin, frog, bull, bear, squirrel, rocket]
 
 export function character(id: string): Character {
   return characters.find((entry) => entry.id === id) ?? robin
