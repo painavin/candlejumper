@@ -88,21 +88,28 @@ export function createCharacterLayer({
   const trailLayer = new Graphics()
   const trail: { x: number; y: number }[] = []
 
-  /** Wing parts are tracked separately so the flap is a sine, not a keyframe. */
-  const wings: Graphics[] = []
+  /**
+   * Limb parts, tracked separately so their motion is a curve rather than a keyframe.
+   *
+   * The **base rotation is stored alongside**, because the limb angle is added to the
+   * pose the rig asked for rather than replacing it. Assigning it outright worked only
+   * as long as every limb happened to start at zero, which was true while Robin's wing
+   * was the only one — a swept-back leg would silently have lost its sweep.
+   */
+  const limbs: { graphics: Graphics; base: number }[] = []
   const ghosts: Container[] = []
   let builtRadius = 0
 
-  const buildRig = (target: Container, radius: number, collectWings: boolean): void => {
+  const buildRig = (target: Container, radius: number, collectLimbs: boolean): void => {
     target.removeChildren()
-    if (collectWings) wings.length = 0
+    if (collectLimbs) limbs.length = 0
 
     for (const shape of character.rig) {
       const graphics = drawShape(shape, radius, character)
       graphics.position.set(shape.dx * radius, shape.dy * radius)
       if (shape.rotation) graphics.rotation = shape.rotation
       target.addChild(graphics)
-      if (collectWings && shape.flaps) wings.push(graphics)
+      if (collectLimbs && shape.flaps) limbs.push({ graphics, base: shape.rotation ?? 0 })
     }
   }
 
@@ -140,6 +147,8 @@ export function createCharacterLayer({
         container.rotation = 0
         ghostLayer.visible = false
         badge.visible = false
+        // Waiting has no jump to drive from, so the idle twitch is a slow sine for every
+        // character regardless of `limbDriver` — a grounded frog still shifts its legs.
         flap(Math.sin(elapsed * 1.6) * 0.25 * motion.flapAmplitude * damp)
         // Flat means not exposed, so no trail — and the history is dropped rather
         // than frozen, so re-entering doesn't smear from where the last trade ended.
@@ -175,7 +184,23 @@ export function createCharacterLayer({
       const climb = unitToY(newest.unit, layout) - unitToY(frame.previousUnit ?? newest.unit, layout)
       container.rotation = climb * 0.0016 * motion.tiltResponse * damp * (short ? -1 : 1)
 
-      flap(Math.sin((frame.barPhase + motion.flapPhaseOffset) * Math.PI * 2) * motion.flapAmplitude * damp)
+      /**
+       * Limbs answer either to the bar or to the jump.
+       *
+       * A wing sweeps continuously, so one sine per bar is right for it. A leg is the
+       * opposite: it must be *still* for the three quarters of every bar the character
+       * spends riding a closed bar, and kick only while airborne. `arc(gait.hop)` is
+       * the same curve that lifts the character, so a leg reaches full extension at
+       * exactly the apex of the arc and is tucked at both ends of it — the launch and
+       * the landing — for free.
+       */
+      flap(
+        motion.limbDriver === 'hop'
+          ? arc(gait.hop) * motion.flapAmplitude * damp
+          : Math.sin((frame.barPhase + motion.flapPhaseOffset) * Math.PI * 2) *
+              motion.flapAmplitude *
+              damp
+      )
       // Ghost stack: one translucent copy per open unit, so "I'm three deep" reads
       // at a glance and countably. Costs nothing per roster addition, since a ghost
       // is the same rig at reduced alpha.
@@ -207,7 +232,7 @@ export function createCharacterLayer({
   }
 
   function flap(angle: number): void {
-    for (const wing of wings) wing.rotation = angle
+    for (const limb of limbs) limb.graphics.rotation = limb.base + angle
   }
 
   function drawTrail(x: number, y: number, radius: number): void {
@@ -250,7 +275,22 @@ export function drawShape(shape: RigShape, radius: number, character: Character)
       graphics.poly([-w / 2, h / 2, w / 2, 0, -w / 2, -h / 2]).fill(colour)
       break
     case 'arc':
-      // A wing: a half-ellipse hinged at its inner edge, so rotation reads as a flap.
+      /**
+       * A wing.
+       *
+       * Note what the pivot does: the ellipse is drawn offset by `w/2`, and the pivot is
+       * then set to that same point — so the ellipse's *centre* lands on the shape's
+       * position and rotation happens about that centre, not about the inner edge. The
+       * offset and the pivot cancel out.
+       *
+       * This is worth stating because the obvious reading is the opposite. Dropping the
+       * pivot line would hinge the wing at its root, which is the more wing-like motion,
+       * but it would also shift Robin's wing outward by half its width — a visual change
+       * to the default character, not a refactor. Left as it is deliberately.
+       *
+       * `characterPreview.ts` mirrors this, and will need the same change if this one is
+       * ever made.
+       */
       graphics.ellipse(w / 2, 0, w / 2, h / 2).fill(colour)
       graphics.pivot.set(w / 2, 0)
       break

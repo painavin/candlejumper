@@ -5,6 +5,7 @@ import { mount, unmount } from 'svelte'
 import { defaultConfig } from '@config/index.js'
 import type { RunConfig } from '@config/index.js'
 import { createStopRegistry, createIndicatorRegistry } from '@plugins/host/index.js'
+import { characters } from '@content/characters/index.js'
 import { AppState } from '../appState.svelte.js'
 import type { AppActions } from '../appState.svelte.js'
 import App from './App.svelte'
@@ -221,16 +222,22 @@ describe('the settings screen', () => {
   })
 
   it('offers every jumper, with none locked', () => {
-    // All three were built and rendered; two used to be gated behind a grind, which
-    // is the wrong trade for a trainer — a player who wants to be the bear should be
-    // the bear on their first run.
+    // Some of these used to be gated behind a grind, which is the wrong trade for a
+    // trainer — a player who wants to be the bear should be the bear on their first run.
+    // Counted from the roster rather than hardcoded, so adding a character does not
+    // fail a test about locking.
     const { target, dispose } = render((state) => {
       state.badges = []
     })
     const picks = [...target.querySelectorAll('button.pick')]
-    expect(picks).toHaveLength(3)
+    expect(picks).toHaveLength(characters.length)
     expect(picks.filter((pick) => (pick as HTMLButtonElement).disabled)).toEqual([])
     expect(target.textContent).not.toContain('Locked')
+    // Each tile previews the rig, because shape is what distinguishes one from another —
+    // a colour swatch asked the player to choose by the one thing that doesn't vary.
+    for (const pick of picks) {
+      expect(pick.querySelector('svg.rig')?.children.length ?? 0).toBeGreaterThan(0)
+    }
     dispose()
   })
 

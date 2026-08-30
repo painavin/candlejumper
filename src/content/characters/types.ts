@@ -45,6 +45,24 @@ export interface CharacterMotion {
   squashFactor: number
   /** How far the body tilts into the direction of travel. */
   tiltResponse: number
+  /**
+   * What drives the parts flagged `flaps` — the bar, or the jump.
+   *
+   * `bar` sweeps limbs through one sine per bar, so they move continuously whether or
+   * not the character is mid-air. That is what a wing does, and it is why Robin uses it.
+   *
+   * `hop` drives them from the arc instead: still while riding a bar, extended at the
+   * apex, still again on landing. A frog's legs kick when it jumps and are tucked the
+   * rest of the time, and one sine per bar cannot express that — it would wave the legs
+   * through the three quarters of every bar the character spends standing still.
+   *
+   * `flapPhaseOffset` is ignored under `hop`; the arc has no phase to slide, which is
+   * the point of it.
+   *
+   * Both are **cosmetic only**. This picks what rotates a limb, never the gait, the
+   * hitbox, or the bounce cadence — those stay identical across the roster.
+   */
+  limbDriver: 'bar' | 'hop'
 }
 
 export interface Character {

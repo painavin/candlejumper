@@ -133,14 +133,19 @@ Characters are **primitive rigs animated by math**, not spritesheets.
   - **Squash-and-stretch** becomes a function of vertical speed, which is
     *better* than fixed frames: it responds continuously instead of
     snapping between poses.
-  - **Wing flap / limb motion** is a sine function of bounce phase.
-  - **`bounceShort`** is a sign flip on the vertical axis — free.
+  - **Wing flap / limb motion** is a sine function of bounce phase, or of the
+    jump arc — see `limbDriver` in
+    [character.md](./character.md#roster-shape). A wing sweeps continuously; a
+    leg has to be still while the character is standing on a bar.
+  - **`bounceShort`** is a sign flip on the vertical axis — free. It is also
+    what turns the Rocket nose-down while short, at no extra cost.
   - **Ghost stack** ([character.md](./character.md#position-size-visualization))
     re-renders the same rig at reduced alpha and offset — also free.
 - Cost, stated honestly: personality lives in numeric constants you tune in
   code rather than in an art tool, and expressiveness is bounded by what
-  primitives convey. Robin, Bull, and Bear will read as distinct
-  silhouettes, not as illustrated characters.
+  primitives convey. The roster reads as distinct silhouettes, not as
+  illustrated characters — and *silhouette* is the scarce resource, not colour,
+  which is why two of the six are not the colour the animal is.
 
 ## Audio generation
 

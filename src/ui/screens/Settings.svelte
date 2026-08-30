@@ -41,6 +41,7 @@
   import { audioThemes } from '@content/audioThemes/index.js'
   import { visualThemes } from '@content/visualThemes/index.js'
   import { characters } from '@content/characters/index.js'
+  import { previewShapes, previewViewBox } from '../characterPreview.js'
   import {
     INDICATOR_COLOURS,
     colourFromHex,
@@ -52,6 +53,16 @@
   import { untrack } from 'svelte'
   import { snapshot } from '../appState.svelte.js'
   import ParamControl from '../controls/ParamControl.svelte'
+
+  /**
+   * Rig previews for the roster, built once.
+   *
+   * The roster is static content, so this is a constant — computing it in the template
+   * would rebuild six rigs' worth of shapes on every keystroke anywhere in this screen.
+   * The viewBox is shared across all six so their proportions stay comparable.
+   */
+  const rigViewBox = previewViewBox()
+  const rigPreviews = characters.map((entry) => ({ entry, shapes: previewShapes(entry) }))
 
   interface Choice {
     id: string
@@ -825,18 +836,23 @@
   <section>
     <h2>Jumper</h2>
     <div class="roster">
-      {#each characters as entry (entry.id)}
+      {#each rigPreviews as { entry, shapes } (entry.id)}
         <button
           class="pick"
           class:selected={draft.character.selected === entry.id}
           onclick={() => (draft.character.selected = entry.id)}
         >
-          <span
-            class="swatch"
-            style="--body: #{entry.palette.body.toString(16).padStart(6, '0')}; --accent2: #{entry.palette.accent
-              .toString(16)
-              .padStart(6, '0')}"
-          ></span>
+          <!-- The rig itself, not a colour swatch: shape is what distinguishes these,
+               so a swatch asked the player to choose by the one thing that doesn't. -->
+          <svg class="rig" viewBox={rigViewBox} aria-hidden="true">
+            {#each shapes as shape, index (index)}
+              {#if shape.kind === 'ellipse'}
+                <ellipse rx={shape.rx} ry={shape.ry} transform={shape.transform} fill={shape.fill} />
+              {:else}
+                <polygon points={shape.points} transform={shape.transform} fill={shape.fill} />
+              {/if}
+            {/each}
+          </svg>
           <span class="name">{entry.displayName}</span>
         </button>
       {/each}
@@ -1872,28 +1888,37 @@
   .details-body {
     padding: 0 0 4px;
   }
+  /* A grid of tiles rather than a row of pills: a rig needs vertical space that a pill
+     beside a name cannot give it, and six entries wrap more evenly this way. */
   .roster {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
     gap: 8px;
     margin-top: 10px;
   }
   .pick {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 8px 14px 8px 10px;
+    gap: 5px;
+    padding: 8px 6px 7px;
     background: var(--field);
     color: var(--ink);
     border: 1px solid var(--edge);
-    border-radius: 999px;
+    border-radius: 10px;
     font: inherit;
-    font-size: 13.5px;
+    font-size: 12.5px;
     cursor: pointer;
   }
   .pick.selected {
     border-color: var(--accent);
     box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  /* Square, matching the viewBox, so no rig is stretched. */
+  .rig {
+    display: block;
+    width: 46px;
+    height: 46px;
   }
   .swatch {
     width: 18px;
