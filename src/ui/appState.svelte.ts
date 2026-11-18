@@ -188,8 +188,6 @@ export interface AppActions {
   /** Settings previewing a look: restarts the attract backdrop, nothing else. */
   preview(config: RunConfig): void
   dismissNotice(): void
-  /** A random ticker and date window, so a series can't be memorised. */
-  surprise(): void
   /** Opens a file picker; the chosen modules are validated in the sandbox. */
   importPlugins(kind: 'stop' | 'indicator'): void
   removePlugin(name: string): void

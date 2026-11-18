@@ -26,7 +26,8 @@ npm run dev
 
 Vite prints a local URL (usually <http://localhost:5173>). You land on the title
 screen with the game playing itself behind it. **Play** starts a run with the
-current settings, **Surprise me** picks a random ticker and date window, and
+current settings — by default the ticker is **Random**, so each run draws a different
+ticker and start date — and
 **Settings** is there when you want to change something — the defaults are a
 perfectly good first run.
 

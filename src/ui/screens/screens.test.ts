@@ -41,7 +41,6 @@ function actions(): SpiedActions {
     toStats: vi.fn(),
     preview: vi.fn(),
     dismissNotice: vi.fn(),
-    surprise: vi.fn(),
     importPlugins: vi.fn(),
     removePlugin: vi.fn(),
     downloadTicker: vi.fn(async () => undefined),
@@ -217,7 +216,7 @@ describe('the settings screen', () => {
     expect(acts.commitSettings).toHaveBeenCalledTimes(1)
     const passed = acts.commitSettings.mock.calls[0]?.[0] as RunConfig
     expect(() => structuredClone(passed)).not.toThrow()
-    expect(passed.data.ticker).toBe('AAPL')
+    expect(passed.data.ticker).toBe('random')
     dispose()
   })
 
@@ -339,8 +338,17 @@ describe('the title screen', () => {
     dispose()
   })
 
-  it('says what Play will run, so the button is not a mystery', () => {
+  it('says Play picks a random ticker by default, and has no Surprise me button', () => {
     const { target, dispose } = titled()
+    expect(button(target, 'Play')?.textContent).toContain('random ticker')
+    expect(button(target, 'Surprise me')).toBeUndefined()
+    dispose()
+  })
+
+  it('names the ticker on Play once one is chosen', () => {
+    const { target, dispose } = titled((state) => {
+      if (state.config) state.config.data.ticker = 'AAPL'
+    })
     expect(button(target, 'Play')?.textContent).toContain('AAPL')
     dispose()
   })

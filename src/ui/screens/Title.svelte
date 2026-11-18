@@ -17,6 +17,7 @@
    */
   import { nextUnlock } from '@content/progression/index.js'
   import type { UnlockContext } from '@content/progression/types.js'
+  import { RANDOM_TICKER } from '@config/index.js'
 
   let {
     lifetime,
@@ -24,7 +25,6 @@
     ticker,
     onPlay,
     onSettings,
-    onSurprise,
     onHowTo,
     onStats,
   }: {
@@ -34,7 +34,6 @@
     ticker: string
     onPlay: () => void
     onSettings: () => void
-    onSurprise: () => void
     onHowTo: () => void
     onStats: () => void
   } = $props()
@@ -60,8 +59,7 @@
   <p class="tagline">Two buttons. Real prices. No way to die — only to trade badly.</p>
 
   <div class="actions">
-    <button class="primary" onclick={onPlay}>Play <span class="hint">{ticker}</span></button>
-    <button onclick={onSurprise}>Surprise me <span class="hint">random ticker</span></button>
+    <button class="primary" onclick={onPlay}>Play <span class="hint">{ticker === RANDOM_TICKER ? 'random ticker' : ticker}</span></button>
   </div>
   <div class="actions secondary">
     <button onclick={onSettings}>Settings</button>

@@ -11,6 +11,7 @@ export type {
   PnlPalette,
   BarStyle,
 } from './types.js'
+export { RANDOM_TICKER } from './types.js'
 export {
   defaultConfig,
   LAYOUT,

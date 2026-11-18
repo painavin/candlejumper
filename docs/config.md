@@ -252,7 +252,7 @@ value wins.
 | Key | Description | Default |
 |---|---|---|
 | `data.source` | Which `PriceSeriesSource` implementation to use; switchable at runtime, not a build-time choice. `bundled`, `synthetic`, or `downloaded` — the library of series you've downloaded from a provider or imported from a file. See [data-sources.md](./data-sources.md) | `bundled` |
-| `data.ticker` | The active source's id for the selected series, chosen from a dropdown of what it offers. Both sources use `SYMBOL@interval` — `INTC@1wk` — because one ticker can be held at several intervals and they are different series. Treat it as opaque; only the source that published it may take it apart. A bare id from before intervals existed still resolves, as daily | `AAPL` |
+| `data.ticker` | The active source's id for the selected series, chosen from a dropdown of what it offers. Both sources use `SYMBOL@interval` — `INTC@1wk` — because one ticker can be held at several intervals and they are different series. Treat it as opaque; only the source that published it may take it apart. A bare id from before intervals existed still resolves, as daily. The value `random` (the default) draws a series from the selected source each time a run starts, with a random start date, ignoring `dateRange` | `random` |
 | `data.dateRange` | Optional sub-range (epoch seconds, inclusive); unset plays the whole series | unset |
 
 ## Persistence

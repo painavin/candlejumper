@@ -1,4 +1,5 @@
 import { mintSeed } from '@shared/math/index.js'
+import { RANDOM_TICKER } from './types.js'
 import type { RunConfig } from './types.js'
 
 /**
@@ -95,7 +96,7 @@ export function defaultConfig(): RunConfig {
       sfxMuted: false,
     },
 
-    data: { source: 'bundled', ticker: 'AAPL' },
+    data: { source: 'bundled', ticker: RANDOM_TICKER },
   }
 }
 

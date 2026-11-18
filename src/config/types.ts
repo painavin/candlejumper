@@ -228,8 +228,15 @@ export interface RunConfig {
   // ── Data ─────────────────────────────────────────────────────────────────
   data: {
     source: string
+    /** A series id from the source, or `RANDOM_TICKER` to draw one when the run starts. */
     ticker: string
     /** Optional sub-range in epoch seconds, inclusive. Unset plays it all. */
     dateRange?: { from: number; to: number }
   }
 }
+
+/**
+ * The `data.ticker` value meaning "pick one for me". Resolved by the composition root at
+ * run start, so a stored config never holds the symbol that happened to be drawn.
+ */
+export const RANDOM_TICKER = 'random'

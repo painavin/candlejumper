@@ -55,7 +55,6 @@
         ticker={state.config?.data.ticker ?? ''}
         onPlay={() => state.config && actions.start(state.config)}
         onSettings={actions.toSettings}
-        onSurprise={actions.surprise}
         onHowTo={actions.toHowTo}
         onStats={actions.toStats}
       />

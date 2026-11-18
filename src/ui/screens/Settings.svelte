@@ -23,6 +23,7 @@
    * returns to the title; Cancel restores what was there before, including the
    * backdrop, so previewing a mood you decide against costs nothing.
    */
+  import { RANDOM_TICKER } from '@config/index.js'
   import type {
     IndicatorInstanceConfig,
     NormalizationMode,
@@ -498,7 +499,9 @@
 
   const seriesSummary = $derived(
     activeTicker === undefined
-      ? ' — nothing selected'
+      ? draft.data.ticker === RANDOM_TICKER
+        ? ' — random ticker'
+        : ' — nothing selected'
       : ` — ${activeTicker.symbol}, ${activeTicker.barCount} bars`
   )
 
@@ -534,6 +537,7 @@
   $effect(() => {
     const first = tickers[0]
     if (!first) return
+    if (draft.data.ticker === RANDOM_TICKER) return
     if (!tickers.some((entry) => entry.symbol === draft.data.ticker)) {
       draft.data.ticker = first.symbol
     }
@@ -700,7 +704,8 @@
 
       <label>
         Ticker
-        <select bind:value={draft.data.ticker} disabled={tickers.length === 0}>
+        <select bind:value={draft.data.ticker}>
+          <option value={RANDOM_TICKER}>Random (a different ticker each run)</option>
           {#each tickers as ticker (ticker.symbol)}
             <option value={ticker.symbol}>{ticker.displayName} · {ticker.barCount} bars</option>
           {/each}
@@ -1451,6 +1456,9 @@
         {#if activeTicker}
           {draft.data.ticker} covers {dateInput(activeTicker.firstBarTime)} to
           {dateInput(activeTicker.lastBarTime)}. Leave both blank to play all of it.
+        {:else if draft.data.ticker === RANDOM_TICKER}
+          Random picks its own start point each run, so this range is ignored until you choose a
+          ticker.
         {:else}
           Leave both blank to play the whole series.
         {/if}

@@ -7,6 +7,7 @@ import {
   runFingerprint,
   validateConfig,
   FINGERPRINT_VERSION,
+  RANDOM_TICKER,
 } from '@config/index.js'
 import { MIN_PLAYABLE_BARS, preloadProblem } from '@config/validate.js'
 import { BUNDLED_SOURCE_ID, createSourceRegistry, DownloadFailure } from '@data/index.js'
@@ -306,7 +307,11 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
    * risk rule is dangerous — a missing ticker has a harmless default to land on, and
    * refusing to boot over it would be theatre.
    */
-  if (state.tickers.length > 0 && !state.tickers.some((t) => t.symbol === state.config?.data.ticker)) {
+  if (
+    state.tickers.length > 0 &&
+    state.config.data.ticker !== RANDOM_TICKER &&
+    !state.tickers.some((t) => t.symbol === state.config?.data.ticker)
+  ) {
     /**
      * Try the daily form of the stored id before giving up on it.
      *
@@ -555,7 +560,7 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
    */
   async function attractBars(config: RunConfig): Promise<readonly OhlcvBar[] | undefined> {
     const chosen = sources.get(config.data.source)
-    if (chosen) {
+    if (chosen && config.data.ticker !== RANDOM_TICKER) {
       try {
         return await chosen.loadSeries(config.data.ticker, config.data.dateRange)
       } catch {
@@ -591,10 +596,15 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
 
   // ── Runs ─────────────────────────────────────────────────────────────────────
 
-  async function begin(config: RunConfig): Promise<void> {
+  async function begin(requested: RunConfig): Promise<void> {
     state.error = undefined
     state.notice = undefined
     endedEarly = false
+
+    // Random is resolved here, once, so the run (and Restart / Run again, which replay
+    // `running`) holds a real series id.
+    const config = await resolveRandomTicker(requested)
+    if (!config) return
 
     /**
      * Resolve each configured stop's indicator dependencies before the run starts.
@@ -770,51 +780,56 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
   }
 
   /**
-   * Session variety: a random ticker from the packaged set, played from a random start
-   * to the end of its history.
+   * Session variety: when the ticker is `RANDOM_TICKER`, draw a uniformly random series
+   * from the selected source and, unless the player has narrowed a date range, a random
+   * start inside it that runs to the end of its history.
    *
    * docs/game-feel.md's reason for this is that a fixed series becomes memorised — and a
    * memorised series stops training anything, because the player is recalling rather than
    * reading.
    *
-   * **Always the bundled source**, whatever is currently selected. It used to draw from
-   * whichever source was active, which meant Surprise me offered the player's own
-   * downloads — a list they assembled deliberately and can already pick from — and did
-   * nothing at all when that list was empty. The packaged set is the one catalogue that is
-   * always there and always large enough for the word "surprise" to mean something.
+   * **The selected source**, not always the packaged set: Random is one entry in that
+   * source's ticker list, so it draws from what the list below it offers. An empty
+   * catalogue is reported rather than silently doing nothing.
    *
-   * **A random start rather than a random window.** It used to carve out a slice of
-   * roughly 250 bars, which made every surprise run the same length and threw away the
-   * rest of the series. Now the *opening* is what varies and the run goes to the end, so
-   * the thing being trained is holding a position through whatever the series does next
-   * rather than through a fixed budget of bars.
+   * **A random start rather than a random window** — the opening varies and the run goes to
+   * the end, so the thing trained is holding a position through whatever the series does
+   * next. A date range the player typed is theirs and is kept; it only makes sense against
+   * one series, though, so it is dropped when the series is random.
    *
-   * Seeded from fresh entropy rather than the world seed. This is the one thing that
-   * *should* differ every time you press the button.
+   * Seeded from fresh entropy rather than the world seed: this is the one thing that
+   * *should* differ every time you press Play.
+   *
+   * Returns the config unchanged for a named ticker, and `undefined` (with `state.error`
+   * set) when there is nothing to draw from.
    */
-  async function surpriseConfig(): Promise<RunConfig | undefined> {
-    const bundled = sources.get(BUNDLED_SOURCE_ID)
-    if (!state.config || !bundled) return undefined
+  async function resolveRandomTicker(config: RunConfig): Promise<RunConfig | undefined> {
+    if (config.data.ticker !== RANDOM_TICKER) return config
 
-    let tickers: TickerMeta[]
+    const source = sources.get(config.data.source)
+    let tickers: TickerMeta[] = []
     try {
-      tickers = await bundled.listTickers()
+      tickers = source ? await source.listTickers() : []
     } catch {
-      // The manifest is one request and the whole catalogue; without it there is nothing
-      // to pick from. Reported by the caller rather than swallowed here.
+      // Reported below, with the other way of ending up with nothing to pick from.
+    }
+    if (tickers.length === 0) {
+      state.error =
+        `Random couldn't find any series in ${source?.displayName ?? config.data.source}.\n\n  ` +
+        'Reload, download or import a series, or pick a ticker in Settings.'
       return undefined
     }
-    if (tickers.length === 0) return undefined
 
     const prng = createPrng(mintSeed())
     const ticker = prng.pick(tickers)
 
-    const config = snapshot(state.config)
-    config.data.source = BUNDLED_SOURCE_ID
-    config.data.ticker = ticker.symbol
-    config.visuals.worldSeed = mintSeed()
-    config.data.dateRange = surpriseStart(ticker, prng)
-    return config
+    const resolved = snapshot(config)
+    resolved.data.ticker = ticker.symbol
+    resolved.data.dateRange = surpriseStart(ticker, prng)
+    // `seriesOf` reads `state.tickers`, which must belong to this source before the
+    // fingerprint inputs are taken in `begin`.
+    state.tickers = tickers
+    return resolved
   }
 
   function showPause(): void {
@@ -1025,29 +1040,6 @@ export async function createShell(canvasHost: HTMLElement, uiHost: HTMLElement):
     },
     dismissNotice: () => {
       state.notice = undefined
-    },
-    surprise: () => {
-      void (async () => {
-        const config = await surpriseConfig()
-        if (!config) {
-          // It used to return in silence, which on an empty catalogue meant pressing the
-          // button did nothing at all and looked like a dead control.
-          state.error =
-            "Surprise me couldn't read the packaged datasets.\n\n  " +
-            'Reload, or pick a ticker in Settings and press Play.'
-          return
-        }
-        state.config = config
-        /**
-         * Before `begin`, not after. Surprise me switches the source, and `runSeries` —
-         * a fingerprint input — is read from `state.tickers`; starting on a catalogue
-         * belonging to the *previous* source would record the run under a bar count and
-         * last bar time of zero.
-         */
-        await refreshTickers()
-        refreshPersonalBest()
-        await begin(snapshot(config))
-      })()
     },
     importPlugins: (kind) => {
       void importPluginFiles(kind).then(async (added) => {
