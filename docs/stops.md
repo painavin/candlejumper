@@ -305,15 +305,23 @@ one added to prove a mechanism rather than to lengthen the list:
 | `fixed-percent` | `percent` (default 5%) | A level a fixed percent from average entry, recomputed as avg cost changes when scaling in. Direction-aware: below entry when long, above when short. |
 | `trailing-percent` | `percent` (default 8%) | A level a fixed percent from `bestPrice`, ratcheting in the position's favour and never rewinding. Direction-aware. Looser default than the fixed stop, since it ratchets. |
 | `atr-stop` | `atrLength` (14), `multiple` (2.5×) | A level `multiple` ATRs from the close. The first consumer of `requires()`, and it legitimately **widens** when volatility rises — which is why widening is recorded rather than forbidden. |
-| `pullback-stop` | the five params of the gap-up breakout pullback signal | Reports the `stop` output of that composite indicator ([indicators.md](./indicators.md#composing-indicators)). Longs only, honestly: the level sits below price by construction, so a short gets no level rather than one on the profitable side. |
+| `pullback-stop` | the ten params of the gap-up breakout pullback signal | Reports the `stop` output of that composite indicator ([indicators.md](./indicators.md#composing-indicators)) — the leg's initial stop one ATR beyond its entry, then its trail. Present only while the leg holds its own trade, so most bars offer no level. Longs only, honestly: the level sits below price by construction, so a short gets no level rather than one on the profitable side. |
 
 `pullback-stop` is the deepest dependency chain shipped — stop → composite →
-{ breakout, ATR } — and therefore the proof that resolution *recurses* rather than only
+breakout — and therefore the proof that resolution *recurses* rather than only
 going one level down. It also shows the cost of the no-sharing rule plainly: its params
-duplicate the indicator's, because `requires()` is resolved from a plugin's own params
+duplicate the indicator's (declared once, in `gapupParams.ts`, so the two cannot drift), because `requires()` is resolved from a plugin's own params
 and a stop cannot read the settings of a chart overlay. A player running both has to keep
 two sets of numbers in step; the alternative is a stop whose level changes when a chart
 is toggled, which is the outcome this document calls the worst available.
+
+It lines up with the timing rules above without any translation. The leg tests its stop
+on the **close**, and a level computed at bar N is enforced against bar N+1's close, so
+the level in force after a bar is exactly what the next bar's close is compared with —
+and the trail, which can move on that next bar, only ever moves to a level below that
+bar's close. `src/app/pullbackStopRun.test.ts` drives it through the real run controller:
+a wick through the level that closes back above it does not exit, a close at or through
+it does, and it never fires on the bar the position opened on.
 
 **`trailing-percent` ships active, in advisory mode**, and is the only entry
 in the default `stops.active` ([config.md](./config.md#stops)). Advisory

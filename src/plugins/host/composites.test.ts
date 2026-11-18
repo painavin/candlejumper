@@ -336,115 +336,225 @@ describe('price breakout', () => {
 })
 
 describe('gap-up breakout ATR pullback', () => {
+  /**
+   * The breakout scan's settings with the tolerance and the retrace-depth trail off, so
+   * the arithmetic below is the plain one: one ATR of risk, a two-ATR trail armed at two
+   * R. `RetraceLeg`'s own facts (retraceLeg.test.ts) cover the lifecycle exhaustively;
+   * these cover the wiring — the ATR, the gap, and what each output says.
+   */
   const params = {
     breakoutLength: 3,
-    gapupPercent: 4,
-    atrLength: 7,
+    gapupPercent: 10,
+    atrLength: 3,
     atrFactor: 2,
-    atrTolerancePercent: 5,
+    atrTolerancePercent: 0,
+    stopFactor: 1,
+    trailFactor: 2,
+    activationR: 2,
+    tightenStopWithAtr: 0,
+    trailAtRetraceDepth: 0,
   }
 
-  const withAtr = (atr: number, signal = Number.NaN): IndicatorValues => ({
-    atr: { atr },
-    breakout: { signal },
-  })
+  const signal = (value: number): IndicatorValues => ({ breakout: { signal: value } })
+  const quiet: IndicatorValues = { breakout: { signal: Number.NaN } }
 
-  it('says nothing while its ATR is still warming up', () => {
-    // The rule that makes composition safe: an entry taken on a NaN ATR would pin the
-    // retrace level at NaN for the rest of the run.
+  /** A bar one point either side of its close, on consecutive days. */
+  const day = (index: number, c: number, h = c + 1, l = c - 1) =>
+    bar({ c, h, l, t: index * DAY })
+
+  /**
+   * Armed on bar 1, entered on bar 2, with the ATR worked by hand:
+   *
+   *   true ranges   2, 2, 5, 5, 3   (bar 0 has no previous close, so high − low)
+   *   ATR(3)        –, 2, 3, 4, 4.33   (an average of what exists until the window fills)
+   *
+   * Bar 1 arms at 101 − 2×2 = 97. Bar 2's low of 96 crosses it, so the entry is 97 and
+   * the stop is one *entry-bar* ATR (3) beyond it: 94.
+   */
+  const entered = () => {
     const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(Number.NaN))
-    const out = instance.onBar(bar({ c: 110, t: DAY }), false, withAtr(Number.NaN, 110))
+    const outs = [
+      instance.onBar(day(0, 100), false, quiet),
+      instance.onBar(day(1, 101, 102, 100), false, signal(101)),
+      instance.onBar(day(2, 99, 100, 96), false, quiet),
+    ]
+    return { instance, outs }
+  }
+
+  it('says nothing on its first bar', () => {
+    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
+    const out = instance.onBar(day(0, 100), false, signal(100))
     for (const value of Object.values(out)) expect(value).toBeNaN()
   })
 
-  it('enters on a breakout, and draws no level on the entry bar itself', () => {
-    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    const entry = instance.onBar(bar({ c: 102, h: 103, l: 102, t: DAY }), false, withAtr(1, 102))
+  it('arms on a breakout, drawing the entry level and no stop yet', () => {
+    const { outs } = entered()
+    const armed = outs[1] as Record<string, number>
 
-    expect(entry.breakout).toBe(103)
-    // A bar cannot both open and close a signal, or one wide bar would produce a whole
-    // trade nobody could have acted on.
-    expect(entry.retrace).toBeNaN()
-    expect(entry.stop).toBeNaN()
+    // Marked at the high, where the cycle began.
+    expect(armed.breakout).toBe(102)
+    // 101 − 2×2: the level a pullback has to reach. No position, so no stop.
+    expect(armed.retrace).toBe(97)
+    expect(armed.stop).toBeNaN()
+    expect(armed.retraceHit).toBeNaN()
   })
 
-  it('ratchets the retrace level upward and keeps the stop one ATR below it', () => {
-    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    instance.onBar(bar({ c: 102, h: 103, l: 102, t: DAY }), false, withAtr(1, 102))
+  it('enters when the low crosses the level, with the stop one ATR beyond it', () => {
+    const { outs } = entered()
+    const entry = outs[2] as Record<string, number>
 
-    // Entry set the level at 102 - 2 = 100. This bar's candidate is 101 - 2 = 99, and
-    // a ratchet never gives ground.
-    const held = instance.onBar(bar({ c: 101, h: 101, l: 101, t: 2 * DAY }), false, withAtr(1))
-    expect(held.retrace).toBeCloseTo(100, 9)
-    expect(held.stop).toBeCloseTo(99, 9)
-
-    // 105 - 2 = 103 is higher, so the level follows price up.
-    const risen = instance.onBar(bar({ c: 105, h: 105, l: 104, t: 3 * DAY }), false, withAtr(1))
-    expect(risen.retrace).toBeCloseTo(103, 9)
-    expect(risen.stop).toBeCloseTo(102, 9)
+    // The entry is booked at the level, not at the low that crossed it.
+    expect(entry.retraceHit).toBe(97)
+    // The signal bar still carries its trigger, so the entry has a price on the chart.
+    expect(entry.retrace).toBe(97)
+    // The ATR on the entry bar is 3 — (2 + 2 + 5) / 3 — so 97 − 3. A Wilder-smoothed ATR
+    // would give a different number for the same bars, which is the point of computing
+    // it here.
+    expect(entry.stop).toBe(94)
   })
 
-  it('marks the bar whose low first reaches the tolerated level, and only that bar', () => {
-    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    // Entry at 102 with ATR 1 → level 100, tolerated 100 + 5% of 1 = 100.05.
-    instance.onBar(bar({ c: 102, h: 103, l: 102, t: DAY }), false, withAtr(1, 102))
+  it('stops drawing the trigger once the trade is on, and holds the stop', () => {
+    const { instance } = entered()
 
-    const first = instance.onBar(bar({ c: 101, h: 102, l: 100, t: 2 * DAY }), false, withAtr(1))
-    expect(first.retraceHit).toBeCloseTo(100.05, 9)
-
-    // Still sitting on the level: the mark is the *crossing*, so a slow drift along it
-    // marks once rather than on every bar.
-    const second = instance.onBar(bar({ c: 101, h: 102, l: 100, t: 3 * DAY }), false, withAtr(1))
-    expect(second.retraceHit).toBeNaN()
+    // Close 95 holds above the stop at 94; the low of 94 only touches it.
+    const held = instance.onBar(day(3, 95, 96, 94), false, quiet)
+    expect(held.retrace).toBeNaN()
+    expect(held.stop).toBe(94)
+    // A pullback to the stop that holds is a second chance at the entry, marked at the
+    // stop it touched.
+    expect(held.retraceHit).toBe(94)
   })
 
-  it('closes the signal when a bar closes through the retrace level', () => {
-    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    instance.onBar(bar({ c: 102, h: 103, l: 102, t: DAY }), false, withAtr(1, 102))
-    instance.onBar(bar({ c: 99, h: 102, l: 99, t: 2 * DAY }), false, withAtr(1))
+  it('ends the trade on a close through the stop, and then says nothing', () => {
+    const { instance } = entered()
+    instance.onBar(day(3, 95, 96, 94), false, quiet)
 
-    // Out of the trade: no level on the following bar, absent a new signal.
-    const after = instance.onBar(bar({ c: 99, h: 100, l: 98, t: 3 * DAY }), false, withAtr(1))
-    expect(after.retrace).toBeNaN()
+    // The close is what exits, so a bar that wicks through but closes back above does not.
+    const out = instance.onBar(day(4, 93, 95, 92), false, quiet)
+    expect(out.stop).toBeNaN()
+    expect(out.retrace).toBeNaN()
+    expect(out.retraceHit).toBeNaN()
+
+    // And it needs a fresh breakout: nothing re-enters on the way down.
+    const after = instance.onBar(day(5, 90, 91, 85), false, quiet)
     expect(after.stop).toBeNaN()
+    expect(after.retrace).toBeNaN()
   })
 
-  it('reads a gap across an overnight break', () => {
+  it('averages true range rather than smoothing it', () => {
+    // True ranges 2, 2, 6, 2, 2. A simple average of the last three is 3.33; Wilder's
+    // smoothing of the same bars is 2.59. The level is 2 ATR below the close, so the two
+    // disagree by more than a point and a half.
     const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    const out = instance.onBar(bar({ c: 110, h: 112, l: 109, t: DAY }), false, withAtr(1))
-    expect(out.gapup).toBe(112)
+    instance.onBar(day(0, 100), false, quiet)
+    instance.onBar(day(1, 100), false, quiet)
+    instance.onBar(day(2, 100, 103, 97), false, quiet)
+    instance.onBar(day(3, 100), false, quiet)
+    const armed = instance.onBar(day(4, 100), false, signal(100))
+
+    expect(armed.retrace).toBeCloseTo(100 - 2 * (10 / 3), 9)
   })
 
-  it('does not read a gap between two bars of the same session', () => {
-    // A 10% move over five minutes is a move, not a gap — there was no break for one
-    // to form in.
+  it('marks a breakout only where a cycle starts', () => {
     const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    const out = instance.onBar(bar({ c: 110, h: 112, l: 109, t: 300 }), false, withAtr(1))
-    expect(out.gapup).toBeNaN()
+    instance.onBar(day(0, 100), false, quiet)
+    const first = instance.onBar(day(1, 101), false, signal(101))
+    // A second breakout while the cycle is already running is not the start of one.
+    const second = instance.onBar(day(2, 102), false, signal(102))
+
+    expect(first.breakout).toBe(102)
+    expect(second.breakout).toBeNaN()
+  })
+
+  it('reads a close-to-close jump across an overnight break as a gap, and arms on it', () => {
+    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
+    instance.onBar(day(0, 100), false, quiet)
+    const out = instance.onBar(day(1, 115, 117, 114), false, quiet)
+
+    expect(out.gapup).toBe(117)
+    // A gap arms the leg like a breakout, though it is not itself marked as one.
+    expect(out.breakout).toBeNaN()
+    expect(out.retrace).toBeDefined()
+    expect(Number.isFinite(out.retrace)).toBe(true)
+  })
+
+  it('reads the move between two intraday bars as a gap too', () => {
+    // The original gates on the bar being daily or shorter, not on there having been a
+    // session break, so a 10% close-to-close move five minutes apart counts.
+    const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
+    instance.onBar(bar({ c: 100, h: 101, l: 99, t: 0 }), false, quiet)
+    const out = instance.onBar(bar({ c: 115, h: 117, l: 114, t: 300 }), false, quiet)
+    expect(out.gapup).toBe(117)
   })
 
   it('does not read a weekly period return as a gap', () => {
     const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    const out = instance.onBar(bar({ c: 110, h: 112, l: 109, t: 7 * DAY }), false, withAtr(1))
+    instance.onBar(day(0, 100), false, quiet)
+    const out = instance.onBar(bar({ c: 115, h: 117, l: 114, t: 7 * DAY }), false, quiet)
     expect(out.gapup).toBeNaN()
   })
 
-  it('marks a gap even while its own trade is open', () => {
+  it('does not read a move below the threshold as a gap', () => {
     const instance = gapupBreakoutAtrPullbackIndicator.createInstance(params)
-    instance.onBar(bar({ c: 100, t: 0 }), false, withAtr(1))
-    instance.onBar(bar({ c: 102, h: 103, l: 102, t: DAY }), false, withAtr(1, 102))
-    const out = instance.onBar(bar({ c: 120, h: 121, l: 119, t: 2 * DAY }), false, withAtr(1))
-    expect(out.gapup).toBe(121)
-    // And the trade carries on rather than restarting.
-    expect(out.retrace).toBeCloseTo(118, 9)
+    instance.onBar(day(0, 100), false, quiet)
+    const out = instance.onBar(day(1, 109, 110, 108), false, quiet)
+    expect(out.gapup).toBeNaN()
+  })
+
+  it('marks a gap even while its own trade is open, and the trade carries on', () => {
+    const { instance } = entered()
+    const out = instance.onBar(day(3, 130, 131, 129), false, quiet)
+
+    expect(out.gapup).toBe(131)
+    // Entered at 97 with an entry ATR of 3, so +2R is 103 and 130 arms the trail:
+    // 130 − 2×3 = 124. The trade was not restarted by the gap.
+    expect(out.stop).toBe(124)
+  })
+
+  it('forgets everything on reset', () => {
+    const { instance } = entered()
+    instance.reset()
+
+    // Back to a first bar: nothing to compare with, so nothing to say.
+    const out = instance.onBar(day(0, 100), false, signal(100))
+    for (const value of Object.values(out)) expect(value).toBeNaN()
+
+    // And the next bar behaves as a second bar would, from a clean ATR.
+    const armed = instance.onBar(day(1, 101, 102, 100), false, signal(101))
+    expect(armed.retrace).toBe(97)
+  })
+
+  it('declares exactly what it preloads: the larger of the two windows', () => {
+    const registry = createIndicatorRegistry()
+    // ATR(100) outlasts a 20-bar breakout window, so it sets the preload; 100 + the
+    // seeding bar.
+    expect(
+      warmupBarsFor(
+        {
+          indicatorId: 'gapup-breakout-atr-pullback',
+          params: { breakoutLength: 20, atrLength: 100 },
+        },
+        registry
+      )
+    ).toBe(101)
+  })
+
+  it('runs on the breakout scan’s settings by default', () => {
+    const defaults = Object.fromEntries(
+      gapupBreakoutAtrPullbackIndicator.params.map((spec) => [spec.key, spec.default])
+    )
+    expect(defaults).toEqual({
+      breakoutLength: 20,
+      gapupPercent: 10,
+      atrLength: 7,
+      atrFactor: 2,
+      atrTolerancePercent: 20,
+      stopFactor: 1,
+      trailFactor: 2,
+      activationR: 2,
+      tightenStopWithAtr: 0,
+      trailAtRetraceDepth: 1,
+    })
   })
 })
 
@@ -540,7 +650,17 @@ describe('pullback-stop', () => {
       active: [
         {
           typeId: 'pullback-stop',
-          params: { breakoutLength: 3, atrLength: 3, atrFactor: 2, atrTolerancePercent: 5 },
+          params: {
+            breakoutLength: 3,
+            atrLength: 3,
+            atrFactor: 2,
+            atrTolerancePercent: 0,
+            stopFactor: 1,
+            trailFactor: 2,
+            activationR: 2,
+            tightenStopWithAtr: 0,
+            trailAtRetraceDepth: 0,
+          },
           advisory: false,
         },
       ],
@@ -548,68 +668,88 @@ describe('pullback-stop', () => {
       indicators: createIndicatorRegistry(),
     })
 
+  /**
+   * Bars 0–2 close 100, 101, 102 with a point either side: the three-bar window fills on
+   * bar 2, which breaks out and arms the leg at 102 − 2×2 = 98. Bar 3's low of 97 crosses
+   * it from a prior low of 101, so the leg enters at 98 on an ATR of 3 — (2 + 2 + 5) / 3 —
+   * with its stop at 95. Bar 4 holds above it.
+   */
+  const bars = [
+    bar({ c: 100, h: 101, l: 99, t: 0 }),
+    bar({ c: 101, h: 102, l: 100, t: DAY }),
+    bar({ c: 102, h: 103, l: 101, t: 2 * DAY }),
+    bar({ c: 100, h: 101, l: 97, t: 3 * DAY }),
+    bar({ c: 101, h: 102, l: 99, t: 4 * DAY }),
+  ]
+
+  const feed = (engine: ReturnType<typeof host>, upTo: number, position = long()) => {
+    for (const current of bars.slice(0, upTo)) {
+      engine.observeBar(current)
+      engine.computeLevels(current, position)
+    }
+  }
+
   it('resolves a stop whose dependency is itself a composite', () => {
-    // The deepest chain shipped: stop → composite → { breakout, ATR }. If resolution
-    // only went one level, this would throw here.
+    // The deepest chain shipped: stop → composite → breakout. If resolution only went
+    // one level, this would throw here.
     expect(() => host()).not.toThrow()
   })
 
   it('offers no level until the signal has a trade of its own', () => {
     const engine = host()
     engine.onEntry()
-    engine.observeBar(bar({ c: 100, t: 0 }))
-    engine.computeLevels(bar({ c: 100, t: 0 }), long())
+    feed(engine, 3)
+    // Armed and waiting for a pullback: the leg has no position, so it has no stop.
     expect(engine.levels).toHaveLength(0)
   })
 
-  it('reports the level the signal computed, once it has one', () => {
+  it('reports the leg’s stop once it has entered', () => {
     const engine = host()
     engine.onEntry()
-    // Rising closes so the 3-bar breakout fires, then a bar that holds the level.
-    const closes = [100, 101, 102, 103, 104, 105]
-    closes.forEach((close, index) => {
-      const current = bar({ c: close, h: close + 1, l: close - 1, t: index * DAY })
-      engine.observeBar(current)
-      engine.computeLevels(current, long())
-    })
-    const level = engine.levels[0]?.level
-    expect(level).toBeDefined()
-    // One ATR below the retrace level, and below the close it was measured from.
-    expect(level as number).toBeLessThan(105)
+    feed(engine, 4)
+
+    // The leg entered at 98 and risks one entry-bar ATR beyond it.
+    expect(engine.levels).toHaveLength(1)
+    expect(engine.levels[0]?.level).toBe(95)
+    expect(engine.levels[0]?.advisory).toBe(false)
+  })
+
+  it('closes the position on a close at or through that level, on the next bar', () => {
+    const engine = host()
+    engine.onEntry()
+    feed(engine, 5)
+    expect(engine.levels[0]?.level).toBe(95)
+
+    // Enforced against the *next* bar's close, as the leg itself would test it. A wick
+    // through the level that closes back above it does not exit; a close on it does.
+    expect(engine.evaluate(95.01, long()).triggered).toBeNull()
+    expect(engine.evaluate(95, long()).triggered?.level).toBe(95)
+    expect(engine.evaluate(90, long()).triggered?.stopId).toBe('pullback-stop')
   })
 
   it('offers no level to a short position', () => {
     const engine = host()
     engine.onEntry()
-    const closes = [100, 101, 102, 103, 104, 105]
-    closes.forEach((close, index) => {
-      const current = bar({ c: close, h: close + 1, l: close - 1, t: index * DAY })
-      engine.observeBar(current)
-      engine.computeLevels(current, long({ size: -10 }))
-    })
     // The level sits below price by construction, so handing it to a short would place
     // the stop on the profitable side and fire it immediately.
+    feed(engine, 5, long({ size: -10 }))
     expect(engine.levels).toHaveLength(0)
   })
 
   it('keeps its indicators warm across trades', () => {
     const engine = host()
     engine.onEntry()
-    const closes = [100, 101, 102, 103, 104, 105]
-    closes.forEach((close, index) => {
-      const current = bar({ c: close, h: close + 1, l: close - 1, t: index * DAY })
-      engine.observeBar(current)
-      engine.computeLevels(current, long())
-    })
+    feed(engine, 5)
     const before = engine.levels[0]?.level
 
     // A new entry resets the stop, deliberately not its indicators — otherwise the
-    // signal's own trade state would restart and there would be no level until the
-    // next breakout.
+    // signal's own trade state would restart and there would be no level until the next
+    // breakout.
     engine.onEntry()
-    const next = bar({ c: 106, h: 107, l: 105, t: 6 * DAY })
+    expect(engine.levels).toHaveLength(0)
+    const next = bar({ c: 102, h: 103, l: 100, t: 5 * DAY })
     engine.observeBar(next)
     engine.computeLevels(next, long())
-    expect(engine.levels[0]?.level).toBeGreaterThanOrEqual(before as number)
+    expect(engine.levels[0]?.level).toBe(before)
   })
 })

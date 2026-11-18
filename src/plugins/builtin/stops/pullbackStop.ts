@@ -1,10 +1,10 @@
 import type {
   IndicatorRequest,
-  ParamSpec,
   ParamValues,
   StopInstance,
   StopPlugin,
 } from '@shared/contracts/index.js'
+import { GAPUP_PARAMS } from '../indicators/gapupParams.js'
 
 /**
  * `pullback-stop` — the stop level the gap-up breakout pullback signal already draws.
@@ -24,73 +24,25 @@ import type {
  *
  * ## Params are the indicator's, deliberately duplicated
  *
- * Five params, matching the indicator's, because `requires()` is resolved from a
- * plugin's **own** params and its instance is its own — it cannot read the settings
- * of a chart overlay, by design, or hiding an overlay could move a live stop. The cost
- * is that a player running both has to keep two sets of numbers in step; the
- * alternative is a stop whose level changes when a chart is toggled, which the docs
- * call the worst outcome available.
+ * The indicator's whole list, declared once in `gapupParams.ts` so the two cannot drift
+ * apart, because `requires()` is resolved from a plugin's **own** params and its
+ * instance is its own — it cannot read the settings of a chart overlay, by design, or
+ * hiding an overlay could move a live stop. The cost is that a player running both has
+ * to keep two sets of numbers in step; the alternative is a stop whose level changes
+ * when a chart is toggled, which the docs call the worst outcome available.
+ *
+ * ## What the level is
+ *
+ * The leg's own stop while it holds a trade: the initial stop one ATR beyond the entry,
+ * then the trail once it takes over. The game enforces a level computed at bar N against
+ * bar N+1's close, and the leg exits on the close, so a bar that closes through the
+ * level closes the position on the same bar the leg would have ended its trade.
  */
-
-const BREAKOUT_LENGTH: ParamSpec = {
-  key: 'breakoutLength',
-  displayName: 'Breakout window',
-  type: 'int',
-  default: 20,
-  min: 2,
-  max: 250,
-  step: 1,
-  unit: 'bars',
-}
-
-const GAPUP_PERCENT: ParamSpec = {
-  key: 'gapupPercent',
-  displayName: 'Gap-up size',
-  type: 'percent',
-  default: 4,
-  min: 0.1,
-  max: 50,
-  step: 0.1,
-  unit: '%',
-}
-
-const ATR_LENGTH: ParamSpec = {
-  key: 'atrLength',
-  displayName: 'ATR length',
-  type: 'int',
-  default: 7,
-  min: 2,
-  max: 100,
-  step: 1,
-  unit: 'bars',
-}
-
-const ATR_FACTOR: ParamSpec = {
-  key: 'atrFactor',
-  displayName: 'ATR factor',
-  type: 'float',
-  default: 2,
-  min: 0.5,
-  max: 10,
-  step: 0.1,
-  unit: '×',
-}
-
-const ATR_TOLERANCE_PERCENT: ParamSpec = {
-  key: 'atrTolerancePercent',
-  displayName: 'Retrace tolerance',
-  type: 'percent',
-  default: 5,
-  min: 0,
-  max: 100,
-  step: 1,
-  unit: '% of ATR',
-}
 
 export const pullbackStop: StopPlugin = {
   id: 'pullback-stop',
   displayName: 'Gap-up breakout pullback stop',
-  params: [BREAKOUT_LENGTH, GAPUP_PERCENT, ATR_LENGTH, ATR_FACTOR, ATR_TOLERANCE_PERCENT],
+  params: [...GAPUP_PARAMS],
 
   requires(params: ParamValues): IndicatorRequest[] {
     return [

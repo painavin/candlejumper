@@ -81,7 +81,7 @@ Notes that matter for implementation:
   value is evidence of corruption, whereas a person typing 500 into a field capped
   at 200 is expressing intent. Unparseable input **reverts** to the previous value.
 - **`labelParams` narrows an instance label.** Appending every param stops scaling
-  around four: a five-param indicator labels itself `GBAP 20 3 7 2 5`, which is a
+  around four: a ten-param indicator labels itself `GBAP 20 10 7 2 20 1 2 2 0 1`, which is a
   row of digits rather than a legend. Naming the one or two a player distinguishes
   instances by keeps the legend readable while the settings row still shows all of
   them. Unset means all, so `MACD 12 26 9` is unaffected.
@@ -559,7 +559,7 @@ unlock something rather than to lengthen a catalogue:
 | Simple Moving Average | overlay | `sma` | proving the contract end to end |
 | Average True Range | oscillator | `atr` | the first indicator with a *second* customer: an ATR stop and a chandelier stop both need it, so it unlocks two stop strategies rather than one line |
 | Price Breakout | overlay | `level`, `signal` | the input to a family of breakout signals; usable alone, since the level is the resistance a trader is watching |
-| Gap-up Breakout ATR Pullback | overlay | `breakout`, `gapup`, `retrace`, `stop`, `retraceHit` | the first *composite* — five params, four sparse-or-continuous outputs, and built from two other indicators |
+| Gap-up Breakout ATR Pullback | overlay | `breakout`, `gapup`, `retrace`, `stop`, `retraceHit` | the first *composite* — ten params, sparse-and-continuous outputs, a port of the Paisa breakout scan's single leg, and built from the breakout indicator |
 
 Notes on the last two, since they're the ones with decisions in them:
 
@@ -568,20 +568,39 @@ Notes on the last two, since they're the ones with decisions in them:
   somewhere the market never accepted and then refuses to signal until price exceeds
   it. Warm-up matters here more than usual: without it, bar one is trivially the
   highest close so far and every early bar marks a breakout.
-- **The composite's gap rule reads the bars' own timestamps.** A gap can only form
-  while the market is shut, so a bar is gappable only when it's separated from the
-  previous one by an overnight-or-longer break (twelve hours to five days). One rule,
-  three right answers: daily bars always qualify, intraday bars qualify only for the
-  first bar of a session — which is exactly where an intraday gap lives — and weekly or
-  monthly bars never do, because the difference between two monthly closes is a
-  quarter's return, not a gap.
-- **It deviates from the strategy it was ported from, deliberately.** The original ran
-  two trades in parallel with a second retrace/stop pair at a wider ATR factor; one
-  signal a player can read beats two that differ by a multiplier they can't see, and the
-  second pair's interactions with the first were bookkeeping rather than strategy.
-  Scanner-only outputs (volatility ratio, position risk) are dropped too — nothing here
-  sorts anything. `retraceHit` is *kept*, and is the signal the indicator is named for:
-  the bar whose low first reaches the tolerated level is the entry it exists to find.
+- **The composite is a port, and the C# is the authority.** `GapupBreakoutAtrPullback`
+  in the Paisa library, run as **one leg** (the original runs two, at two retrace
+  depths). The lifecycle — Idle → Monitoring → Entered → Trailing — is `RetraceLeg`,
+  ported line for line into `src/plugins/builtin/indicators/retraceLeg.ts`, with its
+  `AtrRetraceLevel`; the indicator file is only the per-bar wiring `OnBarUpdate` is in
+  the original. `retraceLeg.test.ts` carries the C# `RetraceLegFacts` numbers unchanged,
+  so a figure that has to change to pass means the two have drifted. The defaults are
+  the breakout scan's (`Scan.cs`): a 20-bar breakout, a 10% gap, ATR 7, entry two ATR
+  back with a 20%-of-ATR tolerance, one ATR of risk, a two-ATR trail armed at two R, and
+  the trail at the retrace depth.
+- **The outputs are the leg's.** `retrace` is the entry trigger and is drawn only while
+  it is still one (armed, or the signal bar itself); `stop` is `RetraceLeg.stopPrice`
+  and is drawn only while the leg holds a position — the initial stop, then the trail.
+  `retraceHit` marks the entry (at the level, where the trade is booked) and any later
+  return to the stop in force that held. `breakout` marks where a cycle starts, not
+  every breakout bar, and `gapup` is marked even mid-trade.
+- **Where it differs from the C#, on purpose.**
+  - *ATR* is computed inside the indicator as a **simple average of true range**, the
+    original's `AverageTrueRange`. The shared `atr` indicator is Wilder's smoothing, a
+    different number for the same name, and `atr-stop` is built on it, so it is left
+    alone rather than bent to fit.
+  - *The breakout window* is still the shared `breakout` indicator, which says nothing
+    until the window is full. The original's reports a breakout on a series' second bar,
+    because a one-bar window is trivially its own high. After the first `breakoutLength`
+    bars the two agree exactly, and a run preloads its warm-up.
+  - *A gap* is the original's close-to-close move on any bar that is not weekly or
+    monthly. The original gates on `Duration <= Daily`; a bar here carries no interval,
+    so the same gate is read off its spacing from the previous bar (more than five days
+    is a weekly or monthly bar, whose period return is not a gap). An earlier version
+    of this indicator limited gaps to the first bar of a session; that was its own
+    invention, and it is gone.
+  - *The scanner's sort keys* (volatility ratio, risk per 100k) are dropped — nothing
+    here sorts anything.
 
 More indicators (banded overlays, bounded oscillators, multi-output indicators like a
 convergence/divergence-style pair with a histogram) are natural next additions — each is
